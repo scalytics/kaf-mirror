@@ -62,63 +62,16 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/kaf-mirror:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/kaf-mirror:latest
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          files: |
+            kaf-mirror-linux-amd64
+            admin-cli-linux-amd64
+            mirror-cli-linux-amd64
+            mirror-cli-windows-amd64.exe
+            mirror-cli-darwin-amd64
           draft: false
           prerelease: false
-
-      - name: Upload Linux Assets
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./kaf-mirror-linux-amd64
-          asset_name: kaf-mirror-linux-amd64
-          asset_content_type: application/octet-stream
-
-      - name: Upload Admin CLI (Linux) Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./admin-cli-linux-amd64
-          asset_name: admin-cli-linux-amd64
-          asset_content_type: application/octet-stream
-
-      - name: Upload Mirror CLI (Linux) Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./mirror-cli-linux-amd64
-          asset_name: mirror-cli-linux-amd64
-          asset_content_type: application/octet-stream
-
-      - name: Upload Mirror CLI (Windows) Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./mirror-cli-windows-amd64.exe
-          asset_name: mirror-cli-windows-amd64.exe
-          asset_content_type: application/octet-stream
-
-      - name: Upload Mirror CLI (macOS) Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./mirror-cli-darwin-amd64
-          asset_name: mirror-cli-darwin-amd64
-          asset_content_type: application/octet-stream
