@@ -6,7 +6,6 @@
     <title>kaf-mirror Enterprise Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-crosshair"></script>
     <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
@@ -732,6 +731,10 @@
                 return response.json();
             })
             .then(clusters => {
+                if (!clusters || !Array.isArray(clusters)) {
+                    console.warn('Clusters response is not an array');
+                    return [];
+                }
                 return clusters.map(cluster => ({
                     ...cluster,
                     api_key: cluster.api_key ? '***MASKED***' : cluster.api_key,
@@ -1811,22 +1814,25 @@ ${JSON.stringify(inventory, null, 2)}
             const container = document.getElementById('topology-view');
             container.innerHTML = '';
             
-            if (clusters.length === 0) {
+            const safeClusters = Array.isArray(clusters) ? clusters : [];
+            const safeJobs = Array.isArray(jobs) ? jobs : [];
+            
+            if (safeClusters.length === 0) {
                 container.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #7f8c8d;"><em>No clusters configured</em></div>';
                 return;
             }
             
-            const validJobs = jobs.filter(j => 
+            const validJobs = safeJobs.filter(j => 
                 j.source_cluster_name && j.target_cluster_name &&
-                clusters.find(c => c.name === j.source_cluster_name) &&
-                clusters.find(c => c.name === j.target_cluster_name)
+                safeClusters.find(c => c.name === j.source_cluster_name) &&
+                safeClusters.find(c => c.name === j.target_cluster_name)
             );
             
             const containerRect = container.getBoundingClientRect();
             const centerX = containerRect.width / 2;
             const centerY = containerRect.height / 2;
             
-            const nodeData = clusters.map((c, index) => {
+            const nodeData = safeClusters.map((c, index) => {
                 let region = 'unknown';
                 let regionColor = '#95a5a6';
                 let initialX = centerX;
@@ -2105,8 +2111,14 @@ ${JSON.stringify(inventory, null, 2)}
             const latencyZoom = saveZoom(window.latencyChart);
 
             // Destroy existing charts if they exist
-            if (window.throughputChart) window.throughputChart.destroy();
-            if (window.latencyChart) window.latencyChart.destroy();
+            if (window.throughputChart) {
+                try { window.throughputChart.destroy(); } catch(e) {}
+                window.throughputChart = null;
+            }
+            if (window.latencyChart) {
+                try { window.latencyChart.destroy(); } catch(e) {}
+                window.latencyChart = null;
+            }
 
             // Create smooth time-series labels from aggregated data
             const timeLabels = aggregatedData
@@ -2137,22 +2149,6 @@ ${JSON.stringify(inventory, null, 2)}
                         mode: 'index'
                     },
                     plugins: {
-                        crosshair: {
-                            line: {
-                                color: '#e74c3c',
-                                width: 1
-                            },
-                            sync: {
-                                enabled: true,
-                                group: 1,
-                                suppressTooltips: false
-                            },
-                            zoom: {
-                                enabled: true,
-                                zoomboxBackgroundColor: 'rgba(102,126,234,0.2)',
-                                zoomboxBorderColor: '#667eea',
-                            }
-                        },
                         zoom: {
                             pan: {
                                 enabled: true,
@@ -2223,22 +2219,6 @@ ${JSON.stringify(inventory, null, 2)}
                         mode: 'index'
                     },
                     plugins: {
-                        crosshair: {
-                            line: {
-                                color: '#e74c3c',
-                                width: 1
-                            },
-                            sync: {
-                                enabled: true,
-                                group: 1,
-                                suppressTooltips: false
-                            },
-                            zoom: {
-                                enabled: true,
-                                zoomboxBackgroundColor: 'rgba(102,126,234,0.2)',
-                                zoomboxBorderColor: '#667eea',
-                            }
-                        },
                         zoom: {
                             pan: {
                                 enabled: true,
@@ -2293,9 +2273,15 @@ ${JSON.stringify(inventory, null, 2)}
         }
 
         function renderEmptyCharts(message = "No Data Available") {
-            // Destroy existing charts
-            if (window.throughputChart) window.throughputChart.destroy();
-            if (window.latencyChart) window.latencyChart.destroy();
+            // Destroy existing charts safely
+            if (window.throughputChart) {
+                try { window.throughputChart.destroy(); } catch(e) {}
+                window.throughputChart = null;
+            }
+            if (window.latencyChart) {
+                try { window.latencyChart.destroy(); } catch(e) {}
+                window.latencyChart = null;
+            }
 
             const emptyOptions = {
                 responsive: true,
