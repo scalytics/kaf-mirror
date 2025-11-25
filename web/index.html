@@ -482,6 +482,18 @@
             expandedJobs: new Set()
         };
 
+        function getAuthToken() {
+            const sessionToken = sessionStorage.getItem('token');
+            if (sessionToken) return sessionToken;
+            const legacy = localStorage.getItem('token');
+            if (legacy) {
+                sessionStorage.setItem('token', legacy);
+                localStorage.removeItem('token');
+                return legacy;
+            }
+            return null;
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             setupAuth();
             setupTabs();
@@ -497,13 +509,14 @@
         });
 
         function setupAuth() {
-            const token = sessionStorage.getItem('token');
+            const token = getAuthToken();
             if (!token) {
-                window.location.href = '/login';
+                sessionStorage.setItem('returnUrl', window.location.pathname);
+                window.location.href = '/login.html';
                 return;
             }
 
-            validateToken().then(user => {
+            validateToken(token).then(user => {
                 if (!user) {
                     logout();
                     return;
@@ -520,13 +533,16 @@
                 }
             }).catch(err => {
                 console.error('Token validation failed:', err);
-                logout();
+                if (!window.authFailureHandled) {
+                    window.authFailureHandled = true;
+                    logout();
+                }
             });
         }
 
-        function validateToken() {
+        function validateToken(token) {
             return fetch('/auth/me', {
-                headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }
+                headers: { 'Authorization': `Bearer ${token}` }
             })
             .then(response => {
                 if (!response.ok) {

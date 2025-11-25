@@ -162,6 +162,14 @@
     </div>
     
     <script>
+        // Clean up legacy storage to avoid redirect loops
+        try {
+            localStorage.removeItem('token');
+            localStorage.removeItem('username');
+            localStorage.removeItem('user_role');
+            localStorage.removeItem('user_id');
+        } catch (e) {}
+
         document.getElementById('login-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             
@@ -233,8 +241,8 @@
         // Auto-focus username field
         document.getElementById('username').focus();
         
-        // Check if already logged in
-        if (localStorage.getItem('token')) {
+        // Check if already logged in (session-based)
+        if (sessionStorage.getItem('token')) {
             window.location.href = '/';
         }
     </script>
