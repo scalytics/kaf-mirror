@@ -222,8 +222,11 @@
                     sessionStorage.removeItem('returnUrl'); // Clean up
                     window.location.href = returnUrl;
                 } else {
-                    // Show error message
-                    errorDiv.textContent = data.error || 'Login failed. Please check your credentials.';
+                    if (response.status === 429) {
+                        errorDiv.textContent = data.error || 'Too many login attempts. Wait a minute and try again.';
+                    } else {
+                        errorDiv.textContent = data.error || 'Login failed. Please check your credentials.';
+                    }
                     errorDiv.style.display = 'block';
                 }
             } catch (error) {

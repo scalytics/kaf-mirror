@@ -1,7 +1,8 @@
 # kaf-mirror
-[![CI (Smoke+Go)](https://github.com/scalytics/kaf-mirror/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/scalytics/kaf-mirror/actions/workflows/ci.yml)
-[![Release](https://github.com/scalytics/kaf-mirror/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/scalytics/kaf-mirror/actions/workflows/release.yml)
-[![CodeQL](https://github.com/scalytics/kaf-mirror/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/scalytics/kaf-mirror/actions/workflows/codeql.yml)
+[![CI](https://github.com/scalytics/kaf-mirror/actions/workflows/ci.yml/badge.svg)](https://github.com/scalytics/kaf-mirror/actions/workflows/ci.yml)
+[![Release](https://github.com/scalytics/kaf-mirror/actions/workflows/release.yml/badge.svg)](https://github.com/scalytics/kaf-mirror/actions/workflows/release.yml)
+[![CodeQL](https://github.com/scalytics/kaf-mirror/actions/workflows/codeql.yml/badge.svg)](https://github.com/scalytics/kaf-mirror/actions/workflows/codeql.yml)
+[![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://scalytics.github.io/kaf-mirror/)
 
 **kaf-mirror** is a high-performance, AI-enhanced Kafka replication tool designed for robust and intelligent data mirroring between Kafka clusters.
 
@@ -21,6 +22,8 @@
 - **Admin CLI:** A command-line tool for bootstrapping the application and for emergency maintenance.
 - **Unified Management CLI:** A single, powerful CLI for all ongoing management tasks.
 - **Dashboard updates:** The web UI polls the API every 30 seconds. `/ws` accepts authenticated WebSocket clients via an `Authorization: Bearer` header.
+- **Offset commit:** Source offsets are committed only after the target produce is acknowledged.
+- **Secrets:** Cluster and config APIs return `***` for credentials. PUT with `***` or an empty secret leaves the stored value unchanged.
 
 ## Getting Started
 
@@ -30,7 +33,7 @@
   ```bash
   make dev-up   # uses docker compose
   ```
-- The UI/API is at `http://localhost:8080`.
+- The UI/API is at `http://localhost:8080` (`server.host` defaults to `localhost`). Production requires TLS unless `server.allow_insecure` is set.
 - Stop and clean:
   ```bash
   make dev-down
@@ -65,6 +68,8 @@ The application is designed to be resilient to network issues and outages of the
 
 *   **Transient Network Issues:** The internal Kafka producer has an in-memory buffer and an automatic retry mechanism. This handles short-term network interruptions without data loss or duplication, thanks to its idempotent producer configuration.
 *   **Prolonged Target Cluster Outages:** If the target cluster is unavailable for an extended period, the application will experience backpressure. The consumer will stop reading messages from the source cluster, and its consumer offset will not advance. The source Kafka cluster itself acts as the durable, large-scale buffer, retaining the data until the target cluster is available again. When the connection is restored, the application will resume mirroring from the last committed offset, ensuring no data is lost.
+
+Helm SQLite lives at `/app/data/kaf-mirror.db` on the PVC. Optional `egress.allowed_hosts` restricts AI and metrics HTTP destinations. Passwords must be at least 12 characters.
 
 **b) Data Retention Policy**
 

@@ -31,7 +31,7 @@ mirror-cli clusters
 ### Available Subcommands
 
 - **add** - Add a new cluster.
-- **edit** - Edit an existing cluster.
+- **edit** - Edit an existing cluster. Empty credential prompts keep the stored secret (API responses never return real secrets).
 - **list** - List all clusters.
 - **purge** - Purge archived clusters.
 - **remove** - Mark a cluster for deletion.
@@ -904,7 +904,7 @@ mirror-cli users
 ### Available Subcommands
 
 - **add** - Add a new user.
-- **change-password** - Change the current user's password.
+- **change-password** - Change the current user's password (minimum 12 characters). Existing tokens are revoked.
 - **delete** - Delete a user.
 - **list** - List all users.
 - **reset-password** - Reset a user's password (admin only).

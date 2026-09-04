@@ -1352,13 +1352,13 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 					return
 				}
 
-				promptAPIKey := &survey.Input{Message: "New API Key:", Default: safeString(currentCluster["api_key"], "")}
+				promptAPIKey := &survey.Input{Message: "New API Key (empty keeps current):"}
 				if err := survey.AskOne(promptAPIKey, &newAPIKey); err != nil {
 					fmt.Println("Operation cancelled.")
 					return
 				}
 
-				promptAPISecret := &survey.Password{Message: "New API Secret:"}
+				promptAPISecret := &survey.Password{Message: "New API Secret (empty keeps current):"}
 				if err := survey.AskOne(promptAPISecret, &newAPISecret); err != nil {
 					fmt.Println("Operation cancelled.")
 					return
@@ -1407,58 +1407,63 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				}
 			}
 
-			// Now prepare test configuration with ALL collected parameters
-			fmt.Println("Testing connection to new brokers...")
-			testConfig := map[string]interface{}{
-				"brokers":  newBrokers,
-				"provider": provider,
+			skipTest := (provider == "confluent" && (newAPIKey == "" || newAPISecret == "")) ||
+				(provider == "azure" && (newConnectionString == nil || *newConnectionString == ""))
+			if skipTest {
+				fmt.Println("Skipping connection test because credentials were left unchanged.")
+			} else {
+				fmt.Println("Testing connection to new brokers...")
+				testConfig := map[string]interface{}{
+					"brokers":  newBrokers,
+					"provider": provider,
+				}
+
+				if provider == "confluent" {
+					testConfig["cluster_id"] = newClusterID
+					testConfig["security"] = map[string]interface{}{
+						"api_key":    newAPIKey,
+						"api_secret": newAPISecret,
+					}
+				} else if provider == "azure" && newConnectionString != nil {
+					testConfig["security"] = map[string]interface{}{
+						"connection_string": *newConnectionString,
+					}
+				} else if provider == "redpanda" {
+					// RedPanda uses standard Kafka protocol, no special auth needed for connection test
+					testConfig["security"] = map[string]interface{}{
+						"enabled": false,
+					}
+				} else if provider != "plain" {
+					testConfig["security"] = map[string]interface{}{
+						"enabled": true,
+					}
+				}
+
+				testBody, _ := json.Marshal(testConfig)
+
+				req, _ = http.NewRequest("POST", fmt.Sprintf("%s/api/v1/clusters/test", BackendURL), bytes.NewBuffer(testBody))
+				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header.Set("Content-Type", "application/json")
+
+				resp, err = client.Do(req)
+				if err != nil {
+					fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+					return
+				}
+				defer resp.Body.Close()
+
+				if resp.StatusCode != http.StatusOK {
+					body, _ := ioutil.ReadAll(resp.Body)
+					fmt.Printf("Error: Connection test failed: %s\n", resp.Status)
+					if len(body) > 0 {
+						fmt.Printf("Failed to connect to cluster: %s\n", string(body))
+					}
+					fmt.Println("Cluster not updated.")
+					return
+				}
+
+				fmt.Println("Connection test successful.")
 			}
-
-			if provider == "confluent" {
-				testConfig["cluster_id"] = newClusterID
-				testConfig["security"] = map[string]interface{}{
-					"api_key":    newAPIKey,
-					"api_secret": newAPISecret,
-				}
-			} else if provider == "azure" && newConnectionString != nil {
-				testConfig["security"] = map[string]interface{}{
-					"connection_string": *newConnectionString,
-				}
-			} else if provider == "redpanda" {
-				// RedPanda uses standard Kafka protocol, no special auth needed for connection test
-				testConfig["security"] = map[string]interface{}{
-					"enabled": false,
-				}
-			} else if provider != "plain" {
-				testConfig["security"] = map[string]interface{}{
-					"enabled": true,
-				}
-			}
-
-			testBody, _ := json.Marshal(testConfig)
-
-			req, _ = http.NewRequest("POST", fmt.Sprintf("%s/api/v1/clusters/test", BackendURL), bytes.NewBuffer(testBody))
-			req.Header.Set("Authorization", "Bearer "+token)
-			req.Header.Set("Content-Type", "application/json")
-
-			resp, err = client.Do(req)
-			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
-				return
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Connection test failed: %s\n", resp.Status)
-				if len(body) > 0 {
-					fmt.Printf("Failed to connect to cluster: %s\n", string(body))
-				}
-				fmt.Println("Cluster not updated.")
-				return
-			}
-
-			fmt.Println("Connection test successful.")
 
 			// Prepare the update request in the correct format matching database.KafkaCluster struct
 			updateCluster := map[string]interface{}{
@@ -1468,10 +1473,20 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			}
 
 			if provider == "confluent" {
+				if newAPIKey == "" {
+					newAPIKey = "***"
+				}
+				if newAPISecret == "" {
+					newAPISecret = "***"
+				}
 				updateCluster["api_key"] = newAPIKey
 				updateCluster["api_secret"] = newAPISecret
 				updateCluster["cluster_id"] = newClusterID
 			} else if provider == "azure" {
+				if newConnectionString == nil || *newConnectionString == "" {
+					placeholder := "***"
+					newConnectionString = &placeholder
+				}
 				updateCluster["connection_string"] = *newConnectionString
 			}
 
@@ -1543,9 +1558,13 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				fmt.Println("Operation cancelled.")
 				return
 			}
-			promptNew := &survey.Password{Message: "New Password:"}
+			promptNew := &survey.Password{Message: "New Password (min 12 characters):"}
 			if err := survey.AskOne(promptNew, &newPassword); err != nil {
 				fmt.Println("Operation cancelled.")
+				return
+			}
+			if len(newPassword) < 12 {
+				fmt.Println("Error: password must be at least 12 characters.")
 				return
 			}
 
@@ -1570,7 +1589,8 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				return
 			}
 
-			fmt.Println("Password changed successfully.")
+			fmt.Println("Password changed successfully. Existing tokens were revoked; run 'mirror-cli login' again.")
+			_ = ClearToken()
 		},
 	}
 
@@ -1830,6 +1850,14 @@ func SaveToken(token string) error {
 	}
 	tokenPath := filepath.Join(tokenDir, "token")
 	return ioutil.WriteFile(tokenPath, []byte(token), 0600)
+}
+
+func ClearToken() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	return os.Remove(filepath.Join(home, ".kaf-mirror", "token"))
 }
 
 func LoadToken() (string, error) {

@@ -8,13 +8,15 @@ This document outlines the access levels for each API endpoint based on user rol
 |---|---|
 | `GET /health` | `any` |
 | `GET /api/v1/version` | `any` |
-| `POST /auth/token` | `any` |
+| `GET /metrics` | `any` |
+| `POST /auth/token` | `any` (rate limited) |
 
 ## Auth
 
 | Endpoint | Role |
 |---|---|
 | `GET /auth/me` | `any` |
+| `POST /api/v1/auth/reset-token` | `any` authenticated |
 
 ## Configuration
 

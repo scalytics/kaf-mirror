@@ -493,7 +493,7 @@
         }
 
         function safeMarkdown(value) {
-            return safeMarkdown(escapeHtml(value), { async: false });
+            return marked.parse(escapeHtml(value), { async: false });
         }
 
         function getAuthToken() {
