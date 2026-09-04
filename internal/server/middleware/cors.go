@@ -12,16 +12,33 @@
 package middleware
 
 import (
+	"strings"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 )
 
+func CorsConfig(allowedOrigins []string) cors.Config {
+	origins := strings.Join(allowedOrigins, ",")
+	if origins == "" {
+		origins = "http://localhost:8080"
+	}
+	allowCredentials := true
+	for _, origin := range allowedOrigins {
+		if origin == "*" {
+			allowCredentials = false
+			break
+		}
+	}
+	return cors.Config{
+		AllowOrigins:     origins,
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
+		AllowMethods:     "GET, POST, PUT, DELETE, OPTIONS",
+		AllowCredentials: allowCredentials,
+	}
+}
+
 // Cors returns a CORS middleware handler.
 func Cors(allowedOrigins []string) fiber.Handler {
-	return cors.New(cors.Config{
-		AllowOrigins:     "https://gofiber.io, https://gofiber.net",
-		AllowHeaders:     "Origin, Content-Type, Accept",
-		AllowMethods:     "GET, POST, PUT, DELETE",
-		AllowCredentials: true,
-	})
+	return cors.New(CorsConfig(allowedOrigins))
 }

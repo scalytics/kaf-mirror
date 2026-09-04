@@ -13,12 +13,12 @@ package server
 
 import (
 	"context"
-	crypto_rand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
 	"kaf-mirror/internal/kafka"
+	"kaf-mirror/pkg/utils"
 	"log"
 	"strconv"
 	"strings"
@@ -1288,10 +1288,41 @@ type tokenRequest struct {
 // @Param credentials body tokenRequest true "User credentials"
 // @Success 200 {object} map[string]interface{}
 // @Router /auth/token [post]
+var loginAttempts = struct {
+	sync.Mutex
+	byKey map[string][]time.Time
+}{byKey: map[string][]time.Time{}}
+
+func loginAllowed(key string) bool {
+	const maxAttempts = 10
+	window := time.Minute
+	loginAttempts.Lock()
+	defer loginAttempts.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-window)
+	prev := loginAttempts.byKey[key]
+	kept := prev[:0]
+	for _, ts := range prev {
+		if ts.After(cutoff) {
+			kept = append(kept, ts)
+		}
+	}
+	if len(kept) >= maxAttempts {
+		loginAttempts.byKey[key] = kept
+		return false
+	}
+	loginAttempts.byKey[key] = append(kept, now)
+	return true
+}
+
 func (s *Server) handleGenerateToken(c *fiber.Ctx) error {
 	var creds tokenRequest
 	if err := c.BodyParser(&creds); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	if !loginAllowed(c.IP() + "\x00" + creds.Username) {
+		return fiber.NewError(fiber.StatusTooManyRequests, "Too many login attempts")
 	}
 
 	user, err := database.GetUserByUsername(s.Db, creds.Username)
@@ -1300,7 +1331,6 @@ func (s *Server) handleGenerateToken(c *fiber.Ctx) error {
 	}
 
 	if !user.VerifyPassword(creds.Password) {
-		log.Printf("Invalid password for user: %s", creds.Username)
 		return fiber.NewError(fiber.StatusUnauthorized, "Invalid credentials")
 	}
 
@@ -1368,9 +1398,8 @@ func (s *Server) handleCreateUser(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	user, err := database.CreateUser(s.Db, req.Username, req.Password, false)
-	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create user")
+	if err := validatePassword(req.Password); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
 	var roleID int
@@ -1378,7 +1407,22 @@ func (s *Server) handleCreateUser(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid role")
 	}
 
+	requestingUser := c.Locals("user").(*database.User)
+	requestingRole, err := database.GetUserRole(s.Db, requestingUser.ID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get user role")
+	}
+	if req.Role == "admin" && requestingRole != "admin" {
+		return fiber.NewError(fiber.StatusForbidden, "Only admins can create admin users")
+	}
+
+	user, err := database.CreateUser(s.Db, req.Username, req.Password, false)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create user")
+	}
+
 	if err := database.AssignRoleToUser(s.Db, user.ID, roleID); err != nil {
+		_ = database.DeleteUser(s.Db, user.ID)
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to assign role to user")
 	}
 
@@ -1501,8 +1545,16 @@ func (s *Server) handleChangePassword(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusUnauthorized, "Invalid credentials")
 	}
 
+	if err := validatePassword(req.NewPassword); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+
 	if err := database.UpdateUserPassword(s.Db, user.ID, req.NewPassword); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to change password")
+	}
+
+	if err := database.RevokeAllUserTokens(s.Db, user.ID); err != nil {
+		log.Printf("Warning: Failed to revoke tokens for user %d after password change: %v", user.ID, err)
 	}
 
 	return c.JSON(fiber.Map{"status": "success", "message": "Password changed successfully"})
@@ -1564,17 +1616,29 @@ func (s *Server) handleResetUserPassword(c *fiber.Ctx) error {
 	})
 }
 
-// GenerateRandomPassword creates a secure random password
 func GenerateRandomPassword(length int) (string, error) {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
-	b := make([]byte, length)
-	if _, err := crypto_rand.Read(b); err != nil {
-		return "", err
+	return utils.GenerateRandomPassword(length)
+}
+
+const minPasswordLength = 12
+
+func validatePassword(password string) error {
+	if len(password) < minPasswordLength {
+		return fmt.Errorf("password must be at least %d characters", minPasswordLength)
 	}
-	for i := 0; i < length; i++ {
-		b[i] = charset[int(b[i])%len(charset)]
+	return nil
+}
+
+func (s *Server) handleResetOwnToken(c *fiber.Ctx) error {
+	user := c.Locals("user").(*database.User)
+	if err := database.RevokeAllUserTokens(s.Db, user.ID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to revoke tokens")
 	}
-	return string(b), nil
+	token, _, err := database.CreateApiToken(s.Db, user.ID, "User-generated token", time.Now().Add(24*time.Hour))
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to generate token")
+	}
+	return c.JSON(fiber.Map{"token": token})
 }
 
 // handleGetMe godoc

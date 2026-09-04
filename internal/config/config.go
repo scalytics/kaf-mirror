@@ -36,12 +36,13 @@ type Config struct {
 
 // ServerConfig defines server settings
 type ServerConfig struct {
-	Host       string `mapstructure:"host"`
-	Port       int    `mapstructure:"port"`
-	Mode       string `mapstructure:"mode"`
-	AdminEmail string `mapstructure:"admin_email"`
-	WebPath    string `mapstructure:"web_path"`
-	TLS        struct {
+	Host          string `mapstructure:"host"`
+	Port          int    `mapstructure:"port"`
+	Mode          string `mapstructure:"mode"`
+	AdminEmail    string `mapstructure:"admin_email"`
+	WebPath       string `mapstructure:"web_path"`
+	AllowInsecure bool   `mapstructure:"allow_insecure"`
+	TLS           struct {
 		Enabled  bool   `mapstructure:"enabled"`
 		CertFile string `mapstructure:"cert_file"`
 		KeyFile  string `mapstructure:"key_file"`
@@ -49,6 +50,26 @@ type ServerConfig struct {
 	CORS struct {
 		AllowedOrigins []string `mapstructure:"allowed_origins"`
 	} `mapstructure:"cors"`
+}
+
+// ListenAddr is host:port, defaulting an empty host to localhost.
+func (s ServerConfig) ListenAddr() string {
+	host := s.Host
+	if host == "" {
+		host = "localhost"
+	}
+	return fmt.Sprintf("%s:%d", host, s.Port)
+}
+
+// RequireSecureListen fails closed in production when TLS is off.
+func (s ServerConfig) RequireSecureListen() error {
+	if !strings.EqualFold(s.Mode, "production") {
+		return nil
+	}
+	if s.TLS.Enabled || s.AllowInsecure {
+		return nil
+	}
+	return fmt.Errorf("tls is required when server.mode is production; set server.allow_insecure to override")
 }
 
 // DatabaseConfig defines database settings

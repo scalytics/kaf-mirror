@@ -130,19 +130,15 @@ func main() {
 		logger.Error("Failed to restart jobs on startup: %v", err)
 	}
 
-	// Initialize and start the API server
+	if err := cfg.Server.RequireSecureListen(); err != nil {
+		log.Fatal(err)
+	}
+
 	srv := server.New(cfg, db, jobManager, hub, Version)
 	go func() {
-		addr := fmt.Sprintf("0.0.0.0:%d", cfg.Server.Port)
-		fmt.Println("Starting API server on", addr)
-		if cfg.Server.TLS.Enabled {
-			if err := srv.App.ListenTLS(addr, cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile); err != nil {
-				log.Printf("API server error: %v", err)
-			}
-		} else {
-			if err := srv.App.Listen(addr); err != nil {
-				log.Printf("API server error: %v", err)
-			}
+		fmt.Println("Starting API server on", cfg.Server.ListenAddr())
+		if err := srv.Start(); err != nil {
+			log.Printf("API server error: %v", err)
 		}
 	}()
 	fmt.Println("API server started successfully.")

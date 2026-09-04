@@ -21,6 +21,7 @@ import (
 	"kaf-mirror/internal/kafka"
 	"kaf-mirror/internal/metrics"
 	"kaf-mirror/pkg/logger"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -84,6 +85,10 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		lastAIAnalysis:       make(map[string]time.Time),
 		lastAIMetric:         make(map[string]database.ReplicationMetric),
 		lastComplianceReport: make(map[string]time.Time),
+	}
+
+	if strings.EqualFold(cfg.Server.Mode, "test") {
+		return jm
 	}
 
 	jm.wg.Add(1)

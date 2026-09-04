@@ -17,11 +17,20 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// AssignRoleToUser assigns a role to a user.
+// AssignRoleToUser replaces any existing roles for the user with roleID.
 func AssignRoleToUser(db *sqlx.DB, userID, roleID int) error {
-	query := `INSERT OR REPLACE INTO user_roles (user_id, role_id) VALUES (?, ?)`
-	_, err := db.Exec(query, userID, roleID)
-	return err
+	tx, err := db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM user_roles WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)`, userID, roleID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // GrantPermissionToRole grants a permission to a role.

@@ -124,6 +124,7 @@ func (s *Server) setupRoutes() {
 	usersGroup.Delete("/:username", middleware.PermissionRequired(s.Db, "users:delete"), s.handleDeleteUser)
 	usersGroup.Put("/change-password", s.handleChangePassword)
 	usersGroup.Post("/:username/reset-password", middleware.PermissionRequired(s.Db, "users:create"), s.handleResetUserPassword)
+	api.Post("/auth/reset-token", s.handleResetOwnToken)
 
 	complianceGroup := api.Group("/compliance")
 	complianceGroup.Post("/report/:period", middleware.PermissionRequired(s.Db, "compliance:generate"), s.handleGenerateComplianceReport)

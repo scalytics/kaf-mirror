@@ -67,21 +67,25 @@ func New(cfg *config.Config, db *sqlx.DB, manager *manager.JobManager, hub *Hub,
 	go hub.Run()
 	s.setupRoutes()
 
-	go func() {
-		time.Sleep(2 * time.Second)
-		if err := manager.RestartAllJobs(); err != nil {
-			log.Printf("Error restarting jobs on server startup: %v", err)
-		}
-	}()
+	if cfg.Server.Mode != "test" {
+		go func() {
+			time.Sleep(2 * time.Second)
+			if err := manager.RestartAllJobs(); err != nil {
+				log.Printf("Error restarting jobs on server startup: %v", err)
+			}
+		}()
+	}
 
 	return s
 }
 
 // Start runs the Fiber server.
 func (s *Server) Start() error {
-	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
+	if err := s.cfg.Server.RequireSecureListen(); err != nil {
+		return err
+	}
+	addr := s.cfg.Server.ListenAddr()
 
-	// Check if TLS is enabled
 	if s.cfg.Server.TLS.Enabled {
 		certFile := s.cfg.Server.TLS.CertFile
 		keyFile := s.cfg.Server.TLS.KeyFile

@@ -152,6 +152,34 @@ func TestDatabase(t *testing.T) {
 	})
 }
 
+func TestAssignRoleToUserReplacesExisting(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	assert.NoError(t, err)
+	defer db.Close()
+
+	assert.NoError(t, database.SeedDefaultRolesAndPermissions(db))
+	user, err := database.CreateUser(db, "roleuser", "testpassword", false)
+	assert.NoError(t, err)
+
+	var monitoringID, adminID int
+	assert.NoError(t, db.Get(&monitoringID, "SELECT id FROM roles WHERE name = 'monitoring'"))
+	assert.NoError(t, db.Get(&adminID, "SELECT id FROM roles WHERE name = 'admin'"))
+
+	assert.NoError(t, database.AssignRoleToUser(db, user.ID, monitoringID))
+	role, err := database.GetUserRole(db, user.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, "monitoring", role)
+
+	assert.NoError(t, database.AssignRoleToUser(db, user.ID, adminID))
+	role, err = database.GetUserRole(db, user.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, "admin", role)
+
+	var count int
+	assert.NoError(t, db.Get(&count, "SELECT COUNT(*) FROM user_roles WHERE user_id = ?", user.ID))
+	assert.Equal(t, 1, count)
+}
+
 func TestKafkaClusterRedactedAndRestore(t *testing.T) {
 	conn := "Endpoint=sb://ns/;SharedAccessKey=secret"
 	cluster := database.KafkaCluster{

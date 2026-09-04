@@ -20,6 +20,7 @@ import (
 	"kaf-mirror/internal/database"
 	"kaf-mirror/internal/manager"
 	"kaf-mirror/internal/server"
+	"kaf-mirror/internal/server/middleware"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -556,4 +557,90 @@ func TestConfigSecretsRedactedAndPreserved(t *testing.T) {
 	assert.NotContains(t, string(exportBody), "ai-token")
 	assert.NotContains(t, string(exportBody), "csecret")
 	assert.NotContains(t, string(exportBody), "hec-token")
+}
+
+func TestChangePasswordRevokesTokens(t *testing.T) {
+	ctx := setupTestServer(t)
+	body, _ := json.Marshal(map[string]string{
+		"old_password": "testpassword",
+		"new_password": "newpassword12",
+	})
+	req := httptest.NewRequest("PUT", "/api/v1/users/change-password", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req, 15000)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+
+	req = httptest.NewRequest("GET", "/api/v1/jobs", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err = ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 401, resp.StatusCode)
+}
+
+func TestCreateUserRejectsShortPassword(t *testing.T) {
+	ctx := setupTestServer(t)
+	body, _ := json.Marshal(map[string]string{
+		"username": "shortpass",
+		"password": "tiny",
+		"role":     "monitoring",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/users", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 400, resp.StatusCode)
+}
+
+func TestResetOwnToken(t *testing.T) {
+	ctx := setupTestServer(t)
+	req := httptest.NewRequest("POST", "/api/v1/auth/reset-token", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+
+	var tokenResp map[string]string
+	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&tokenResp))
+	assert.NotEmpty(t, tokenResp["token"])
+	assert.NotEqual(t, ctx.Token, tokenResp["token"])
+
+	req = httptest.NewRequest("GET", "/auth/me", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err = ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 401, resp.StatusCode)
+
+	req = httptest.NewRequest("GET", "/auth/me", nil)
+	addAuthHeader(req, tokenResp["token"])
+	resp, err = ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+}
+
+func TestLoginRateLimit(t *testing.T) {
+	ctx := setupTestServer(t)
+	payload := `{"username":"missing","password":"wrong-password"}`
+	var last int
+	for i := 0; i < 12; i++ {
+		req := httptest.NewRequest("POST", "/auth/token", bytes.NewBufferString(payload))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := ctx.Server.App.Test(req)
+		assert.NoError(t, err)
+		last = resp.StatusCode
+	}
+	assert.Equal(t, 429, last)
+}
+
+func TestCorsConfigUsesAllowedOrigins(t *testing.T) {
+	cfg := middleware.CorsConfig([]string{"https://dash.example.com"})
+	assert.Equal(t, "https://dash.example.com", cfg.AllowOrigins)
+	assert.Contains(t, cfg.AllowHeaders, "Authorization")
+	assert.True(t, cfg.AllowCredentials)
+
+	wildcard := middleware.CorsConfig([]string{"*"})
+	assert.Equal(t, "*", wildcard.AllowOrigins)
+	assert.False(t, wildcard.AllowCredentials)
 }

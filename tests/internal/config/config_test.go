@@ -108,6 +108,27 @@ func TestConfigRedactedMasksCredentials(t *testing.T) {
 	assert.Equal(t, conn, *cfg.Clusters["src"].Security.ConnectionString)
 }
 
+func TestServerListenAddrAndTLSGuard(t *testing.T) {
+	cfg := config.ServerConfig{Host: "127.0.0.1", Port: 8443}
+	assert.Equal(t, "127.0.0.1:8443", cfg.ListenAddr())
+
+	emptyHost := config.ServerConfig{Port: 8080}
+	assert.Equal(t, "localhost:8080", emptyHost.ListenAddr())
+
+	prod := config.ServerConfig{Mode: "production", Port: 8080}
+	assert.Error(t, prod.RequireSecureListen())
+
+	prod.TLS.Enabled = true
+	assert.NoError(t, prod.RequireSecureListen())
+
+	prod.TLS.Enabled = false
+	prod.AllowInsecure = true
+	assert.NoError(t, prod.RequireSecureListen())
+
+	dev := config.ServerConfig{Mode: "development", Port: 8080}
+	assert.NoError(t, dev.RequireSecureListen())
+}
+
 func TestConfigRestoreUnchangedSecrets(t *testing.T) {
 	conn := "Endpoint=sb://ns/;SharedAccessKey=secret"
 	existing := &config.Config{
