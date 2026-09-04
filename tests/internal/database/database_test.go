@@ -152,6 +152,64 @@ func TestDatabase(t *testing.T) {
 	})
 }
 
+func TestClusterConfigFromRowIncludesSASL(t *testing.T) {
+	conn := "Endpoint=sb://ns/"
+	cluster := database.KafkaCluster{
+		Name:             "src",
+		Provider:         "plain",
+		Brokers:          "localhost:9092",
+		APIKey:           "ckey",
+		APISecret:        "csecret",
+		ConnectionString: &conn,
+		SecurityConfig: `{
+			"enabled": true,
+			"protocol": "SASL_SSL",
+			"sasl_mechanism": "PLAIN",
+			"username": "alice",
+			"password": "secret"
+		}`,
+	}
+	cfg := database.ClusterConfigFromRow(cluster)
+	assert.Equal(t, "localhost:9092", cfg.Brokers)
+	assert.Equal(t, "ckey", cfg.Security.APIKey)
+	assert.Equal(t, "csecret", cfg.Security.APISecret)
+	assert.Equal(t, "alice", cfg.Security.Username)
+	assert.Equal(t, "secret", cfg.Security.Password)
+	assert.Equal(t, "PLAIN", cfg.Security.SASLMechanism)
+	assert.Equal(t, "SASL_SSL", cfg.Security.Protocol)
+	assert.True(t, cfg.Security.Enabled)
+	assert.Equal(t, conn, *cfg.Security.ConnectionString)
+}
+
+func TestUpdateJobPersistsReplicationSettings(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	assert.NoError(t, err)
+	defer db.Close()
+
+	job := &database.ReplicationJob{
+		ID:                "job-1",
+		Name:              "j",
+		SourceClusterName: "a",
+		TargetClusterName: "b",
+		Status:            "paused",
+		BatchSize:         1000,
+		Parallelism:       4,
+		Compression:       "none",
+	}
+	assert.NoError(t, database.CreateJob(db, job))
+
+	job.BatchSize = 2000
+	job.Parallelism = 8
+	job.Compression = "lz4"
+	assert.NoError(t, database.UpdateJob(db, job))
+
+	got, err := database.GetJob(db, "job-1")
+	assert.NoError(t, err)
+	assert.Equal(t, 2000, got.BatchSize)
+	assert.Equal(t, 8, got.Parallelism)
+	assert.Equal(t, "lz4", got.Compression)
+}
+
 func TestAssignRoleToUserReplacesExisting(t *testing.T) {
 	db, err := database.InitDB(":memory:")
 	assert.NoError(t, err)

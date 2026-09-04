@@ -123,9 +123,9 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 			}
 		}()
 		logger.Info("[Job %s] Starting consumer goroutine", jobID)
-		r.Consumer.Consume(ctx, func(record *kgo.Record) {
+		r.Consumer.Consume(ctx, func(record *kgo.Record) error {
 			logger.Debug("[Job %s] Received record from topic %s, partition %d, offset %d", jobID, record.Topic, record.Partition, record.Offset)
-			r.handleRecord(record)
+			return r.handleRecord(record)
 		})
 		logger.Info("[Job %s] Consumer goroutine ended", jobID)
 	}()
@@ -176,21 +176,27 @@ func (r *KafMirrorImpl) GetProducer() *Producer {
 }
 
 // HandleRecordForTest exposes record handling for tests.
-func (r *KafMirrorImpl) HandleRecordForTest(record *kgo.Record) {
-	r.handleRecord(record)
+func (r *KafMirrorImpl) HandleRecordForTest(record *kgo.Record) error {
+	return r.handleRecord(record)
 }
 
-func (r *KafMirrorImpl) handleRecord(record *kgo.Record) {
+func (r *KafMirrorImpl) AddRegexMapForTest(pattern, target string) error {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return err
+	}
+	r.regexMaps = append(r.regexMaps, regexMapping{regex: re, target: target})
+	return nil
+}
+
+func (r *KafMirrorImpl) handleRecord(record *kgo.Record) error {
 	r.mapMu.RLock()
 	targetTopic, ok := r.topicMap[string(record.Topic)]
 	r.mapMu.RUnlock()
 	if !ok {
-		// Check regex mappings
 		for _, rm := range r.regexMaps {
 			if rm.regex.MatchString(string(record.Topic)) {
-				// This is a simplified mapping. A real implementation might
-				// support substitutions in the target topic name.
-				targetTopic = rm.target
+				targetTopic = rm.regex.ReplaceAllString(string(record.Topic), rm.target)
 				break
 			}
 		}
@@ -198,7 +204,7 @@ func (r *KafMirrorImpl) handleRecord(record *kgo.Record) {
 
 	if targetTopic == "" {
 		logger.Warn("No mapping found for topic: %s", record.Topic)
-		return
+		return nil
 	}
 
 	// Analyze message size for compression recommendations
@@ -245,13 +251,12 @@ func (r *KafMirrorImpl) handleRecord(record *kgo.Record) {
 		}
 	}
 
-	r.Producer.Produce(context.Background(), outRecord, func(rec *kgo.Record, err error) {
-		if err != nil {
-			logger.Error("Failed to produce record to topic %s: %v", rec.Topic, err)
-		} else {
-			logger.Debug("Replicated record to topic %s, partition %d, offset %d", rec.Topic, rec.Partition, rec.Offset)
-		}
-	})
+	if err := r.Producer.ProduceSync(context.Background(), outRecord); err != nil {
+		logger.Error("Failed to produce record to topic %s: %v", outRecord.Topic, err)
+		return err
+	}
+	logger.Debug("Replicated record to topic %s, partition %d, offset %d", outRecord.Topic, outRecord.Partition, outRecord.Offset)
+	return nil
 }
 
 func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callback func(database.ReplicationMetric), onPanic func(jobID string, reason string)) {

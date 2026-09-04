@@ -19,7 +19,6 @@ import (
 	"kaf-mirror/internal/manager"
 	"kaf-mirror/internal/server/middleware"
 	"kaf-mirror/pkg/logger"
-	"log"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -66,15 +65,6 @@ func New(cfg *config.Config, db *sqlx.DB, manager *manager.JobManager, hub *Hub,
 
 	go hub.Run()
 	s.setupRoutes()
-
-	if cfg.Server.Mode != "test" {
-		go func() {
-			time.Sleep(2 * time.Second)
-			if err := manager.RestartAllJobs(); err != nil {
-				log.Printf("Error restarting jobs on server startup: %v", err)
-			}
-		}()
-	}
 
 	return s
 }

@@ -24,6 +24,7 @@ type KgoClient interface {
 	Request(context.Context, kmsg.Request) (kmsg.Response, error)
 	PollFetches(context.Context) kgo.Fetches
 	Produce(context.Context, *kgo.Record, func(*kgo.Record, error))
+	CommitRecords(context.Context, ...*kgo.Record) error
 	AddConsumeTopics(...string)
 	Close()
 }

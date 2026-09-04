@@ -201,6 +201,31 @@ func TestHandleRecord_PreservesPartitionWhenCompatible(t *testing.T) {
 	assert.Equal(t, "orders_copy", producedRecord.Topic)
 }
 
+func TestHandleRecord_RegexSubstitutesTarget(t *testing.T) {
+	var producedRecord *kgo.Record
+	mockClient := &mocks.MockKgoClient{
+		ProduceFunc: func(ctx context.Context, r *kgo.Record, f func(*kgo.Record, error)) {
+			producedRecord = r
+			f(r, nil)
+		},
+	}
+
+	km := kafka.NewKafMirrorImplForTest(
+		&kafka.Producer{Client: mockClient},
+		map[string]string{},
+		nil,
+	)
+	assert.NoError(t, km.AddRegexMapForTest(`events-(.*)`, `copy-$1`))
+
+	assert.NoError(t, km.HandleRecordForTest(&kgo.Record{
+		Topic: "events-orders",
+		Value: []byte("payload"),
+	}))
+
+	assert.NotNil(t, producedRecord)
+	assert.Equal(t, "copy-orders", producedRecord.Topic)
+}
+
 func TestHandleRecord_LeavesPartitionUnsetWhenUnknown(t *testing.T) {
 	var producedRecord *kgo.Record
 	mockClient := &mocks.MockKgoClient{

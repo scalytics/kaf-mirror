@@ -197,6 +197,20 @@ func getCompressionCodec(compression string) kgo.CompressionCodec {
 	}
 }
 
+// ProduceSync sends a record and waits for the produce ack.
+func (p *Producer) ProduceSync(ctx context.Context, record *kgo.Record) error {
+	done := make(chan error, 1)
+	p.Produce(ctx, record, func(_ *kgo.Record, err error) {
+		done <- err
+	})
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // Produce sends a record to the target Kafka cluster.
 func (p *Producer) Produce(ctx context.Context, record *kgo.Record, callback func(*kgo.Record, error)) {
 	// Track bytes before sending

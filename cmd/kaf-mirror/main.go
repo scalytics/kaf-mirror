@@ -125,11 +125,6 @@ func main() {
 	hub := server.NewHub()
 	jobManager := manager.New(db, cfg, hub)
 
-	// Start all jobs
-	if err := jobManager.RestartAllJobs(); err != nil {
-		logger.Error("Failed to restart jobs on startup: %v", err)
-	}
-
 	if err := cfg.Server.RequireSecureListen(); err != nil {
 		log.Fatal(err)
 	}

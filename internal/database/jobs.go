@@ -63,9 +63,9 @@ func UpdateJob(db *sqlx.DB, job *ReplicationJob) error {
 	}
 
 	query := `UPDATE replication_jobs 
-              SET name = ?, source_cluster_name = ?, target_cluster_name = ?, status = ?, failed_reason = ?, updated_at = ?
+              SET name = ?, source_cluster_name = ?, target_cluster_name = ?, status = ?, failed_reason = ?, batch_size = ?, parallelism = ?, compression = ?, preserve_partitions = ?, updated_at = ?
               WHERE id = ?`
-	_, err = db.Exec(query, job.Name, job.SourceClusterName, job.TargetClusterName, job.Status, job.FailedReason, time.Now(), job.ID)
+	_, err = db.Exec(query, job.Name, job.SourceClusterName, job.TargetClusterName, job.Status, job.FailedReason, job.BatchSize, job.Parallelism, job.Compression, job.PreservePartitions, time.Now(), job.ID)
 	return err
 }
 

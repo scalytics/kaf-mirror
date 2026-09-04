@@ -103,17 +103,17 @@ type ClusterConfig struct {
 
 // SecurityConfig defines security settings for Kafka connections
 type SecurityConfig struct {
-	Enabled          bool    `mapstructure:"enabled"`
-	Protocol         string  `mapstructure:"protocol"`
-	SASLMechanism    string  `mapstructure:"sasl_mechanism"`
-	Username         string  `mapstructure:"username"`
-	Password         string  `mapstructure:"password"`
-	APIKey           string  `mapstructure:"api_key"`
-	APISecret        string  `mapstructure:"api_secret"`
-	ConnectionString *string `mapstructure:"connection_string"`
+	Enabled          bool    `mapstructure:"enabled" json:"enabled"`
+	Protocol         string  `mapstructure:"protocol" json:"protocol"`
+	SASLMechanism    string  `mapstructure:"sasl_mechanism" json:"sasl_mechanism"`
+	Username         string  `mapstructure:"username" json:"username"`
+	Password         string  `mapstructure:"password" json:"password"`
+	APIKey           string  `mapstructure:"api_key" json:"api_key"`
+	APISecret        string  `mapstructure:"api_secret" json:"api_secret"`
+	ConnectionString *string `mapstructure:"connection_string" json:"connection_string"`
 	Kerberos         struct {
-		ServiceName string `mapstructure:"service_name"`
-	} `mapstructure:"kerberos"`
+		ServiceName string `mapstructure:"service_name" json:"service_name"`
+	} `mapstructure:"kerberos" json:"kerberos"`
 }
 
 // ReplicationConfig defines replication parameters

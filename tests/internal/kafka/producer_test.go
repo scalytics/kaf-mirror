@@ -172,13 +172,9 @@ func TestNewProducer_Kerberos(t *testing.T) {
 			Enabled:       true,
 			Protocol:      "SASL_SSL",
 			SASLMechanism: "GSSAPI",
-			Kerberos: struct {
-				ServiceName string `mapstructure:"service_name"`
-			}{
-				ServiceName: "kafka",
-			},
 		},
 	}
+	cfg.Security.Kerberos.ServiceName = "kafka"
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   1000,

@@ -12,6 +12,7 @@
 package database
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -60,6 +61,52 @@ func (c *KafkaCluster) RestoreUnchangedSecrets(existing *KafkaCluster) {
 	if isSecretPlaceholder(c.SecurityConfig) {
 		c.SecurityConfig = existing.SecurityConfig
 	}
+}
+
+// ClusterConfigFromRow maps a stored cluster to a runtime Kafka config, including SASL.
+func ClusterConfigFromRow(cluster KafkaCluster) config.ClusterConfig {
+	out := config.ClusterConfig{
+		Provider:  cluster.Provider,
+		ClusterID: cluster.ClusterID,
+		Brokers:   cluster.Brokers,
+		Security: config.SecurityConfig{
+			APIKey:           cluster.APIKey,
+			APISecret:        cluster.APISecret,
+			ConnectionString: cluster.ConnectionString,
+		},
+	}
+	if cluster.SecurityConfig != "" && cluster.SecurityConfig != "{}" && cluster.SecurityConfig != config.SecretPlaceholder {
+		var sec config.SecurityConfig
+		if err := json.Unmarshal([]byte(cluster.SecurityConfig), &sec); err == nil {
+			out.Security.Enabled = sec.Enabled || out.Security.Enabled
+			if sec.Protocol != "" {
+				out.Security.Protocol = sec.Protocol
+			}
+			if sec.SASLMechanism != "" {
+				out.Security.SASLMechanism = sec.SASLMechanism
+			}
+			if sec.Username != "" {
+				out.Security.Username = sec.Username
+			}
+			if sec.Password != "" {
+				out.Security.Password = sec.Password
+			}
+			if sec.APIKey != "" {
+				out.Security.APIKey = sec.APIKey
+			}
+			if sec.APISecret != "" {
+				out.Security.APISecret = sec.APISecret
+			}
+			if sec.ConnectionString != nil {
+				out.Security.ConnectionString = sec.ConnectionString
+			}
+			out.Security.Kerberos = sec.Kerberos
+		}
+	}
+	if out.Security.APIKey != "" || out.Security.Username != "" || out.Security.Password != "" {
+		out.Security.Enabled = true
+	}
+	return out
 }
 
 // ListClusters retrieves all Kafka clusters from the database.

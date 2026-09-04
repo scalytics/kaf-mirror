@@ -343,14 +343,7 @@ func (s *Server) handleListClusterTopics(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Cluster not found")
 	}
 
-	clusterConfig := config.ClusterConfig{
-		Provider: cluster.Provider,
-		Brokers:  cluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    cluster.APIKey,
-			APISecret: cluster.APISecret,
-		},
-	}
+	clusterConfig := database.ClusterConfigFromRow(*cluster)
 
 	adminClient, err := kafka.NewAdminClient(clusterConfig)
 	if err != nil {
@@ -394,14 +387,7 @@ func (s *Server) handleGetTopicDetails(c *fiber.Ctx) error {
 	}
 	topicNames := strings.Split(topicsQuery, ",")
 
-	clusterConfig := config.ClusterConfig{
-		Provider: cluster.Provider,
-		Brokers:  cluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    cluster.APIKey,
-			APISecret: cluster.APISecret,
-		},
-	}
+	clusterConfig := database.ClusterConfigFromRow(*cluster)
 
 	adminClient, err := kafka.NewAdminClient(clusterConfig)
 	if err != nil {
@@ -433,14 +419,7 @@ func (s *Server) handleGetClusterStatus(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Cluster not found")
 	}
 
-	clusterConfig := config.ClusterConfig{
-		Provider: cluster.Provider,
-		Brokers:  cluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    cluster.APIKey,
-			APISecret: cluster.APISecret,
-		},
-	}
+	clusterConfig := database.ClusterConfigFromRow(*cluster)
 
 	adminClient, err := kafka.NewAdminClient(clusterConfig)
 	if err != nil {
@@ -607,7 +586,22 @@ func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
 	}
 
 	job.Name = req.Name
-	// Status is updated via start/stop/pause endpoints, not here.
+	if req.SourceClusterName != "" {
+		job.SourceClusterName = req.SourceClusterName
+	}
+	if req.TargetClusterName != "" {
+		job.TargetClusterName = req.TargetClusterName
+	}
+	if req.BatchSize > 0 {
+		job.BatchSize = req.BatchSize
+	}
+	if req.Parallelism > 0 {
+		job.Parallelism = req.Parallelism
+	}
+	if req.Compression != "" {
+		job.Compression = req.Compression
+	}
+	job.PreservePartitions = req.PreservePartitions
 
 	if err := database.UpdateJob(s.Db, job); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update job")
@@ -632,7 +626,11 @@ func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
 // @Router /jobs/{id} [delete]
 // @Security ApiKeyAuth
 func (s *Server) handleDeleteJob(c *fiber.Ctx) error {
-	if err := database.DeleteJob(s.Db, c.Params("id")); err != nil {
+	id := c.Params("id")
+	if err := s.manager.StopJob(id); err != nil {
+		log.Printf("Stopping job %s before delete: %v", id, err)
+	}
+	if err := database.DeleteJob(s.Db, id); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to delete job")
 	}
 	return c.SendStatus(fiber.StatusNoContent)

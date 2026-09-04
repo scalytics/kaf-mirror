@@ -384,7 +384,7 @@ func (jm *JobManager) RestartAllJobs() error {
 
 	restartedCount := 0
 	for _, job := range jobs {
-		if job.Status == "active" || job.Status == "paused" {
+		if job.Status == "active" {
 			logger.Info("Starting job '%s' (%s)", job.Name, job.ID)
 			if err := jm.StartJob(job.ID); err != nil {
 				logger.Error("Failed to start job %s during restart all: %v", job.ID, err)
@@ -426,12 +426,15 @@ func (jm *JobManager) RestartJob(jobID string) error {
 
 func (jm *JobManager) ForceRestartJob(jobID string) error {
 	jm.Mu.Lock()
-	if kafMirror, ok := jm.KafMirrors[jobID]; ok {
-		logger.Info("Forcefully stopping existing instance of job %s", jobID)
-		kafMirror.Stop()
+	kafMirror, ok := jm.KafMirrors[jobID]
+	if ok {
 		delete(jm.KafMirrors, jobID)
 	}
 	jm.Mu.Unlock()
+	if ok {
+		logger.Info("Forcefully stopping existing instance of job %s", jobID)
+		kafMirror.Stop()
+	}
 
 	job, err := database.GetJob(jm.Db, jobID)
 	if err != nil {
@@ -592,17 +595,18 @@ func (jm *JobManager) ProcessMetrics(metric database.ReplicationMetric) {
 // StopJob stops a replication job by its ID.
 func (jm *JobManager) StopJob(jobID string) error {
 	jm.Mu.Lock()
-	defer jm.Mu.Unlock()
-
 	kafMirror, ok := jm.KafMirrors[jobID]
+	if ok {
+		delete(jm.KafMirrors, jobID)
+	}
+	jm.Mu.Unlock()
+
 	if !ok {
-		// Check if job exists in database but not running in memory
 		job, err := database.GetJob(jm.Db, jobID)
 		if err != nil {
 			return fmt.Errorf("job %s not found: %v", jobID, err)
 		}
 		if job.Status == "active" {
-			// Job is marked active but not running - update database
 			logger.Info("Job %s was marked active but not running - updating database status", jobID)
 			job.Status = "paused"
 			database.UpdateJob(jm.Db, job)
@@ -612,7 +616,6 @@ func (jm *JobManager) StopJob(jobID string) error {
 
 	logger.Info("Stopping job '%s'", jobID)
 	kafMirror.Stop()
-	delete(jm.KafMirrors, jobID)
 
 	// Update job status in database synchronously to avoid race conditions
 	job, err := database.GetJob(jm.Db, jobID)
@@ -640,9 +643,12 @@ func (jm *JobManager) PauseJob(jobID string) error {
 
 func (jm *JobManager) handleJobPanic(jobID string, reason string) {
 	jm.Mu.Lock()
-	defer jm.Mu.Unlock()
-
+	kafMirror, ok := jm.KafMirrors[jobID]
 	delete(jm.KafMirrors, jobID)
+	jm.Mu.Unlock()
+	if ok && kafMirror != nil {
+		kafMirror.Stop()
+	}
 
 	job, err := database.GetJob(jm.Db, jobID)
 	if err != nil {
@@ -1279,14 +1285,7 @@ func (jm *JobManager) captureClusterInventory(snapshotID int, clusterName, clust
 	}
 
 	// Create admin client for cluster inspection
-	clusterConfig := config.ClusterConfig{
-		Provider: cluster.Provider,
-		Brokers:  cluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    cluster.APIKey,
-			APISecret: cluster.APISecret,
-		},
-	}
+	clusterConfig := database.ClusterConfigFromRow(*cluster)
 
 	adminClient, err := kafka.NewAdminClient(clusterConfig)
 	if err != nil {
@@ -1444,23 +1443,8 @@ func (jm *JobManager) int32SliceToJSON(slice []int32) string {
 }
 
 func (jm *JobManager) buildJobConfig(sourceCluster, targetCluster *database.KafkaCluster, mappings []database.TopicMapping, job *database.ReplicationJob) (*config.Config, error) {
-	sourceConfig := config.ClusterConfig{
-		Provider: sourceCluster.Provider,
-		Brokers:  sourceCluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    sourceCluster.APIKey,
-			APISecret: sourceCluster.APISecret,
-		},
-	}
-
-	targetConfig := config.ClusterConfig{
-		Provider: targetCluster.Provider,
-		Brokers:  targetCluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    targetCluster.APIKey,
-			APISecret: targetCluster.APISecret,
-		},
-	}
+	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
+	targetConfig := database.ClusterConfigFromRow(*targetCluster)
 
 	jobConfig := &config.Config{
 		Clusters: map[string]config.ClusterConfig{
@@ -1539,14 +1523,7 @@ func (jm *JobManager) checkJobTopicHealth(job *database.ReplicationJob) {
 		return
 	}
 
-	sourceConfig := config.ClusterConfig{
-		Provider: sourceCluster.Provider,
-		Brokers:  sourceCluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    sourceCluster.APIKey,
-			APISecret: sourceCluster.APISecret,
-		},
-	}
+	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
 
 	adminClient, err := kafka.NewAdminClient(sourceConfig)
 	if err != nil {
@@ -1862,14 +1839,7 @@ func max(a, b int) int {
 }
 
 func (jm *JobManager) healthCheckCluster(cluster *database.KafkaCluster, clusterType string) error {
-	clusterConfig := config.ClusterConfig{
-		Provider: cluster.Provider,
-		Brokers:  cluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    cluster.APIKey,
-			APISecret: cluster.APISecret,
-		},
-	}
+	clusterConfig := database.ClusterConfigFromRow(*cluster)
 
 	adminClient, err := kafka.NewAdminClient(clusterConfig)
 	if err != nil {
@@ -1917,23 +1887,8 @@ func (jm *JobManager) validateMirrorState(jobID string, sourceCluster, targetClu
 		return fmt.Errorf("no enabled topic mappings found")
 	}
 
-	sourceConfig := config.ClusterConfig{
-		Provider: sourceCluster.Provider,
-		Brokers:  sourceCluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    sourceCluster.APIKey,
-			APISecret: sourceCluster.APISecret,
-		},
-	}
-
-	targetConfig := config.ClusterConfig{
-		Provider: targetCluster.Provider,
-		Brokers:  targetCluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    targetCluster.APIKey,
-			APISecret: targetCluster.APISecret,
-		},
-	}
+	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
+	targetConfig := database.ClusterConfigFromRow(*targetCluster)
 
 	sourceAdmin, err := kafka.NewAdminClient(sourceConfig)
 	if err != nil {
@@ -2007,14 +1962,7 @@ func (jm *JobManager) GetJobTopicHealth(jobID string) ([]kafka.TopicHealth, erro
 		return []kafka.TopicHealth{}, nil
 	}
 
-	sourceConfig := config.ClusterConfig{
-		Provider: sourceCluster.Provider,
-		Brokers:  sourceCluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    sourceCluster.APIKey,
-			APISecret: sourceCluster.APISecret,
-		},
-	}
+	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
 
 	adminClient, err := kafka.NewAdminClient(sourceConfig)
 	if err != nil {
@@ -2098,23 +2046,8 @@ func (jm *JobManager) updateMirrorState(jobID string) {
 		return
 	}
 
-	sourceConfig := config.ClusterConfig{
-		Provider: sourceCluster.Provider,
-		Brokers:  sourceCluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    sourceCluster.APIKey,
-			APISecret: sourceCluster.APISecret,
-		},
-	}
-
-	targetConfig := config.ClusterConfig{
-		Provider: targetCluster.Provider,
-		Brokers:  targetCluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    targetCluster.APIKey,
-			APISecret: targetCluster.APISecret,
-		},
-	}
+	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
+	targetConfig := database.ClusterConfigFromRow(*targetCluster)
 
 	sourceAdmin, err := kafka.NewAdminClient(sourceConfig)
 	if err != nil {

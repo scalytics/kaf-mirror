@@ -52,6 +52,7 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 		kgo.ConsumerGroup(groupID),
 		kgo.ConsumeTopics(topics...),
 		kgo.FetchMaxBytes(int32(replicationCfg.BatchSize * 1024)),
+		kgo.DisableAutoCommit(),
 		kgo.OnPartitionsAssigned(func(ctx context.Context, c *kgo.Client, assigned map[string][]int32) {
 			logger.Info("Consumer partitions assigned: %v, job=%s, component=%s", assigned, jobID, "consumer")
 		}),
@@ -169,7 +170,7 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 	return consumer, nil
 }
 
-func (c *Consumer) Consume(ctx context.Context, handler func(*kgo.Record)) {
+func (c *Consumer) Consume(ctx context.Context, handler func(*kgo.Record) error) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -215,7 +216,13 @@ func (c *Consumer) Consume(ctx context.Context, handler func(*kgo.Record)) {
 				c.lastOffsets[string(record.Topic)][record.Partition] = record.Offset
 				c.mu.Unlock()
 
-				handler(record)
+				if err := handler(record); err != nil {
+					logger.Error("Consumer: handler failed for topic %s partition %d offset %d: %v", record.Topic, record.Partition, record.Offset, err)
+					return
+				}
+				if err := c.Client.CommitRecords(ctx, record); err != nil {
+					logger.Error("Consumer: failed to commit offset for topic %s partition %d offset %d: %v", record.Topic, record.Partition, record.Offset, err)
+				}
 			})
 		}
 	}
