@@ -23,6 +23,8 @@ import (
 	"kaf-mirror/internal/server/middleware"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -632,6 +634,35 @@ func TestLoginRateLimit(t *testing.T) {
 		last = resp.StatusCode
 	}
 	assert.Equal(t, 429, last)
+}
+
+func TestWebSocketAuthRejectsQueryToken(t *testing.T) {
+	ctx := setupTestServer(t)
+	req := httptest.NewRequest("GET", "/ws?token="+ctx.Token, nil)
+	resp, err := ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 401, resp.StatusCode)
+}
+
+func TestWebSocketAuthRequiresBearer(t *testing.T) {
+	ctx := setupTestServer(t)
+	req := httptest.NewRequest("GET", "/ws", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 426, resp.StatusCode)
+}
+
+func TestDashboardEscapesUserContent(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "index.html"))
+	assert.NoError(t, err)
+	html := string(data)
+	assert.Contains(t, html, "function escapeHtml")
+	assert.Contains(t, html, "function safeMarkdown")
+	assert.NotContains(t, html, "marked.parse(insight.")
+	assert.Contains(t, html, "safeMarkdown(")
+	assert.Contains(t, html, "escapeHtml(job.name)")
+	assert.Contains(t, html, "escapeHtml(user.username)")
 }
 
 func TestCorsConfigUsesAllowedOrigins(t *testing.T) {

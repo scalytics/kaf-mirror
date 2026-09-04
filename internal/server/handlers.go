@@ -1741,9 +1741,7 @@ func (s *Server) handleGetComplianceReport(c *fiber.Ctx) error {
 	return c.JSON(report)
 }
 
-// handleDashboard serves the main dashboard with role-based access
 func (s *Server) handleDashboard(c *fiber.Ctx) error {
-	// User is already authenticated by middleware
 	return c.SendFile(s.getWebPath() + "/index.html")
 }
 
@@ -1753,18 +1751,22 @@ func (s *Server) handleLoginPage(c *fiber.Ctx) error {
 }
 
 // handleWebSocketAuth handles WebSocket connections with token authentication
+func websocketToken(c *fiber.Ctx) string {
+	auth := c.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	return ""
+}
+
 func (s *Server) handleWebSocketAuth(c *fiber.Ctx) error {
-	// Check for token in query parameter
-	token := c.Query("token")
+	token := websocketToken(c)
 	if token == "" {
-		log.Printf("WebSocket connection attempted without token from %s", c.IP())
 		return c.Status(401).JSON(fiber.Map{"error": "Missing authentication token"})
 	}
 
-	// Validate token
 	user, err := s.validateTokenDetailed(token)
 	if err != nil {
-		log.Printf("WebSocket connection failed token validation from %s: %v", c.IP(), err)
 		return c.Status(401).JSON(fiber.Map{"error": "Invalid authentication token"})
 	}
 

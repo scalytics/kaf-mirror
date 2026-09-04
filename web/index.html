@@ -482,6 +482,20 @@
             expandedJobs: new Set()
         };
 
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[ch]));
+        }
+
+        function safeMarkdown(value) {
+            return safeMarkdown(escapeHtml(value), { async: false });
+        }
+
         function getAuthToken() {
             const sessionToken = sessionStorage.getItem('token');
             if (sessionToken) return sessionToken;
@@ -661,7 +675,7 @@
                     headers: { 'Authorization': `Bearer ${token}` }
                 }).then(resp => {
                     if (!resp.ok) {
-                        throw new Error(`Failed to fetch mirror state for job ${job.name}`);
+                        throw new Error(`Failed to fetch mirror state for job ${escapeHtml(job.name)}`);
                     }
                     return resp.json().then(data => ({ job, data }));
                 }).catch(err => {
@@ -684,7 +698,7 @@
                 const row = document.createElement('tr');
 
                 if (!data) {
-                    row.innerHTML = `<td>${job.name}</td><td colspan="6">No mirror state available</td>`;
+                    row.innerHTML = `<td>${escapeHtml(job.name)}</td><td colspan="6">No mirror state available</td>`;
                     tbody.appendChild(row);
                     return;
                 }
@@ -719,7 +733,7 @@
                 }
 
                 row.innerHTML = `
-                    <td>${job.name}</td>
+                    <td>${escapeHtml(job.name)}</td>
                     <td>${partitionsTracked}</td>
                     <td>${completed}</td>
                     <td class="${openGaps > 0 ? 'status-failed' : ''}">${openGaps}</td>
@@ -926,24 +940,24 @@
                 }
                 return `
                 <tr data-insight-id="${index}">
-                    <td><span class="badge ${insight.insight_type}">${insight.insight_type}</span></td>
-                    <td><span class="severity ${insight.severity_level}">${insight.severity_level}</span></td>
-                    <td>${jobName}</td>
-                    <td class="expandable-text" onclick="toggleInsight(${index})">${insight.recommendation.substring(0, 80)}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
+                    <td><span class="badge ${escapeHtml(insight.insight_type)}">${escapeHtml(insight.insight_type)}</span></td>
+                    <td><span class="severity ${escapeHtml(insight.severity_level)}">${escapeHtml(insight.severity_level)}</span></td>
+                    <td>${escapeHtml(jobName)}</td>
+                    <td class="expandable-text" onclick="toggleInsight(${index})">${escapeHtml(insight.recommendation.substring(0, 80))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
                     <td>${new Date(insight.timestamp).toLocaleString()}</td>
-                    <td><span class="status ${insight.resolution_status}">${insight.resolution_status}</span></td>
+                    <td><span class="status ${escapeHtml(insight.resolution_status)}">${escapeHtml(insight.resolution_status)}</span></td>
                 </tr>
                 <tr id="expanded-insight-${index}" class="expanded-row" style="display: ${isExpanded ? 'table-row' : 'none'};">
                     <td colspan="6">
                         <div class="expanded-content">
                             <h4>Full Insight:</h4>
-                            <div class="markdown-content">${marked.parse(insight.recommendation)}</div>
+                            <div class="markdown-content">${safeMarkdown(insight.recommendation)}</div>
                             <div class="recommendation-details">
                                 <strong>AI Provider:</strong> ${getProviderFromModel(insight.ai_model)}<br>
-                                <strong>Insight Type:</strong> ${insight.insight_type}<br>
+                                <strong>Insight Type:</strong> ${escapeHtml(insight.insight_type)}<br>
                                 <strong>Generated:</strong> ${new Date(insight.timestamp).toLocaleString()}<br>
-                                <strong>Status:</strong> ${insight.resolution_status}<br>
-                                <strong>Severity:</strong> ${insight.severity_level}
+                                <strong>Status:</strong> ${escapeHtml(insight.resolution_status)}<br>
+                                <strong>Severity:</strong> ${escapeHtml(insight.severity_level)}
                             </div>
                         </div>
                     </td>
@@ -971,9 +985,9 @@
                 }
                 return `
                 <tr data-anomaly-id="${index}">
-                    <td>${jobName}</td>
+                    <td>${escapeHtml(jobName)}</td>
                     <td>${anomaly.insight_type}</td>
-                    <td class="expandable-text" onclick="toggleAnomaly(${index})">${anomaly.recommendation.substring(0, 60)}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
+                    <td class="expandable-text" onclick="toggleAnomaly(${index})">${escapeHtml(anomaly.recommendation.substring(0, 60))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
                     <td><span class="severity ${anomaly.severity_level}">${anomaly.severity_level}</span></td>
                     <td>${new Date(anomaly.timestamp).toLocaleString()}</td>
                     <td><span class="status ${anomaly.resolution_status}">${anomaly.resolution_status}</span></td>
@@ -982,7 +996,7 @@
                     <td colspan="6">
                         <div class="expanded-content">
                             <h4>Anomaly Analysis:</h4>
-                            <div class="markdown-content">${marked.parse(anomaly.recommendation)}</div>
+                            <div class="markdown-content">${safeMarkdown(anomaly.recommendation)}</div>
                             <div class="recommendation-details">
                                 <strong>AI Model:</strong> ${anomaly.ai_model}<br>
                                 <strong>Anomaly Type:</strong> ${anomaly.insight_type}<br>
@@ -1017,9 +1031,9 @@
                 }
                 return `
                 <tr data-recommendation-id="${index}">
-                    <td>${jobName}</td>
+                    <td>${escapeHtml(jobName)}</td>
                     <td>${rec.insight_type}</td>
-                    <td class="expandable-text" onclick="toggleRecommendation(${index})">${rec.recommendation.substring(0, 70)}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
+                    <td class="expandable-text" onclick="toggleRecommendation(${index})">${escapeHtml(rec.recommendation.substring(0, 70))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
                     <td><span class="priority ${rec.severity_level}">${rec.severity_level}</span></td>
                     <td>Medium</td>
                     <td>--</td>
@@ -1028,7 +1042,7 @@
                     <td colspan="6">
                         <div class="expanded-content">
                             <h4>Full Recommendation:</h4>
-                            <div class="markdown-content">${marked.parse(rec.recommendation)}</div>
+                            <div class="markdown-content">${safeMarkdown(rec.recommendation)}</div>
                             <div class="recommendation-details">
                                 <strong>AI Model:</strong> ${rec.ai_model}<br>
                                 <strong>Generated:</strong> ${new Date(rec.timestamp).toLocaleString()}<br>
@@ -1047,7 +1061,7 @@
                 return `
                 <tr data-incident-id="${index}">
                     <td>System Alert</td>
-                    <td class="expandable-text" onclick="toggleIncident(${index})">${incident.recommendation.substring(0, 60)}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
+                    <td class="expandable-text" onclick="toggleIncident(${index})">${escapeHtml(incident.recommendation.substring(0, 60))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
                     <td>Network Partition</td>
                     <td>Automatic Failover</td>
                     <td>${new Date(incident.timestamp).toLocaleString()}</td>
@@ -1056,7 +1070,7 @@
                     <td colspan="5">
                         <div class="expanded-content">
                             <h4>Complete Incident Analysis:</h4>
-                            <div class="markdown-content">${marked.parse(incident.recommendation)}</div>
+                            <div class="markdown-content">${safeMarkdown(incident.recommendation)}</div>
                             <div class="recommendation-details">
                                 <strong>AI Model:</strong> ${incident.ai_model}<br>
                                 <strong>Analysis Type:</strong> ${incident.insight_type}<br>
@@ -1191,12 +1205,12 @@
                     
                     return `
                         <tr data-job-id="${index}">
-                            <td>${job.name || 'Unnamed Job'}</td>
+                            <td>${escapeHtml(job.name || 'Unnamed Job')}</td>
                             <td><span class="status ${job.status || 'unknown'}">${job.status || 'Unknown'}</span></td>
                             <td>${lastActive}</td>
-                            <td>${job.source_cluster_name || 'Unknown'}</td>
-                            <td>${job.target_cluster_name || 'Unknown'}</td>
-                            <td class="expandable-text" onclick="toggleJob(${index}, '${job.id}')">View Details <span class="expand-indicator">▼</span></td>
+                            <td>${escapeHtml(job.source_cluster_name || 'Unknown')}</td>
+                            <td>${escapeHtml(job.target_cluster_name || 'Unknown')}</td>
+                            <td class="expandable-text" onclick="toggleJob(${index}, '${escapeHtml(job.id)}')">View Details <span class="expand-indicator">▼</span></td>
                         </tr>
                         <tr id="expanded-job-${index}" class="expanded-row" style="display: none;">
                             <td colspan="6">
@@ -2422,8 +2436,8 @@ ${JSON.stringify(inventory, null, 2)}
             const tbody = document.querySelector('#access-table tbody');
             tbody.innerHTML = users.map(user => `
                 <tr>
-                    <td>${user.username}</td>
-                    <td>${user.role}</td>
+                    <td>${escapeHtml(user.username)}</td>
+                    <td>${escapeHtml(user.role)}</td>
                 </tr>
             `).join('');
         }
@@ -2667,7 +2681,7 @@ ${JSON.stringify(inventory, null, 2)}
                 return `
                     <tr>
                         <td>${new Date(log.timestamp).toLocaleString()}</td>
-                        <td>${log.initiator || 'System'}</td>
+                        <td>${escapeHtml(log.initiator || 'System')}</td>
                         <td><span class="method-badge ${method.toLowerCase()}">${method}</span></td>
                         <td>${action}</td>
                         <td><span class="status ${statusClass}">Success</span></td>

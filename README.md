@@ -20,7 +20,7 @@
 - **Role-Based Security:** Token-based authentication with admin/operator/monitoring/compliance roles.
 - **Admin CLI:** A command-line tool for bootstrapping the application and for emergency maintenance.
 - **Unified Management CLI:** A single, powerful CLI for all ongoing management tasks.
-- **Real-Time WebSocket:** Live dashboard updates with secure token-based WebSocket authentication.
+- **Dashboard updates:** The web UI polls the API every 30 seconds. `/ws` accepts authenticated WebSocket clients via an `Authorization: Bearer` header.
 
 ## Getting Started
 
