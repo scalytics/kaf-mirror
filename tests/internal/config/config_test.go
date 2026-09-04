@@ -73,6 +73,18 @@ func TestConfigValidate_RetentionBounds(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestConfigValidate_RejectsBlockedEgress(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{Port: 8080},
+		Clusters: map[string]config.ClusterConfig{
+			"source": {Brokers: "localhost:9092"},
+		},
+		AI: config.AIConfig{Endpoint: "http://169.254.169.254/latest/meta-data"},
+	}
+	err := cfg.Validate()
+	assert.Error(t, err)
+}
+
 func TestConfigRedactedMasksCredentials(t *testing.T) {
 	conn := "Endpoint=sb://ns/;SharedAccessKey=secret"
 	cfg := config.Config{

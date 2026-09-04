@@ -14,6 +14,8 @@ package metrics
 import (
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
+	"kaf-mirror/internal/egress"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
@@ -37,7 +39,7 @@ type PrometheusSink struct {
 }
 
 // NewPrometheusSink creates a new Prometheus sink.
-func NewPrometheusSink(cfg config.PrometheusConfig) (*PrometheusSink, error) {
+func NewPrometheusSink(cfg config.PrometheusConfig, allowedHosts []string) (*PrometheusSink, error) {
 	labels := []string{"job_id"}
 	messagesReplicated := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_messages_replicated",
@@ -99,7 +101,10 @@ func NewPrometheusSink(cfg config.PrometheusConfig) (*PrometheusSink, error) {
 		errorSpike,
 	)
 
-	pusher := push.New(cfg.PushGateway, "kaf-mirror").Gatherer(registry)
+	if err := egress.Check(cfg.PushGateway, allowedHosts); err != nil {
+		return nil, err
+	}
+	pusher := push.New(cfg.PushGateway, "kaf-mirror").Gatherer(registry).Client(egress.HTTPClient(15*time.Second, allowedHosts))
 
 	return &PrometheusSink{
 		pusher:             pusher,

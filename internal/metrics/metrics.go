@@ -22,18 +22,18 @@ type Sink interface {
 }
 
 // NewSink creates a new metrics sink based on the provided configuration.
-func NewSink(cfg config.MonitoringConfig) (Sink, error) {
+func NewSink(cfg config.MonitoringConfig, allowedHosts []string) (Sink, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
 
 	switch cfg.Platform {
 	case "splunk":
-		return NewSplunkSink(cfg.Splunk)
+		return NewSplunkSink(cfg.Splunk, allowedHosts)
 	case "loki":
-		return NewLokiSink(cfg.Loki)
+		return NewLokiSink(cfg.Loki, allowedHosts)
 	case "prometheus":
-		return NewPrometheusSink(cfg.Prometheus)
+		return NewPrometheusSink(cfg.Prometheus, allowedHosts)
 	default:
 		return nil, nil
 	}

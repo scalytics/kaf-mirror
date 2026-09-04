@@ -19,6 +19,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // ClaudeProvider implements Claude AI integration
@@ -26,6 +27,7 @@ type ClaudeProvider struct {
 	APIKey   string
 	Endpoint string
 	Model    string
+	HTTP     *http.Client
 }
 
 // GeminiProvider implements Google Gemini integration
@@ -33,6 +35,7 @@ type GeminiProvider struct {
 	APIKey   string
 	Endpoint string
 	Model    string
+	HTTP     *http.Client
 }
 
 // GrokProvider implements xAI Grok integration
@@ -40,6 +43,7 @@ type GrokProvider struct {
 	APIKey   string
 	Endpoint string
 	Model    string
+	HTTP     *http.Client
 }
 
 // ClaudeRequest represents a Claude API request
@@ -108,8 +112,7 @@ func (c *ClaudeProvider) GetCompletion(ctx context.Context, prompt string) (stri
 	req.Header.Set("x-api-key", c.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient(c.HTTP).Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -162,8 +165,7 @@ func (g *GeminiProvider) GetCompletion(ctx context.Context, prompt string) (stri
 
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient(g.HTTP).Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -214,8 +216,7 @@ func (g *GrokProvider) GetCompletion(ctx context.Context, prompt string) (string
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+g.APIKey)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient(g.HTTP).Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -247,6 +248,13 @@ func (g *GrokProvider) GetCompletion(ctx context.Context, prompt string) (string
 	}
 
 	return "", fmt.Errorf("no response content from Grok")
+}
+
+func httpClient(c *http.Client) *http.Client {
+	if c != nil {
+		return c
+	}
+	return &http.Client{Timeout: 30 * time.Second}
 }
 
 func normalizeClaudeEndpoint(endpoint string) string {

@@ -13,6 +13,7 @@ package config
 
 import (
 	"fmt"
+	"kaf-mirror/internal/egress"
 	"kaf-mirror/pkg/utils"
 	"os"
 	"path/filepath"
@@ -33,6 +34,11 @@ type Config struct {
 	AI          AIConfig                 `mapstructure:"ai"`
 	Monitoring  MonitoringConfig         `mapstructure:"monitoring"`
 	Compliance  ComplianceConfig         `mapstructure:"compliance"`
+	Egress      EgressConfig             `mapstructure:"egress"`
+}
+
+type EgressConfig struct {
+	AllowedHosts []string `mapstructure:"allowed_hosts"`
 }
 
 // ServerConfig defines server settings
@@ -174,6 +180,28 @@ func (c *Config) Validate() error {
 	if c.Compliance.Schedule.Enabled {
 		if !c.Compliance.Schedule.Daily && !c.Compliance.Schedule.Weekly && !c.Compliance.Schedule.Monthly {
 			return fmt.Errorf("compliance schedule must enable at least one period")
+		}
+	}
+	if err := c.validateEgressURLs(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Config) validateEgressURLs() error {
+	hosts := c.Egress.AllowedHosts
+	checks := []struct {
+		name string
+		url  string
+	}{
+		{"ai.endpoint", c.AI.Endpoint},
+		{"monitoring.splunk.hec_endpoint", c.Monitoring.Splunk.HECEndpoint},
+		{"monitoring.loki.endpoint", c.Monitoring.Loki.Endpoint},
+		{"monitoring.prometheus.push_gateway", c.Monitoring.Prometheus.PushGateway},
+	}
+	for _, item := range checks {
+		if err := egress.Check(item.url, hosts); err != nil {
+			return fmt.Errorf("%s: %w", item.name, err)
 		}
 	}
 	return nil

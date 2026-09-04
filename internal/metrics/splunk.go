@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
+	"kaf-mirror/internal/egress"
 	"net/http"
+	"time"
 )
 
 // SplunkSink sends metrics to a Splunk HTTP Event Collector (HEC).
@@ -27,9 +29,12 @@ type SplunkSink struct {
 }
 
 // NewSplunkSink creates a new Splunk sink.
-func NewSplunkSink(cfg config.SplunkConfig) (*SplunkSink, error) {
+func NewSplunkSink(cfg config.SplunkConfig, allowedHosts []string) (*SplunkSink, error) {
+	if err := egress.Check(cfg.HECEndpoint, allowedHosts); err != nil {
+		return nil, err
+	}
 	return &SplunkSink{
-		client: &http.Client{},
+		client: egress.HTTPClient(15*time.Second, allowedHosts),
 		cfg:    cfg,
 	}, nil
 }

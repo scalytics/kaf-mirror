@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
+	"kaf-mirror/internal/egress"
 	"net/http"
 	"time"
 )
@@ -28,9 +29,12 @@ type LokiSink struct {
 }
 
 // NewLokiSink creates a new Loki sink.
-func NewLokiSink(cfg config.LokiConfig) (*LokiSink, error) {
+func NewLokiSink(cfg config.LokiConfig, allowedHosts []string) (*LokiSink, error) {
+	if err := egress.Check(cfg.Endpoint, allowedHosts); err != nil {
+		return nil, err
+	}
 	return &LokiSink{
-		client: &http.Client{},
+		client: egress.HTTPClient(15*time.Second, allowedHosts),
 		cfg:    cfg,
 	}, nil
 }

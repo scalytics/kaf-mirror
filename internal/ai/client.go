@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"kaf-mirror/internal/config"
+	"kaf-mirror/internal/egress"
 	"net/http"
 	"strings"
 	"time"
@@ -48,6 +49,9 @@ func (p *openAIProvider) GetCompletion(ctx context.Context, prompt string) (stri
 	if err != nil {
 		return "", err
 	}
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("no completion choices returned")
+	}
 	return resp.Choices[0].Message.Content, nil
 }
 
@@ -58,9 +62,9 @@ type Client struct {
 }
 
 // NewClient creates a new AI client.
-func NewClient(cfg config.AIConfig) *Client {
+func NewClient(cfg config.AIConfig, allowedHosts []string) *Client {
 	return &Client{
-		Provider: buildProvider(cfg),
+		Provider: buildProvider(cfg, allowedHosts),
 		Cfg:      cfg,
 	}
 }
@@ -73,25 +77,29 @@ func NewClientWithProvider(cfg config.AIConfig, provider CompletionProvider) *Cl
 	}
 }
 
-func buildProvider(cfg config.AIConfig) CompletionProvider {
+func buildProvider(cfg config.AIConfig, allowedHosts []string) CompletionProvider {
+	httpClient := egress.HTTPClient(30*time.Second, allowedHosts)
 	switch strings.ToLower(cfg.Provider) {
 	case "claude":
 		return &ClaudeProvider{
 			APIKey:   cfg.Token,
 			Endpoint: cfg.Endpoint,
 			Model:    cfg.Model,
+			HTTP:     httpClient,
 		}
 	case "gemini":
 		return &GeminiProvider{
 			APIKey:   cfg.Token,
 			Endpoint: cfg.Endpoint,
 			Model:    cfg.Model,
+			HTTP:     httpClient,
 		}
 	case "grok":
 		return &GrokProvider{
 			APIKey:   cfg.Token,
 			Endpoint: cfg.Endpoint,
 			Model:    cfg.Model,
+			HTTP:     httpClient,
 		}
 	case "custom", "openai", "":
 		fallthrough
@@ -100,8 +108,9 @@ func buildProvider(cfg config.AIConfig) CompletionProvider {
 		if cfg.Endpoint != "" {
 			openaiCfg.BaseURL = cfg.Endpoint
 		}
+		openaiCfg.HTTPClient = httpClient
 		if cfg.APISecret != "" {
-			openaiCfg.HTTPClient = newHeaderHTTPClient(map[string]string{
+			openaiCfg.HTTPClient = newHeaderHTTPClient(httpClient, map[string]string{
 				"X-API-Secret": cfg.APISecret,
 				"X-API-Key":    cfg.Token,
 			})
@@ -327,11 +336,19 @@ func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	return h.base.RoundTrip(req)
 }
 
-func newHeaderHTTPClient(headers map[string]string) *http.Client {
-	base := http.DefaultTransport
+func newHeaderHTTPClient(base *http.Client, headers map[string]string) *http.Client {
+	rt := http.DefaultTransport
+	timeout := 30 * time.Second
+	if base != nil {
+		timeout = base.Timeout
+		if base.Transport != nil {
+			rt = base.Transport
+		}
+	}
 	return &http.Client{
+		Timeout: timeout,
 		Transport: &headerRoundTripper{
-			base:    base,
+			base:    rt,
 			headers: headers,
 		},
 	}

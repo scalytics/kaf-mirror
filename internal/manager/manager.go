@@ -61,7 +61,7 @@ type JobManager struct {
 }
 
 func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
-	sink, err := metrics.NewSink(cfg.Monitoring)
+	sink, err := metrics.NewSink(cfg.Monitoring, cfg.Egress.AllowedHosts)
 	if err != nil {
 		logger.Warn("Failed to create metrics sink: %v", err)
 	}
@@ -80,7 +80,7 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		Hub:                  hub,
 		KafMirrorFactory:     kafka.NewKafMirror,
 		metricsSink:          sink,
-		AIClient:             ai.NewClient(aiConfig),
+		AIClient:             ai.NewClient(aiConfig, cfg.Egress.AllowedHosts),
 		close:                make(chan struct{}),
 		lastAIAnalysis:       make(map[string]time.Time),
 		lastAIMetric:         make(map[string]database.ReplicationMetric),
