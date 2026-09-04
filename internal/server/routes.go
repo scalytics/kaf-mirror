@@ -21,9 +21,6 @@ import (
 func (s *Server) setupRoutes() {
 	s.App.Get("/health", s.handleHealthCheck)
 	s.App.Get("/api/v1/version", s.handleGetVersion)
-	// BUG-0011: Prometheus scrape endpoint. Unauthenticated by design so the
-	// ServiceMonitor scrapes without a token; exposes only Go runtime +
-	// process metrics, no business data.
 	s.App.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
 
 	// WebSocket route - MUST be before API group to avoid auth middleware conflict
@@ -43,6 +40,7 @@ func (s *Server) setupRoutes() {
 
 	clustersGroup := api.Group("/clusters")
 	clustersGroup.Post("/test", middleware.PermissionRequired(s.Db, "clusters:create"), s.handleTestClusterConnection)
+	clustersGroup.Delete("/purge", middleware.PermissionRequired(s.Db, "clusters:delete"), s.handlePurgeClusters)
 	clustersGroup.Get("/", middleware.PermissionRequired(s.Db, "clusters:view"), s.handleListClusters)
 	clustersGroup.Post("/", middleware.PermissionRequired(s.Db, "clusters:create"), s.handleCreateCluster)
 	clustersGroup.Get("/:name", middleware.PermissionRequired(s.Db, "clusters:view"), s.handleGetCluster)
@@ -52,7 +50,6 @@ func (s *Server) setupRoutes() {
 	clustersGroup.Put("/:name", middleware.PermissionRequired(s.Db, "clusters:edit"), s.handleUpdateCluster)
 	clustersGroup.Delete("/:name", middleware.PermissionRequired(s.Db, "clusters:delete"), s.handleDeleteCluster)
 	clustersGroup.Post("/:name/restore", middleware.PermissionRequired(s.Db, "clusters:delete"), s.handleRestoreCluster)
-	clustersGroup.Delete("/purge", middleware.PermissionRequired(s.Db, "clusters:delete"), s.handlePurgeClusters)
 
 	jobsGroup := api.Group("/jobs")
 	jobsGroup.Get("/", middleware.PermissionRequired(s.Db, "jobs:view"), s.handleListJobs)

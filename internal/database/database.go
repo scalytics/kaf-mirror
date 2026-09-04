@@ -27,20 +27,28 @@ import (
 //go:embed schema.sql
 var Schema string
 
-// Open opens the database connection using the default path
+var configuredPath = "data/kaf-mirror.db"
+
+func sqliteDSN(dbPath string) string {
+	params := "_fk=1&_busy_timeout=5000"
+	if dbPath == ":memory:" {
+		return fmt.Sprintf("file:memdb_%d?mode=memory&cache=shared&%s", time.Now().UnixNano(), params)
+	}
+	return fmt.Sprintf("file:%s?%s&_journal_mode=WAL", dbPath, params)
+}
+
+// Open opens the database using the path last passed to InitDB.
 func Open() (*sqlx.DB, error) {
-	return InitDB("data/kaf-mirror.db")
+	return InitDB(configuredPath)
 }
 
 // InitDB initializes the SQLite database and creates the schema.
 func InitDB(dbPath string) (*sqlx.DB, error) {
-	// For in-memory DB used in tests, the path is not a real file path.
-	dsn := dbPath
+	dsn := sqliteDSN(dbPath)
 	if dbPath == ":memory:" {
-		// Use a unique shared in-memory database per call so concurrent tests don't share state.
-		dsn = fmt.Sprintf("file:memdb_%d?mode=memory&cache=shared", time.Now().UnixNano())
+		// in-memory
 	} else {
-		// Ensure the directory for the database exists.
+		configuredPath = dbPath
 		if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 			return nil, err
 		}
@@ -48,6 +56,9 @@ func InitDB(dbPath string) (*sqlx.DB, error) {
 
 	db, err := sqlx.Connect("sqlite3", dsn)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
 		return nil, err
 	}
 	if dbPath == ":memory:" {

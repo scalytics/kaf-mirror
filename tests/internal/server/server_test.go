@@ -636,6 +636,39 @@ func TestLoginRateLimit(t *testing.T) {
 	assert.Equal(t, 429, last)
 }
 
+func TestPurgeClustersRouteNotShadowed(t *testing.T) {
+	ctx := setupTestServer(t)
+	createBody := `{"name":"to-purge","provider":"plain","brokers":"localhost:9092"}`
+	req := httptest.NewRequest("POST", "/api/v1/clusters", bytes.NewBufferString(createBody))
+	req.Header.Set("Content-Type", "application/json")
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 201, resp.StatusCode)
+
+	assert.NoError(t, database.SetClusterStatus(ctx.Server.Db, "to-purge", "archived"))
+
+	req = httptest.NewRequest("DELETE", "/api/v1/clusters/purge", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err = ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 204, resp.StatusCode)
+
+	_, err = database.GetCluster(ctx.Server.Db, "to-purge")
+	assert.Error(t, err)
+}
+
+func TestImportConfigValidates(t *testing.T) {
+	ctx := setupTestServer(t)
+	body := `{"Server":{"Port":8080},"Clusters":{}}`
+	req := httptest.NewRequest("POST", "/api/v1/config/import", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 400, resp.StatusCode)
+}
+
 func TestWebSocketAuthRejectsQueryToken(t *testing.T) {
 	ctx := setupTestServer(t)
 	req := httptest.NewRequest("GET", "/ws?token="+ctx.Token, nil)

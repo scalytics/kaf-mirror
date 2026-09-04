@@ -25,6 +25,11 @@ func TestDatabase(t *testing.T) {
 	assert.NoError(t, err)
 	defer db.Close()
 
+	assert.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "src", Provider: "plain", Brokers: "localhost:9092"}))
+	assert.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "tgt", Provider: "plain", Brokers: "localhost:9093"}))
+	assert.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "a", Provider: "plain", Brokers: "localhost:9094"}))
+	assert.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "b", Provider: "plain", Brokers: "localhost:9095"}))
+
 	t.Run("Jobs", func(t *testing.T) {
 		jobID := uuid.NewString()
 		job := &database.ReplicationJob{
@@ -152,6 +157,16 @@ func TestDatabase(t *testing.T) {
 	})
 }
 
+func TestInitDBEnablesForeignKeys(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	assert.NoError(t, err)
+	defer db.Close()
+
+	var fk int
+	assert.NoError(t, db.Get(&fk, "PRAGMA foreign_keys"))
+	assert.Equal(t, 1, fk)
+}
+
 func TestClusterConfigFromRowIncludesSASL(t *testing.T) {
 	conn := "Endpoint=sb://ns/"
 	cluster := database.KafkaCluster{
@@ -185,6 +200,8 @@ func TestUpdateJobPersistsReplicationSettings(t *testing.T) {
 	db, err := database.InitDB(":memory:")
 	assert.NoError(t, err)
 	defer db.Close()
+	assert.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "a", Provider: "plain", Brokers: "localhost:9092"}))
+	assert.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "b", Provider: "plain", Brokers: "localhost:9093"}))
 
 	job := &database.ReplicationJob{
 		ID:                "job-1",

@@ -33,19 +33,14 @@ func PruneOldData(db *sqlx.DB, retentionDays int) error {
 		return err
 	}
 
-	mirrorStateCutoff := time.Now().AddDate(0, 0, -7) // 7 days ago
+	mirrorStateCutoff := time.Now().AddDate(0, 0, -7)
 
-	_, err = db.Exec(`DELETE FROM mirror_progress WHERE last_updated < ?`, mirrorStateCutoff)
+	_, err = db.Exec(`DELETE FROM mirror_progress_history WHERE last_updated < ?`, mirrorStateCutoff)
 	if err != nil {
 		return err
 	}
 
-	_, err = db.Exec(`DELETE FROM resume_points WHERE calculated_at < ?`, mirrorStateCutoff)
-	if err != nil {
-		return err
-	}
-
-	_, err = db.Exec(`DELETE FROM mirror_gaps WHERE detected_at < ?`, mirrorStateCutoff)
+	_, err = db.Exec(`DELETE FROM mirror_gaps WHERE detected_at < ? AND resolved_at IS NOT NULL`, mirrorStateCutoff)
 	if err != nil {
 		return err
 	}

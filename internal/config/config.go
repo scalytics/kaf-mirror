@@ -14,6 +14,7 @@ package config
 import (
 	"fmt"
 	"kaf-mirror/pkg/utils"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -235,26 +236,29 @@ var AppConfig Config
 
 // LoadConfig loads configuration from standard paths.
 func LoadConfig() (*Config, error) {
-	viper.AddConfigPath("/etc/kaf-mirror")                             // Production
-	viper.AddConfigPath(filepath.Join(utils.ProjectRoot(), "configs")) // Development
-	viper.SetConfigName("default")
-	viper.SetConfigType("yml")
+	if configPath := os.Getenv("CONFIG_PATH"); configPath != "" {
+		viper.SetConfigFile(configPath)
+	} else {
+		viper.AddConfigPath("/etc/kaf-mirror")
+		viper.AddConfigPath(filepath.Join(utils.ProjectRoot(), "configs"))
+		viper.SetConfigName("default")
+		viper.SetConfigType("yml")
+	}
 
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.SetEnvPrefix("KAF_MIRROR")
 
-	// Read the default configuration file
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, err
 	}
 
-	// Merge in the production configuration file if it exists
-	viper.SetConfigName("prod")
-	if err := viper.MergeInConfig(); err != nil {
-		// Ignore if the file is not found, as it is optional
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, err
+	if os.Getenv("CONFIG_PATH") == "" {
+		viper.SetConfigName("prod")
+		if err := viper.MergeInConfig(); err != nil {
+			if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+				return nil, err
+			}
 		}
 	}
 

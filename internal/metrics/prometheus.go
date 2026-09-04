@@ -23,65 +23,66 @@ import (
 type PrometheusSink struct {
 	pusher *push.Pusher
 
-	messagesReplicated prometheus.Gauge
-	bytesTransferred   prometheus.Gauge
-	messagesConsumed   prometheus.Gauge
-	bytesConsumed      prometheus.Gauge
-	currentLag         prometheus.Gauge
-	errorCount         prometheus.Gauge
-	sourceStalled      prometheus.Gauge
-	targetStalled      prometheus.Gauge
-	criticalLag        prometheus.Gauge
-	highErrorRate      prometheus.Gauge
-	errorSpike         prometheus.Gauge
+	messagesReplicated *prometheus.GaugeVec
+	bytesTransferred   *prometheus.GaugeVec
+	messagesConsumed   *prometheus.GaugeVec
+	bytesConsumed      *prometheus.GaugeVec
+	currentLag         *prometheus.GaugeVec
+	errorCount         *prometheus.GaugeVec
+	sourceStalled      *prometheus.GaugeVec
+	targetStalled      *prometheus.GaugeVec
+	criticalLag        *prometheus.GaugeVec
+	highErrorRate      *prometheus.GaugeVec
+	errorSpike         *prometheus.GaugeVec
 }
 
 // NewPrometheusSink creates a new Prometheus sink.
 func NewPrometheusSink(cfg config.PrometheusConfig) (*PrometheusSink, error) {
-	messagesReplicated := prometheus.NewGauge(prometheus.GaugeOpts{
+	labels := []string{"job_id"}
+	messagesReplicated := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_messages_replicated",
 		Help: "Number of messages replicated.",
-	})
-	bytesTransferred := prometheus.NewGauge(prometheus.GaugeOpts{
+	}, labels)
+	bytesTransferred := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_bytes_transferred",
 		Help: "Number of bytes transferred.",
-	})
-	messagesConsumed := prometheus.NewGauge(prometheus.GaugeOpts{
+	}, labels)
+	messagesConsumed := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_messages_consumed",
 		Help: "Number of messages consumed.",
-	})
-	bytesConsumed := prometheus.NewGauge(prometheus.GaugeOpts{
+	}, labels)
+	bytesConsumed := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_bytes_consumed",
 		Help: "Number of bytes consumed.",
-	})
-	currentLag := prometheus.NewGauge(prometheus.GaugeOpts{
+	}, labels)
+	currentLag := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_current_lag",
 		Help: "Current consumer lag.",
-	})
-	errorCount := prometheus.NewGauge(prometheus.GaugeOpts{
+	}, labels)
+	errorCount := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_error_count",
 		Help: "Number of errors.",
-	})
-	sourceStalled := prometheus.NewGauge(prometheus.GaugeOpts{
+	}, labels)
+	sourceStalled := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_incident_source_stalled",
 		Help: "Source consumption stalled (1=true).",
-	})
-	targetStalled := prometheus.NewGauge(prometheus.GaugeOpts{
+	}, labels)
+	targetStalled := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_incident_target_stalled",
 		Help: "Target production stalled (1=true).",
-	})
-	criticalLag := prometheus.NewGauge(prometheus.GaugeOpts{
+	}, labels)
+	criticalLag := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_incident_critical_lag",
 		Help: "Critical lag detected (1=true).",
-	})
-	highErrorRate := prometheus.NewGauge(prometheus.GaugeOpts{
+	}, labels)
+	highErrorRate := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_incident_high_error_rate",
 		Help: "High error rate detected (1=true).",
-	})
-	errorSpike := prometheus.NewGauge(prometheus.GaugeOpts{
+	}, labels)
+	errorSpike := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kaf_mirror_incident_error_spike",
 		Help: "Error spike detected (1=true).",
-	})
+	}, labels)
 
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(
@@ -118,17 +119,18 @@ func NewPrometheusSink(cfg config.PrometheusConfig) (*PrometheusSink, error) {
 
 // Send sends a metric to Prometheus.
 func (s *PrometheusSink) Send(metric database.ReplicationMetric) error {
-	s.messagesReplicated.Set(float64(metric.MessagesReplicated))
-	s.bytesTransferred.Set(float64(metric.BytesTransferred))
-	s.messagesConsumed.Set(float64(metric.MessagesConsumed))
-	s.bytesConsumed.Set(float64(metric.BytesConsumed))
-	s.currentLag.Set(float64(metric.CurrentLag))
-	s.errorCount.Set(float64(metric.ErrorCount))
-	s.sourceStalled.Set(boolToFloat(metric.SourceStalled))
-	s.targetStalled.Set(boolToFloat(metric.TargetStalled))
-	s.criticalLag.Set(boolToFloat(metric.CriticalLag))
-	s.highErrorRate.Set(boolToFloat(metric.HighErrorRate))
-	s.errorSpike.Set(boolToFloat(metric.ErrorSpike))
+	id := metric.JobID
+	s.messagesReplicated.WithLabelValues(id).Set(float64(metric.MessagesReplicated))
+	s.bytesTransferred.WithLabelValues(id).Set(float64(metric.BytesTransferred))
+	s.messagesConsumed.WithLabelValues(id).Set(float64(metric.MessagesConsumed))
+	s.bytesConsumed.WithLabelValues(id).Set(float64(metric.BytesConsumed))
+	s.currentLag.WithLabelValues(id).Set(float64(metric.CurrentLag))
+	s.errorCount.WithLabelValues(id).Set(float64(metric.ErrorCount))
+	s.sourceStalled.WithLabelValues(id).Set(boolToFloat(metric.SourceStalled))
+	s.targetStalled.WithLabelValues(id).Set(boolToFloat(metric.TargetStalled))
+	s.criticalLag.WithLabelValues(id).Set(boolToFloat(metric.CriticalLag))
+	s.highErrorRate.WithLabelValues(id).Set(boolToFloat(metric.HighErrorRate))
+	s.errorSpike.WithLabelValues(id).Set(boolToFloat(metric.ErrorSpike))
 
 	return s.pusher.Push()
 }

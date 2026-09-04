@@ -158,6 +158,10 @@ func (s *Server) handleImportConfig(c *fiber.Ctx) error {
 	}
 	newCfg.RestoreUnchangedSecrets(existing)
 
+	if err := newCfg.Validate(); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("Invalid configuration: %v", err))
+	}
+
 	if err := database.SaveConfig(s.Db, &newCfg); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to import configuration")
 	}

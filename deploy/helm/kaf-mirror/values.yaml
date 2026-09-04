@@ -1,7 +1,6 @@
 image:
-  repository: 192.168.0.131:5100/scalytics/kaf-mirror
-  # rc4 is the first tag that serves /metrics (BUG-0011).
-  tag: "2026.05-rc4"
+  repository: ghcr.io/scalytics/kaf-mirror
+  tag: "v1.2.0"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
@@ -47,15 +46,12 @@ probes:
     initialDelaySeconds: 5
     periodSeconds: 10
 
-# PSA-restricted-compatible (PLAN-06 E-04 / audit F-4). kaf-mirror's
-# Dockerfile runs as UID 65532 (distroless nonroot). Container key
-# `securityContext` predates the `containerSecurityContext` convention
-# used in newer SAO charts; kept as-is for backward compatibility.
+# Alpine `adduser -S kaf-mirror` is UID/GID 100.
 podSecurityContext:
   runAsNonRoot: true
-  runAsUser: 65532
-  runAsGroup: 65532
-  fsGroup: 65532
+  runAsUser: 100
+  runAsGroup: 100
+  fsGroup: 100
   seccompProfile:
     type: RuntimeDefault
 
@@ -76,15 +72,8 @@ serviceAccount:
 labels:
   app.kubernetes.io/part-of: ops-foundation
 
-# Prometheus metrics + ServiceMonitor (PLAN-06 iter-7 E-12 / G-007).
-#
-# IMPORTANT: kaf-mirror imports prometheus/client_golang but does not
-# currently register a promhttp.Handler() at /metrics. Tracked as
-# BUG-0011. The template ships gated by `metrics.enabled` (default
-# false); flip on after the binary serves /metrics.
+# /metrics is unauthenticated Go runtime metrics.
 metrics:
-  # BUG-0011: enabled now that the rc4 image serves /metrics (promhttp
-  # via the fiber adaptor, on the same port as /health).
   enabled: true
   path: "/metrics"
   port: 8088

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,8 +27,12 @@ func TestMirrorProgress(t *testing.T) {
 	db, err := database.InitDB(":memory:")
 	require.NoError(t, err)
 	defer db.Close()
-
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "src", Provider: "plain", Brokers: "localhost:9092"}))
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "tgt", Provider: "plain", Brokers: "localhost:9093"}))
 	jobID := uuid.NewString()
+	require.NoError(t, database.CreateJob(db, &database.ReplicationJob{
+		ID: jobID, Name: "progress-job", SourceClusterName: "src", TargetClusterName: "tgt", Status: "paused",
+	}))
 
 	t.Run("UpdateMirrorProgress", func(t *testing.T) {
 		progress := database.MirrorProgress{
@@ -186,12 +191,22 @@ func strPtr(s string) *string {
 	return &s
 }
 
+func seedJob(t *testing.T, db *sqlx.DB, jobID string) {
+	t.Helper()
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "src-" + jobID[:8], Provider: "plain", Brokers: "localhost:9092"}))
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "tgt-" + jobID[:8], Provider: "plain", Brokers: "localhost:9093"}))
+	require.NoError(t, database.CreateJob(db, &database.ReplicationJob{
+		ID: jobID, Name: "job-" + jobID[:8], SourceClusterName: "src-" + jobID[:8], TargetClusterName: "tgt-" + jobID[:8], Status: "paused",
+	}))
+}
+
 func TestMirrorStateAnalysis(t *testing.T) {
 	db, err := database.InitDB(":memory:")
 	require.NoError(t, err)
 	defer db.Close()
 
 	jobID := uuid.NewString()
+	seedJob(t, db, jobID)
 
 	t.Run("StoreMirrorStateAnalysis", func(t *testing.T) {
 		analysis := database.MirrorStateAnalysis{
@@ -269,6 +284,7 @@ func TestMirrorStateSchemaValidation(t *testing.T) {
 
 	t.Run("TestJSONSerialization", func(t *testing.T) {
 		jobID := uuid.NewString()
+		seedJob(t, db, jobID)
 
 		// Test complex nested JSON serialization in checkpoints
 		consumerOffsets := map[string]int64{

@@ -70,6 +70,30 @@ func TestPruneOldData_UsesRetentionDays(t *testing.T) {
 	})
 }
 
+func TestPruneOldData_KeepsCurrentMirrorProgress(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	assert.NoError(t, err)
+	defer db.Close()
+
+	assert.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "a", Provider: "plain", Brokers: "localhost:9092"}))
+	assert.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "b", Provider: "plain", Brokers: "localhost:9093"}))
+	assert.NoError(t, database.CreateJob(db, &database.ReplicationJob{
+		ID: "job-progress", Name: "p", SourceClusterName: "a", TargetClusterName: "b", Status: "paused",
+	}))
+
+	old := time.Now().AddDate(0, 0, -10)
+	_, err = db.Exec(`INSERT INTO mirror_progress (job_id, source_topic, target_topic, partition_id, source_offset, target_offset, last_updated, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, "job-progress", "t", "t", 0, 1, 1, old, "active")
+	assert.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO mirror_progress_history (job_id, source_topic, target_topic, partition_id, source_offset, target_offset, last_updated, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, "job-progress", "t", "t", 0, 1, 1, old, "active")
+	assert.NoError(t, err)
+
+	assert.NoError(t, database.PruneOldData(db, 7))
+	assert.Equal(t, 1, countRows(t, db, "mirror_progress"))
+	assert.Equal(t, 0, countRows(t, db, "mirror_progress_history"))
+}
+
 func insertAggregatedMetric(db *sqlx.DB, jobID string, ts time.Time) error {
 	_, err := db.Exec(`INSERT INTO aggregated_metrics (job_id, timestamp, messages_replicated_delta, bytes_transferred_delta, avg_lag, error_count_delta)
 		VALUES (?, ?, ?, ?, ?, ?)`, jobID, ts, 1, 1, 1, 0)

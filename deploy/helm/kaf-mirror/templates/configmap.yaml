@@ -23,7 +23,7 @@ data:
       max_age: 30
       console: true
     database:
-      path: "/tmp/kaf-mirror.db"
+      path: "/app/data/kaf-mirror.db"
       retention_days: 30
     clusters:
       source:
