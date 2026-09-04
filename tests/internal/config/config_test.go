@@ -72,3 +72,73 @@ func TestConfigValidate_RetentionBounds(t *testing.T) {
 	err = cfg.Validate()
 	assert.Error(t, err)
 }
+
+func TestConfigRedactedMasksCredentials(t *testing.T) {
+	conn := "Endpoint=sb://ns/;SharedAccessKey=secret"
+	cfg := config.Config{
+		AI: config.AIConfig{Token: "ai-token", APISecret: "ai-secret"},
+		Monitoring: config.MonitoringConfig{
+			Splunk: config.SplunkConfig{HECToken: "hec-token"},
+		},
+		Clusters: map[string]config.ClusterConfig{
+			"src": {
+				Brokers: "localhost:9092",
+				Security: config.SecurityConfig{
+					Password:         "pw",
+					APIKey:           "ckey",
+					APISecret:        "csecret",
+					ConnectionString: &conn,
+				},
+			},
+		},
+	}
+
+	redacted := cfg.Redacted()
+	assert.Equal(t, config.SecretPlaceholder, redacted.AI.Token)
+	assert.Equal(t, config.SecretPlaceholder, redacted.AI.APISecret)
+	assert.Equal(t, config.SecretPlaceholder, redacted.Monitoring.Splunk.HECToken)
+	assert.Equal(t, config.SecretPlaceholder, redacted.Clusters["src"].Security.Password)
+	assert.Equal(t, config.SecretPlaceholder, redacted.Clusters["src"].Security.APIKey)
+	assert.Equal(t, config.SecretPlaceholder, redacted.Clusters["src"].Security.APISecret)
+	assert.NotNil(t, redacted.Clusters["src"].Security.ConnectionString)
+	assert.Equal(t, config.SecretPlaceholder, *redacted.Clusters["src"].Security.ConnectionString)
+
+	assert.Equal(t, "ai-token", cfg.AI.Token)
+	assert.Equal(t, "csecret", cfg.Clusters["src"].Security.APISecret)
+	assert.Equal(t, conn, *cfg.Clusters["src"].Security.ConnectionString)
+}
+
+func TestConfigRestoreUnchangedSecrets(t *testing.T) {
+	conn := "Endpoint=sb://ns/;SharedAccessKey=secret"
+	existing := &config.Config{
+		AI: config.AIConfig{Token: "ai-token", APISecret: "ai-secret"},
+		Monitoring: config.MonitoringConfig{
+			Splunk: config.SplunkConfig{HECToken: "hec-token"},
+		},
+		Clusters: map[string]config.ClusterConfig{
+			"src": {
+				Brokers: "localhost:9092",
+				Security: config.SecurityConfig{
+					Password:         "pw",
+					APIKey:           "ckey",
+					APISecret:        "csecret",
+					ConnectionString: &conn,
+				},
+			},
+		},
+	}
+
+	incoming := existing.Redacted()
+	incoming.Server.Port = 9090
+	incoming.RestoreUnchangedSecrets(existing)
+
+	assert.Equal(t, "ai-token", incoming.AI.Token)
+	assert.Equal(t, "ai-secret", incoming.AI.APISecret)
+	assert.Equal(t, "hec-token", incoming.Monitoring.Splunk.HECToken)
+	assert.Equal(t, "pw", incoming.Clusters["src"].Security.Password)
+	assert.Equal(t, "ckey", incoming.Clusters["src"].Security.APIKey)
+	assert.Equal(t, "csecret", incoming.Clusters["src"].Security.APISecret)
+	assert.NotNil(t, incoming.Clusters["src"].Security.ConnectionString)
+	assert.Equal(t, conn, *incoming.Clusters["src"].Security.ConnectionString)
+	assert.Equal(t, 9090, incoming.Server.Port)
+}

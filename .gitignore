@@ -6,10 +6,15 @@
 *.dylib
 admin-cli
 /kaf-mirror
+/main
 mirror-cli
 mirror-cli-*
 kaf-mirror-*
 admin-cli-*
+
+# TLS private keys
+*-key.pem
+*.key
 
 # Test binary, built with `go test -c`
 *.test

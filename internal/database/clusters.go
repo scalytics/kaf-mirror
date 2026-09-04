@@ -15,8 +15,52 @@ import (
 	"errors"
 	"time"
 
+	"kaf-mirror/internal/config"
+
 	"github.com/jmoiron/sqlx"
 )
+
+func isSecretPlaceholder(s string) bool {
+	return s == "" || s == config.SecretPlaceholder || s == "***MASKED***"
+}
+
+// Redacted returns a copy with credential fields replaced by placeholders.
+func (c KafkaCluster) Redacted() KafkaCluster {
+	out := c
+	if out.APIKey != "" {
+		out.APIKey = config.SecretPlaceholder
+	}
+	if out.APISecret != "" {
+		out.APISecret = config.SecretPlaceholder
+	}
+	if out.ConnectionString != nil && *out.ConnectionString != "" {
+		placeholder := config.SecretPlaceholder
+		out.ConnectionString = &placeholder
+	}
+	if out.SecurityConfig != "" && out.SecurityConfig != "{}" {
+		out.SecurityConfig = config.SecretPlaceholder
+	}
+	return out
+}
+
+// RestoreUnchangedSecrets copies credentials from existing when incoming uses a placeholder or omit.
+func (c *KafkaCluster) RestoreUnchangedSecrets(existing *KafkaCluster) {
+	if existing == nil {
+		return
+	}
+	if isSecretPlaceholder(c.APIKey) {
+		c.APIKey = existing.APIKey
+	}
+	if isSecretPlaceholder(c.APISecret) {
+		c.APISecret = existing.APISecret
+	}
+	if c.ConnectionString == nil || isSecretPlaceholder(*c.ConnectionString) {
+		c.ConnectionString = existing.ConnectionString
+	}
+	if isSecretPlaceholder(c.SecurityConfig) {
+		c.SecurityConfig = existing.SecurityConfig
+	}
+}
 
 // ListClusters retrieves all Kafka clusters from the database.
 func ListClusters(db *sqlx.DB) ([]KafkaCluster, error) {

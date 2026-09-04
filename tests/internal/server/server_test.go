@@ -373,3 +373,187 @@ func TestGenerateRandomPassword(t *testing.T) {
 		t.Errorf("Expected password length of 16, but got %d", len(password))
 	}
 }
+
+func TestClusterSecretsRedactedOnRead(t *testing.T) {
+	ctx := setupTestServer(t)
+	conn := "Endpoint=sb://ns/;SharedAccessKey=secret"
+	payload := map[string]interface{}{
+		"name":              "secret-cluster",
+		"provider":          "confluent",
+		"brokers":           "localhost:9092",
+		"api_key":           "real-key",
+		"api_secret":        "real-secret",
+		"connection_string": conn,
+		"security_config":   `{"password":"p"}`,
+	}
+	body, err := json.Marshal(payload)
+	assert.NoError(t, err)
+
+	req := httptest.NewRequest("POST", "/api/v1/clusters", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 201, resp.StatusCode)
+
+	var created database.KafkaCluster
+	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+	assert.Equal(t, config.SecretPlaceholder, created.APIKey)
+	assert.Equal(t, config.SecretPlaceholder, created.APISecret)
+	assert.NotNil(t, created.ConnectionString)
+	assert.Equal(t, config.SecretPlaceholder, *created.ConnectionString)
+	assert.Equal(t, config.SecretPlaceholder, created.SecurityConfig)
+
+	stored, err := database.GetCluster(ctx.Server.Db, "secret-cluster")
+	assert.NoError(t, err)
+	assert.Equal(t, "real-key", stored.APIKey)
+	assert.Equal(t, "real-secret", stored.APISecret)
+	assert.Equal(t, conn, *stored.ConnectionString)
+	assert.Equal(t, `{"password":"p"}`, stored.SecurityConfig)
+
+	req = httptest.NewRequest("GET", "/api/v1/clusters/secret-cluster", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err = ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+	var fetched database.KafkaCluster
+	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&fetched))
+	assert.Equal(t, config.SecretPlaceholder, fetched.APISecret)
+
+	req = httptest.NewRequest("GET", "/api/v1/clusters", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err = ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+	var clusters []database.KafkaCluster
+	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&clusters))
+	assert.Len(t, clusters, 1)
+	assert.Equal(t, config.SecretPlaceholder, clusters[0].APIKey)
+}
+
+func TestClusterUpdatePreservesSecrets(t *testing.T) {
+	ctx := setupTestServer(t)
+	conn := "Endpoint=sb://ns/;SharedAccessKey=secret"
+	createBody, err := json.Marshal(map[string]interface{}{
+		"name":              "secret-cluster",
+		"provider":          "confluent",
+		"brokers":           "localhost:9092",
+		"api_key":           "real-key",
+		"api_secret":        "real-secret",
+		"connection_string": conn,
+		"security_config":   `{"password":"p"}`,
+	})
+	assert.NoError(t, err)
+	req := httptest.NewRequest("POST", "/api/v1/clusters", bytes.NewReader(createBody))
+	req.Header.Set("Content-Type", "application/json")
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 201, resp.StatusCode)
+
+	updateBody, err := json.Marshal(map[string]interface{}{
+		"provider":          "confluent",
+		"brokers":           "localhost:9093",
+		"api_key":           "***",
+		"api_secret":        "***",
+		"connection_string": "***",
+		"security_config":   "***",
+	})
+	assert.NoError(t, err)
+	req = httptest.NewRequest("PUT", "/api/v1/clusters/secret-cluster", bytes.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	addAuthHeader(req, ctx.Token)
+	resp, err = ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+
+	stored, err := database.GetCluster(ctx.Server.Db, "secret-cluster")
+	assert.NoError(t, err)
+	assert.Equal(t, "localhost:9093", stored.Brokers)
+	assert.Equal(t, "real-key", stored.APIKey)
+	assert.Equal(t, "real-secret", stored.APISecret)
+	assert.Equal(t, conn, *stored.ConnectionString)
+	assert.Equal(t, `{"password":"p"}`, stored.SecurityConfig)
+}
+
+func TestConfigSecretsRedactedAndPreserved(t *testing.T) {
+	ctx := setupTestServer(t)
+	conn := "Endpoint=sb://ns/;SharedAccessKey=secret"
+	cfg := config.Config{
+		Server: config.ServerConfig{Host: "localhost", Port: 8080, Mode: "test"},
+		Clusters: map[string]config.ClusterConfig{
+			"src": {
+				Brokers: "localhost:9092",
+				Security: config.SecurityConfig{
+					APIKey:           "ckey",
+					APISecret:        "csecret",
+					Password:         "pw",
+					ConnectionString: &conn,
+				},
+			},
+		},
+		AI: config.AIConfig{Token: "ai-token", APISecret: "ai-secret"},
+		Monitoring: config.MonitoringConfig{
+			Splunk: config.SplunkConfig{HECToken: "hec-token"},
+		},
+	}
+	body, err := json.Marshal(cfg)
+	assert.NoError(t, err)
+
+	req := httptest.NewRequest("PUT", "/api/v1/config", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+
+	req = httptest.NewRequest("GET", "/api/v1/config", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err = ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+
+	var got config.Config
+	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.Equal(t, config.SecretPlaceholder, got.AI.Token)
+	assert.Equal(t, config.SecretPlaceholder, got.AI.APISecret)
+	assert.Equal(t, config.SecretPlaceholder, got.Monitoring.Splunk.HECToken)
+	assert.Equal(t, config.SecretPlaceholder, got.Clusters["src"].Security.APISecret)
+	assert.Equal(t, config.SecretPlaceholder, got.Clusters["src"].Security.APIKey)
+	assert.Equal(t, config.SecretPlaceholder, got.Clusters["src"].Security.Password)
+	assert.NotNil(t, got.Clusters["src"].Security.ConnectionString)
+	assert.Equal(t, config.SecretPlaceholder, *got.Clusters["src"].Security.ConnectionString)
+
+	stored, err := database.LoadConfig(ctx.Server.Db)
+	assert.NoError(t, err)
+	assert.Equal(t, "ai-token", stored.AI.Token)
+	assert.Equal(t, "ai-secret", stored.AI.APISecret)
+	assert.Equal(t, "hec-token", stored.Monitoring.Splunk.HECToken)
+	assert.Equal(t, "csecret", stored.Clusters["src"].Security.APISecret)
+
+	roundTrip, err := json.Marshal(got)
+	assert.NoError(t, err)
+	req = httptest.NewRequest("PUT", "/api/v1/config", bytes.NewReader(roundTrip))
+	req.Header.Set("Content-Type", "application/json")
+	addAuthHeader(req, ctx.Token)
+	resp, err = ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+
+	stored, err = database.LoadConfig(ctx.Server.Db)
+	assert.NoError(t, err)
+	assert.Equal(t, "ai-token", stored.AI.Token)
+	assert.Equal(t, "csecret", stored.Clusters["src"].Security.APISecret)
+	assert.Equal(t, conn, *stored.Clusters["src"].Security.ConnectionString)
+
+	req = httptest.NewRequest("POST", "/api/v1/config/export", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err = ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+	exportBody, err := io.ReadAll(resp.Body)
+	assert.NoError(t, err)
+	assert.NotContains(t, string(exportBody), "ai-token")
+	assert.NotContains(t, string(exportBody), "csecret")
+	assert.NotContains(t, string(exportBody), "hec-token")
+}

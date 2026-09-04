@@ -72,10 +72,9 @@ func (s *Server) handleGetVersion(c *fiber.Ctx) error {
 func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 	cfg, err := database.LoadConfig(s.Db)
 	if err != nil {
-		// If no config in DB, return the file-based one.
-		return c.JSON(s.cfg)
+		return c.JSON(s.cfg.Redacted())
 	}
-	return c.JSON(cfg)
+	return c.JSON(cfg.Redacted())
 }
 
 // handleUpdateConfig godoc
@@ -94,6 +93,12 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	existing, err := database.LoadConfig(s.Db)
+	if err != nil {
+		existing = s.cfg
+	}
+	newCfg.RestoreUnchangedSecrets(existing)
+
 	if err := newCfg.Validate(); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("Invalid configuration: %v", err))
 	}
@@ -102,7 +107,6 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to save configuration")
 	}
 
-	// We should also update the running config.
 	*s.cfg = newCfg
 
 	return c.JSON(fiber.Map{"status": "success", "message": "Configuration updated"})
@@ -122,8 +126,8 @@ func (s *Server) handleExportConfig(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "No configuration found in database to export")
 	}
 
-	// In a real app, you'd marshal this to YAML.
-	yamlData, err := yaml.Marshal(cfg)
+	redacted := cfg.Redacted()
+	yamlData, err := yaml.Marshal(redacted)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to marshal config to YAML")
 	}
@@ -148,6 +152,12 @@ func (s *Server) handleImportConfig(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	existing, err := database.LoadConfig(s.Db)
+	if err != nil {
+		existing = s.cfg
+	}
+	newCfg.RestoreUnchangedSecrets(existing)
+
 	if err := database.SaveConfig(s.Db, &newCfg); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to import configuration")
 	}
@@ -171,7 +181,11 @@ func (s *Server) handleListClusters(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to list clusters")
 	}
-	return c.JSON(clusters)
+	out := make([]database.KafkaCluster, len(clusters))
+	for i, cluster := range clusters {
+		out[i] = cluster.Redacted()
+	}
+	return c.JSON(out)
 }
 
 // handleCreateCluster godoc
@@ -194,7 +208,7 @@ func (s *Server) handleCreateCluster(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create cluster")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(cluster)
+	return c.Status(fiber.StatusCreated).JSON(cluster.Redacted())
 }
 
 // handleGetCluster godoc
@@ -211,7 +225,7 @@ func (s *Server) handleGetCluster(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound, "Cluster not found")
 	}
-	return c.JSON(cluster)
+	return c.JSON(cluster.Redacted())
 }
 
 // handleUpdateCluster godoc
@@ -232,11 +246,16 @@ func (s *Server) handleUpdateCluster(c *fiber.Ctx) error {
 	}
 
 	cluster.Name = c.Params("name")
+	existing, err := database.GetCluster(s.Db, cluster.Name)
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Cluster not found")
+	}
+	cluster.RestoreUnchangedSecrets(existing)
 	if err := database.UpdateCluster(s.Db, &cluster); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update cluster")
 	}
 
-	return c.JSON(cluster)
+	return c.JSON(cluster.Redacted())
 }
 
 // handleDeleteCluster godoc

@@ -151,3 +151,34 @@ func TestDatabase(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+func TestKafkaClusterRedactedAndRestore(t *testing.T) {
+	conn := "Endpoint=sb://ns/;SharedAccessKey=secret"
+	cluster := database.KafkaCluster{
+		Name:             "src",
+		Provider:         "confluent",
+		Brokers:          "localhost:9092",
+		APIKey:           "ckey",
+		APISecret:        "csecret",
+		ConnectionString: &conn,
+		SecurityConfig:   `{"password":"pw"}`,
+	}
+
+	redacted := cluster.Redacted()
+	assert.Equal(t, "***", redacted.APIKey)
+	assert.Equal(t, "***", redacted.APISecret)
+	assert.NotNil(t, redacted.ConnectionString)
+	assert.Equal(t, "***", *redacted.ConnectionString)
+	assert.Equal(t, "***", redacted.SecurityConfig)
+	assert.Equal(t, "csecret", cluster.APISecret)
+	assert.Equal(t, conn, *cluster.ConnectionString)
+
+	incoming := redacted
+	incoming.Brokers = "localhost:9093"
+	incoming.RestoreUnchangedSecrets(&cluster)
+	assert.Equal(t, "ckey", incoming.APIKey)
+	assert.Equal(t, "csecret", incoming.APISecret)
+	assert.Equal(t, conn, *incoming.ConnectionString)
+	assert.Equal(t, `{"password":"pw"}`, incoming.SecurityConfig)
+	assert.Equal(t, "localhost:9093", incoming.Brokers)
+}
