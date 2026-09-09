@@ -10,7 +10,7 @@
 // limitations under the License.
 
 // @title kaf-mirror API
-// @version 1.2.0
+// @version 1.3.0
 // @description This is the API for kaf-mirror, a high-performance Kafka replication tool.
 // @host localhost:8080
 // @BasePath /api/v1

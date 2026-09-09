@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here.
 
+## [1.3.0] - 2026-09-09
+### Highlights
+- Experimental admin replication halt so a compromised source is not copied onto the replica (`docs/protection.md`). Off until enabled.
+- Source offsets commit only after the target produce is acknowledged.
+- Cluster and config APIs mask secrets (`***`); PUT `***` or empty leaves stored credentials unchanged.
+
+### Security
+- Dropped committed TLS private keys. Bind `server.host` (not `0.0.0.0`); TLS required in production unless `allow_insecure`.
+- CORS uses configured origins. Login rate-limited. Password minimum 12 characters; password change revokes tokens.
+- Dashboard HTML-escapes user-controlled text. WebSocket auth is Bearer-only.
+- SSRF guards on AI and metrics egress URLs; optional `egress.allowed_hosts`.
+
+### Fixes & operations
+- Cluster purge route, Helm SQLite on the PVC, foreign keys/WAL, SASL on job clients, regex substitution, job lifecycle/deadlock fixes.
+- Mirror verify uses source consumer-group lag, not cross-cluster high watermarks.
+- Prometheus `/metrics` and Helm ServiceMonitor.
+
+### Upgrade notes
+- See `RELEASE_v1.3.0.md`. Protection is off until `mirror-cli protection enable`. Generate new TLS certs. Secret GET/PUT clients must treat `***` as leave-unchanged.
+
 ## [1.2.0] - 2026-01-19
 ### Highlights
 - Mirror-first topic handling: same-name mirroring by default, regex capture substitution when configured.

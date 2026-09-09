@@ -54,8 +54,8 @@ docker-compose -p kaf-mirror exec kaf-mirror ./admin-cli reset-admin-password ad
 
 You can pull and run the published container without building locally:
 ```bash
-docker pull ghcr.io/scalytics/kaf-mirror:v1.2.0
-docker run -p 8080:8080 ghcr.io/scalytics/kaf-mirror:v1.2.0
+docker pull ghcr.io/scalytics/kaf-mirror:v1.3.0
+docker run -p 8080:8080 ghcr.io/scalytics/kaf-mirror:v1.3.0
 ```
 You can also use the `latest` tag if you prefer:
 ```bash

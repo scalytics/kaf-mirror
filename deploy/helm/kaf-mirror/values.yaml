@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/scalytics/kaf-mirror
-  tag: "v1.2.0"
+  tag: "v1.3.0"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
