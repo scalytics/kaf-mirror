@@ -99,6 +99,9 @@ kaf-mirror is part of [Lascaris](https://www.scalytics.io/lascaris). Scalytics
 can run it for you in your own cloud, or support your team running it on-prem
 or air-gapped.
 
+More open source from the same team, including [kshark-core](https://github.com/scalytics/kshark-core)
+for Kafka connectivity checks, is listed at [scalytics.io/open-source](https://www.scalytics.io/open-source).
+
 ## Getting Started
 
 ### 1. How to Run Locally (Docker)
