@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [1.3.1] - 2026-10-22
+### Security
+- Built with Go 1.26.10, which fixes CVE-2026-111943 in crypto/x509. Release binaries, the Docker image and CI all use Go 1.26.10.
+
+### Docs
+- README: Kafka-to-S3 backup quickstart, use cases, support links and related projects.
+
 ## [1.3.0] - 2026-09-09
 ### Highlights
 - Experimental admin replication halt so a compromised source is not copied onto the replica (`docs/protection.md`). Off until enabled.
