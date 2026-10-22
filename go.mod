@@ -2,6 +2,8 @@ module kaf-mirror
 
 go 1.25.0
 
+toolchain go1.26.10
+
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7
 	github.com/c-bata/go-prompt v0.2.6
