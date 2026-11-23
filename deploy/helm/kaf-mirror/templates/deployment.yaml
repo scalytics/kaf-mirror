@@ -9,6 +9,12 @@ spec:
   {{- if ne (int .Values.replicaCount) 1 }}
   {{- fail "replicaCount must be 1: kaf-mirror keeps its state in SQLite on a ReadWriteOnce volume, which only one pod may open" }}
   {{- end }}
+  {{- if lt (int .Values.config.server.shutdownTimeoutSeconds) 1 }}
+  {{- fail "config.server.shutdownTimeoutSeconds must be at least 1" }}
+  {{- end }}
+  {{- if le (int .Values.terminationGracePeriodSeconds) (int .Values.config.server.shutdownTimeoutSeconds) }}
+  {{- fail "terminationGracePeriodSeconds must be greater than config.server.shutdownTimeoutSeconds, so Kubernetes does not kill kaf-mirror before its jobs have stopped" }}
+  {{- end }}
   replicas: 1
   strategy:
     type: Recreate
@@ -23,6 +29,7 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ include "kaf-mirror.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ int .Values.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:

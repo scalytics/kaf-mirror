@@ -12,6 +12,7 @@ data:
       port: {{ .Values.config.server.port }}
       mode: {{ .Values.config.server.mode | quote }}
       allow_insecure: {{ .Values.config.server.allowInsecure }}
+      shutdown_timeout: "{{ int .Values.config.server.shutdownTimeoutSeconds }}s"
       tls:
         {{- if .Values.config.server.tls.existingSecret }}
         enabled: true

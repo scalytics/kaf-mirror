@@ -14,6 +14,7 @@ package manager
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"kaf-mirror/internal/ai"
 	"kaf-mirror/internal/config"
@@ -59,8 +60,12 @@ type JobManager struct {
 	lastAIMetric         map[string]database.ReplicationMetric
 	lastComplianceReport map[string]time.Time
 	closing              int32
+	closeOnce            sync.Once
+	shuttingDown         atomic.Bool
 	Protection           *protection.Controller
 }
+
+var ErrShuttingDown = errors.New("kaf-mirror is shutting down")
 
 func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 	sink, err := metrics.NewSink(cfg.Monitoring, cfg.Egress.AllowedHosts)
@@ -150,6 +155,10 @@ func (jm *JobManager) reconcileAndStartJobs() error {
 		if job.Status == "active" {
 			logger.Info("Job '%s' (%s) is marked as active, ensuring it is started.", job.Name, job.ID)
 			if err := jm.StartJob(job.ID); err != nil {
+				if errors.Is(err, ErrShuttingDown) {
+					logger.Info("Not starting job %s, kaf-mirror is shutting down", job.ID)
+					return nil
+				}
 				logger.Error("Failed to automatically start active job %s: %v", job.ID, err)
 				job.Status = "paused"
 				if updateErr := database.UpdateJob(jm.Db, &job); updateErr != nil {
@@ -162,13 +171,56 @@ func (jm *JobManager) reconcileAndStartJobs() error {
 }
 
 func (jm *JobManager) Close() {
-	atomic.StoreInt32(&jm.closing, 1)
-	close(jm.close)
+	jm.closeOnce.Do(func() {
+		atomic.StoreInt32(&jm.closing, 1)
+		close(jm.close)
+	})
 	jm.wg.Wait()
 	jm.dbOpsMu.Lock()
 	jm.dbOpsClosed = true
 	jm.dbOpsMu.Unlock()
 	jm.dbOpsWg.Wait()
+}
+
+func (jm *JobManager) Shutdown(ctx context.Context) error {
+	jm.shuttingDown.Store(true)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		jm.Mu.Lock()
+		mirrors := jm.KafMirrors
+		jm.KafMirrors = make(map[string]kafka.KafMirror)
+		jm.Mu.Unlock()
+
+		logger.Info("Shutdown: stopping %d running jobs, their status stays active so they resume on the next start", len(mirrors))
+		var stops sync.WaitGroup
+		for jobID, kafMirror := range mirrors {
+			stops.Add(1)
+			go func() {
+				defer stops.Done()
+				kafMirror.Stop()
+				logger.Info("Shutdown: stopped job %s", jobID)
+			}()
+		}
+		stops.Wait()
+		jm.Close()
+	}()
+
+	select {
+	case <-done:
+		logger.Info("Shutdown: all jobs stopped and background work finished")
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("jobs did not stop before the shutdown timeout: %w", ctx.Err())
+	}
+}
+
+func (jm *JobManager) ClosedForTest() bool {
+	return atomic.LoadInt32(&jm.closing) == 1
+}
+
+func (jm *JobManager) ReconcileForTest() error {
+	return jm.reconcileAndStartJobs()
 }
 
 func (jm *JobManager) beginDBOp() bool {
@@ -556,6 +608,9 @@ func (jm *JobManager) StopAllJobs() error {
 }
 
 func (jm *JobManager) StartJob(jobID string) error {
+	if jm.shuttingDown.Load() {
+		return ErrShuttingDown
+	}
 	jm.Mu.Lock()
 	defer jm.Mu.Unlock()
 
@@ -609,6 +664,11 @@ func (jm *JobManager) StartJob(jobID string) error {
 	if err != nil {
 		logger.Error("Failed to create KafMirror for job %s: %v", jobID, err)
 		return err
+	}
+
+	if jm.shuttingDown.Load() {
+		kafMirror.Stop()
+		return ErrShuttingDown
 	}
 
 	if inspector, ok := kafMirror.(kafka.RecordInspector); ok && jm.Protection != nil {

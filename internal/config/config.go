@@ -79,13 +79,14 @@ type EgressConfig struct {
 
 // ServerConfig defines server settings
 type ServerConfig struct {
-	Host          string `mapstructure:"host"`
-	Port          int    `mapstructure:"port"`
-	Mode          string `mapstructure:"mode"`
-	AdminEmail    string `mapstructure:"admin_email"`
-	WebPath       string `mapstructure:"web_path"`
-	AllowInsecure bool   `mapstructure:"allow_insecure"`
-	TLS           struct {
+	Host            string `mapstructure:"host"`
+	Port            int    `mapstructure:"port"`
+	Mode            string `mapstructure:"mode"`
+	AdminEmail      string `mapstructure:"admin_email"`
+	WebPath         string `mapstructure:"web_path"`
+	AllowInsecure   bool   `mapstructure:"allow_insecure"`
+	ShutdownTimeout string `mapstructure:"shutdown_timeout"`
+	TLS             struct {
 		Enabled  bool   `mapstructure:"enabled"`
 		CertFile string `mapstructure:"cert_file"`
 		KeyFile  string `mapstructure:"key_file"`
@@ -102,6 +103,22 @@ func (s ServerConfig) ListenAddr() string {
 		host = "localhost"
 	}
 	return fmt.Sprintf("%s:%d", host, s.Port)
+}
+
+const DefaultShutdownTimeout = 30 * time.Second
+
+func (s ServerConfig) ShutdownTimeoutDuration() (time.Duration, error) {
+	if s.ShutdownTimeout == "" {
+		return DefaultShutdownTimeout, nil
+	}
+	timeout, err := time.ParseDuration(s.ShutdownTimeout)
+	if err != nil {
+		return 0, fmt.Errorf("server shutdown_timeout must be a valid duration: %v", err)
+	}
+	if timeout <= 0 {
+		return 0, fmt.Errorf("server shutdown_timeout must be greater than zero")
+	}
+	return timeout, nil
 }
 
 // RequireSecureListen fails closed in production when TLS is off.
@@ -203,6 +220,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Database.RetentionDays > 30 {
 		return fmt.Errorf("database retention_days must be between 1 and 30")
+	}
+	if _, err := c.Server.ShutdownTimeoutDuration(); err != nil {
+		return err
 	}
 	if c.Replication.TopicDiscoveryInterval == "" {
 		c.Replication.TopicDiscoveryInterval = "5m"

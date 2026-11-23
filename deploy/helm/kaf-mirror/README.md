@@ -103,6 +103,20 @@ helm upgrade --install km deploy/helm/kaf-mirror -f kerberos-values.yaml --wait
 
 The Deployment uses the `Recreate` strategy. SQLite on a ReadWriteOnce volume must not be opened by two pods, so an upgrade stops the old pod before the new one starts. Expect a short gap in replication during an upgrade. The chart runs exactly one pod, and rendering fails if `replicaCount` is set to anything other than 1.
 
+## Shutdown
+
+When Kubernetes stops the pod, kaf-mirror stops its jobs, commits what the target already acked, closes its Kafka clients and leaves the consumer group. The jobs stay `active` and resume when the new pod starts. kaf-mirror gives this `config.server.shutdownTimeoutSeconds` (default 30), set as `server.shutdown_timeout`. Kubernetes kills the pod after `terminationGracePeriodSeconds` (default 45). Keep the grace period longer than the shutdown timeout. The render fails if it is not.
+
+```bash
+cat > shutdown-values.yaml <<'VALUES'
+terminationGracePeriodSeconds: 90
+config:
+  server:
+    shutdownTimeoutSeconds: 60
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f shutdown-values.yaml --wait
+```
+
 ## Values
 
 | Key | Default | Description |
@@ -111,12 +125,14 @@ The Deployment uses the `Recreate` strategy. SQLite on a ReadWriteOnce volume mu
 | `image.tag` | `v1.3.1` | Image tag. It follows `appVersion`. Until a newer tag is published, set this to an image built from this repository, as in the Install section. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
 | `replicaCount` | `1` | Must be 1. SQLite is not shared, so any other value fails the render. |
+| `terminationGracePeriodSeconds` | `45` | Seconds Kubernetes waits after `SIGTERM` before it kills the pod. Must be greater than `config.server.shutdownTimeoutSeconds`. |
 | `service.type` | `ClusterIP` | Service type. |
 | `service.port` | `8088` | Service port. It forwards to the container port `http`. |
 | `config.server.host` | `0.0.0.0` | Listen address, set as `server.host` and as `KAF_MIRROR_SERVER_HOST`. |
 | `config.server.port` | `8080` | Container listen port, also used by the probes. |
 | `config.server.mode` | `production` | `server.mode`. |
 | `config.server.allowInsecure` | `true` | `server.allow_insecure`. With `false` and no TLS, the server refuses to start in `production` mode. |
+| `config.server.shutdownTimeoutSeconds` | `30` | `server.shutdown_timeout` in seconds: how long kaf-mirror waits for its jobs and the API server to stop on `SIGTERM`. |
 | `config.server.tls.existingSecret` | `""` | Name of a Secret with the certificate and key. When set, TLS is on and the probes use HTTPS. |
 | `config.server.tls.certKey` | `tls.crt` | Key of the certificate in the Secret. |
 | `config.server.tls.keyKey` | `tls.key` | Key of the private key in the Secret. |
