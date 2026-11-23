@@ -62,7 +62,6 @@ type KafMirrorImpl struct {
 	incidentStates map[string]bool
 	incidentMutex  sync.RWMutex
 	recordHook     func(topic string, key, value []byte)
-	hookedRecord   *kgo.Record
 }
 
 func (r *KafMirrorImpl) SetRecordHook(h func(topic string, key, value []byte)) {
@@ -128,9 +127,9 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 			}
 		}()
 		logger.Info("[Job %s] Starting consumer goroutine", jobID)
-		err := r.Consumer.Consume(ctx, func(ctx context.Context, record *kgo.Record) error {
+		err := r.Consumer.ConsumeAsync(ctx, func(ctx context.Context, record *kgo.Record, attempt int, done func(error)) {
 			logger.Debug("[Job %s] Received record from topic %s, partition %d, offset %d", jobID, record.Topic, record.Partition, record.Offset)
-			return r.handleRecord(ctx, record)
+			r.handleRecord(ctx, record, attempt, done)
 		})
 		if err != nil {
 			reason := fmt.Sprintf("consumer stopped: %v", err)
@@ -195,7 +194,9 @@ func (r *KafMirrorImpl) GetProducer() *Producer {
 
 // HandleRecordForTest exposes record handling for tests.
 func (r *KafMirrorImpl) HandleRecordForTest(record *kgo.Record) error {
-	return r.handleRecord(context.Background(), record)
+	result := make(chan error, 1)
+	r.handleRecord(context.Background(), record, 1, func(err error) { result <- err })
+	return <-result
 }
 
 func (r *KafMirrorImpl) AddRegexMapForTest(pattern, target string) error {
@@ -209,7 +210,7 @@ func (r *KafMirrorImpl) AddRegexMapForTest(pattern, target string) error {
 	return r.rules.add(rule)
 }
 
-func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) error {
+func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record, attempt int, done func(error)) {
 	r.mapMu.RLock()
 	targetTopic, ok := r.topicMap[string(record.Topic)]
 	r.mapMu.RUnlock()
@@ -219,10 +220,10 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) er
 
 	if targetTopic == "" {
 		logger.Warn("No mapping found for topic: %s", record.Topic)
-		return nil
+		done(nil)
+		return
 	}
-	if record != r.hookedRecord {
-		r.hookedRecord = record
+	if attempt == 1 {
 		if r.recordHook != nil {
 			r.recordHook(string(record.Topic), record.Key, record.Value)
 		}
@@ -266,12 +267,14 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) er
 		outRecord.Timestamp = record.Timestamp
 	}
 
-	if err := r.Producer.ProduceSync(ctx, outRecord); err != nil {
-		logger.Error("Failed to produce record to topic %s: %v", outRecord.Topic, err)
-		return err
-	}
-	logger.Debug("Replicated record to topic %s, partition %d, offset %d", outRecord.Topic, outRecord.Partition, outRecord.Offset)
-	return nil
+	r.Producer.Produce(ctx, outRecord, func(rec *kgo.Record, err error) {
+		if err != nil {
+			logger.Error("Failed to produce record to topic %s: %v", rec.Topic, err)
+		} else {
+			logger.Debug("Replicated record to topic %s, partition %d, offset %d", rec.Topic, rec.Partition, rec.Offset)
+		}
+		done(err)
+	})
 }
 
 func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callback func(database.ReplicationMetric), onPanic func(jobID string, reason string)) {

@@ -2353,9 +2353,6 @@ const docTemplate = `{
                 },
                 "jobID": {
                     "type": "string"
-                },
-                "parallelism": {
-                    "type": "integer"
                 }
             }
         },
@@ -3041,12 +3038,6 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
-                "parallelism": {
-                    "type": "integer"
-                },
-                "preserve_partitions": {
-                    "type": "boolean"
-                },
                 "source_cluster_name": {
                     "type": "string"
                 },
@@ -3222,12 +3213,6 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
-                },
-                "parallelism": {
-                    "type": "integer"
-                },
-                "preserve_partitions": {
-                    "type": "boolean"
                 },
                 "source_cluster_name": {
                     "type": "string"

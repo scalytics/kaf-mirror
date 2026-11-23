@@ -167,7 +167,6 @@ type KerberosConfig struct {
 // ReplicationConfig defines replication parameters
 type ReplicationConfig struct {
 	BatchSize              int    `mapstructure:"batch_size"`
-	Parallelism            int    `mapstructure:"parallelism"`
 	Compression            string `mapstructure:"compression"`
 	JobID                  string `mapstructure:"job_id"`
 	TopicDiscoveryInterval string `mapstructure:"topic_discovery_interval"`

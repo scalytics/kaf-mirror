@@ -1545,7 +1545,6 @@ func (jm *JobManager) buildJobConfig(sourceCluster, targetCluster *database.Kafk
 		},
 		Replication: config.ReplicationConfig{
 			BatchSize:              job.BatchSize,
-			Parallelism:            job.Parallelism,
 			Compression:            job.Compression,
 			TopicDiscoveryInterval: jm.topicDiscoveryInterval(),
 		},
@@ -1687,8 +1686,8 @@ func (jm *JobManager) performDynamicThrottling(jobID, jobName string) {
 		if err := jm.applyThrottlingChanges(jobID, jobName, job, throttlingDecision); err != nil {
 			logger.ErrorAI("ai", "throttling", jobID, "Failed to apply throttling changes: %v", err)
 		} else {
-			logger.InfoAI("ai", "throttling", jobID, "Applied throttling changes to job %s: batch_size=%d, parallelism=%d (reason: %s)",
-				jobName, throttlingDecision.NewBatchSize, throttlingDecision.NewParallelism, throttlingDecision.Reason)
+			logger.InfoAI("ai", "throttling", jobID, "Applied throttling changes to job %s: batch_size=%d (reason: %s)",
+				jobName, throttlingDecision.NewBatchSize, throttlingDecision.Reason)
 		}
 	} else {
 		logger.InfoAI("ai", "throttling", jobID, "Throttling changes suppressed for job %s to prevent oscillation", jobName)
@@ -1696,10 +1695,9 @@ func (jm *JobManager) performDynamicThrottling(jobID, jobName string) {
 }
 
 type ThrottlingDecision struct {
-	NewBatchSize   int
-	NewParallelism int
-	Reason         string
-	Confidence     float64
+	NewBatchSize int
+	Reason       string
+	Confidence   float64
 }
 
 func (jm *JobManager) analyzeThrottlingMetrics(metrics []database.ReplicationMetric, job *database.ReplicationJob) *ThrottlingDecision {
@@ -1726,32 +1724,27 @@ func (jm *JobManager) analyzeThrottlingMetrics(metrics []database.ReplicationMet
 	errorRate := float64(totalErrors) / float64(totalMessages) * 100
 
 	currentBatchSize := job.BatchSize
-	currentParallelism := job.Parallelism
 
 	if avgLag > 5000 && errorRate < 1.0 {
 		newBatchSize := jm.calculateOptimalBatchSize(currentBatchSize, avgThroughput, avgLag, "increase")
-		newParallelism := jm.calculateOptimalParallelism(currentParallelism, avgThroughput, maxLag, "increase")
 
-		if newBatchSize != currentBatchSize || newParallelism != currentParallelism {
+		if newBatchSize != currentBatchSize {
 			return &ThrottlingDecision{
-				NewBatchSize:   newBatchSize,
-				NewParallelism: newParallelism,
-				Reason:         fmt.Sprintf("High lag detected (%.0f avg, %d max) - increasing throughput capacity", avgLag, maxLag),
-				Confidence:     0.8,
+				NewBatchSize: newBatchSize,
+				Reason:       fmt.Sprintf("High lag detected (%.0f avg, %d max) - increasing throughput capacity", avgLag, maxLag),
+				Confidence:   0.8,
 			}
 		}
 	}
 
 	if errorRate > 2.0 {
 		newBatchSize := jm.calculateOptimalBatchSize(currentBatchSize, avgThroughput, avgLag, "decrease")
-		newParallelism := jm.calculateOptimalParallelism(currentParallelism, avgThroughput, maxLag, "decrease")
 
-		if newBatchSize != currentBatchSize || newParallelism != currentParallelism {
+		if newBatchSize != currentBatchSize {
 			return &ThrottlingDecision{
-				NewBatchSize:   newBatchSize,
-				NewParallelism: newParallelism,
-				Reason:         fmt.Sprintf("High error rate detected (%.2f%%) - reducing load for stability", errorRate),
-				Confidence:     0.9,
+				NewBatchSize: newBatchSize,
+				Reason:       fmt.Sprintf("High error rate detected (%.2f%%) - reducing load for stability", errorRate),
+				Confidence:   0.9,
 			}
 		}
 	}
@@ -1761,10 +1754,9 @@ func (jm *JobManager) analyzeThrottlingMetrics(metrics []database.ReplicationMet
 
 		if newBatchSize != currentBatchSize {
 			return &ThrottlingDecision{
-				NewBatchSize:   newBatchSize,
-				NewParallelism: currentParallelism,
-				Reason:         fmt.Sprintf("Low throughput (%.0f msg/s) optimization", avgThroughput),
-				Confidence:     0.6,
+				NewBatchSize: newBatchSize,
+				Reason:       fmt.Sprintf("Low throughput (%.0f msg/s) optimization", avgThroughput),
+				Confidence:   0.6,
 			}
 		}
 	}
@@ -1806,27 +1798,6 @@ func (jm *JobManager) calculateOptimalBatchSize(current int, throughput, lag flo
 	}
 }
 
-func (jm *JobManager) calculateOptimalParallelism(current int, throughput float64, maxLag int, direction string) int {
-	switch direction {
-	case "increase":
-		newParallelism := current + 2
-		if newParallelism > 20 {
-			newParallelism = 20
-		}
-		return newParallelism
-
-	case "decrease":
-		newParallelism := current - 1
-		if newParallelism < 1 {
-			newParallelism = 1
-		}
-		return newParallelism
-
-	default:
-		return current
-	}
-}
-
 func (jm *JobManager) shouldApplyThrottling(jobID string, decision *ThrottlingDecision) bool {
 	lastThrottlingQuery := `
 		SELECT timestamp FROM ai_insights 
@@ -1854,7 +1825,6 @@ func (jm *JobManager) applyThrottlingChanges(jobID, jobName string, job *databas
 	}
 
 	job.BatchSize = decision.NewBatchSize
-	job.Parallelism = decision.NewParallelism
 
 	if err := database.UpdateJob(jm.Db, job); err != nil {
 		return fmt.Errorf("failed to update job configuration: %v", err)
@@ -1874,7 +1844,7 @@ func (jm *JobManager) applyThrottlingChanges(jobID, jobName string, job *databas
 	insight := &database.AIInsight{
 		JobID:            &jobID,
 		InsightType:      "throttling_adjustment",
-		Recommendation:   fmt.Sprintf("Applied dynamic throttling: batch_size=%d, parallelism=%d. %s", decision.NewBatchSize, decision.NewParallelism, decision.Reason),
+		Recommendation:   fmt.Sprintf("Applied dynamic throttling: batch_size=%d. %s", decision.NewBatchSize, decision.Reason),
 		SeverityLevel:    "info",
 		ResolutionStatus: "applied",
 		AIModel:          "dynamic-throttling-system",
@@ -2256,7 +2226,7 @@ func (jm *JobManager) updateMirrorState(jobID string) {
 	if len(recommendations) == 0 {
 		recommendations = []string{
 			"Monitor replication lag regularly",
-			"Consider increasing parallelism if lag exceeds 10000 messages",
+			"Consider a larger batch size if lag exceeds 10000 messages",
 			"Verify network connectivity between clusters",
 		}
 	}

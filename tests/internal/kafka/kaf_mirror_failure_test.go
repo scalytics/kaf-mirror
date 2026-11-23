@@ -88,7 +88,10 @@ func TestStartFailsJobWithoutCommittingPastFailedRecord(t *testing.T) {
 func TestStopDuringBlockedProduceReturnsWithoutCommit(t *testing.T) {
 	produced := make(chan struct{}, 1)
 	km, log := startMirrorForTest(t, fetchOf("big", partitionRecords{0, []int64{0, 1}}), func(ctx context.Context, r *kgo.Record, f func(*kgo.Record, error)) {
-		produced <- struct{}{}
+		select {
+		case produced <- struct{}{}:
+		default:
+		}
 	})
 
 	km.Start("job-32", func(database.ReplicationMetric) {}, func(string, string) {})
@@ -107,28 +110,67 @@ func TestStopDuringBlockedProduceReturnsWithoutCommit(t *testing.T) {
 	require.Empty(t, log.get())
 }
 
-func TestHandleRecordRunsHookOncePerRecordAcrossRetries(t *testing.T) {
-	produceCalls := 0
-	km := kafka.NewKafMirrorImplForTest(&kafka.Producer{Client: &mocks.MockKgoClient{ProduceFunc: func(ctx context.Context, r *kgo.Record, f func(*kgo.Record, error)) {
-		produceCalls++
-		if produceCalls <= 2 {
-			f(r, kerr.NotEnoughReplicas)
+func TestStartRunsHookOncePerRecordAcrossRetries(t *testing.T) {
+	var mu sync.Mutex
+	produced := map[string]int{}
+	km, _ := startMirrorForTest(t, fetchOf("big", partitionRecords{0, []int64{7, 8}}), func(ctx context.Context, r *kgo.Record, f func(*kgo.Record, error)) {
+		mu.Lock()
+		produced[string(r.Value)]++
+		fail := string(r.Value) == "v7" && produced["v7"] <= 2
+		mu.Unlock()
+		if fail {
+			go f(r, kerr.NotEnoughReplicas)
 			return
 		}
-		f(r, nil)
-	}}}, map[string]string{"big": "big"})
-	hookCalls := 0
+		go f(r, nil)
+	})
+	km.Consumer.SetProduceRetryForTest(5, 0)
+	committed := make(chan []string, 10)
+	km.Consumer.Client.(*mocks.MockKgoClient).CommitRecordsFunc = func(ctx context.Context, rs ...*kgo.Record) error {
+		committed <- keys(rs)
+		return nil
+	}
+	hooks := map[string]int{}
 	km.SetRecordHook(func(topic string, key, value []byte) {
-		hookCalls++
+		mu.Lock()
+		hooks[string(value)]++
+		mu.Unlock()
 	})
 
-	record := &kgo.Record{Topic: "big", Partition: 0, Offset: 7, Value: []byte("payload")}
-	require.Error(t, km.HandleRecordForTest(record))
-	require.Error(t, km.HandleRecordForTest(record))
-	require.NoError(t, km.HandleRecordForTest(record))
-	assert.Equal(t, 3, produceCalls)
-	assert.Equal(t, 1, hookCalls)
+	km.Start("job-50", func(database.ReplicationMetric) {}, func(string, string) {})
+	waitForCommit(t, committed, "0/8")
+	km.Stop()
 
-	require.NoError(t, km.HandleRecordForTest(&kgo.Record{Topic: "big", Partition: 0, Offset: 8, Value: []byte("next")}))
-	assert.Equal(t, 2, hookCalls)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 3, produced["v7"])
+	assert.GreaterOrEqual(t, produced["v8"], 1)
+	assert.Equal(t, map[string]int{"v7": 1, "v8": 1}, hooks)
+}
+
+func keys(rs []*kgo.Record) []string {
+	out := make([]string, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, key(r))
+	}
+	return out
+}
+
+func waitForCommit(t *testing.T, committed chan []string, want string) [][]string {
+	t.Helper()
+	var calls [][]string
+	for {
+		select {
+		case call := <-committed:
+			calls = append(calls, call)
+			for _, k := range call {
+				if k == want {
+					return calls
+				}
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("no commit of %s, commits so far %v", want, calls)
+			return calls
+		}
+	}
 }

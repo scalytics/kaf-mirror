@@ -1248,9 +1248,7 @@
                                                 <strong>Job ID:</strong> ${job.id || 'N/A'}<br>
                                                 <strong>Created:</strong> ${job.created_at ? new Date(job.created_at).toLocaleString() : 'N/A'}<br>
                                                 <strong>Batch Size:</strong> ${job.batch_size || 1000} messages<br>
-                                                <strong>Parallelism:</strong> ${job.parallelism || 4} threads<br>
                                                 <strong>Compression:</strong> ${job.compression || 'none'}<br>
-                                                <strong>Preserve Partitions:</strong> ${job.preserve_partitions ? 'Yes' : 'No'}<br>
                                                 <strong>Source -> Target:</strong> ${job.source_cluster_name} -> ${job.target_cluster_name}
                                             </div>
                                             <div id="job-metrics-${index}" class="recommendation-details">
