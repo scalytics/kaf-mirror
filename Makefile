@@ -90,12 +90,14 @@ if warnings > 0:
 endef
 export PY_CODEQL_GATE
 
-.PHONY: all build run start stop restart clean test check test-smoke vet race fmt fmt-check commit-check code-ql code-ql-summary code-ql-gate helm-check docker docker-build docker-run docs docs-check
+.PHONY: all build binaries release-binaries run start stop restart clean test check test-smoke vet race fmt fmt-check commit-check code-ql code-ql-summary code-ql-gate helm-check docker docker-build docker-run docs docs-check
 
 BIN_DIR=bin
 KAF_MIRROR_BINARY=$(BIN_DIR)/kaf-mirror
 ADMIN_CLI_BINARY=$(BIN_DIR)/admin-cli
 MIRROR_CLI_BINARY=$(BIN_DIR)/mirror-cli
+RELEASE_DIR=dist
+RELEASE_CC?=x86_64-linux-gnu-gcc
 PID_FILE=/tmp/kaf-mirror.pid
 
 all: build
@@ -113,13 +115,24 @@ docs:
 	go install github.com/swaggo/swag/cmd/swag@latest; \
 	$$GOPATH/bin/swag init -g cmd/kaf-mirror/main.go --output web/docu/swagger --exclude scripts
 
-build: docs docs-cli docs-html
+build: docs docs-cli docs-html binaries
+
+binaries:
 	@echo "Building..."
 	@mkdir -p $(BIN_DIR)
-	$(eval VERSION := $(shell git describe --tags --abbrev=0))
-	@go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(KAF_MIRROR_BINARY) cmd/kaf-mirror/main.go
-	@go build -ldflags="-s -w" -o $(ADMIN_CLI_BINARY) cmd/admin-cli/main.go
-	@go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(MIRROR_CLI_BINARY) cmd/mirror-cli/main.go
+	$(eval VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null))
+	@go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(KAF_MIRROR_BINARY) ./cmd/kaf-mirror
+	@go build -ldflags="-s -w" -o $(ADMIN_CLI_BINARY) ./cmd/admin-cli
+	@go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(MIRROR_CLI_BINARY) ./cmd/mirror-cli
+
+release-binaries:
+	@test -n "$(VERSION)" || { echo "Set VERSION, for example make release-binaries VERSION=v1.4.0"; exit 1; }
+	@mkdir -p $(RELEASE_DIR)
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=$(RELEASE_CC) go build -v -ldflags="-s -w -X main.Version=$(VERSION)" -o $(RELEASE_DIR)/kaf-mirror-linux-amd64 ./cmd/kaf-mirror
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=$(RELEASE_CC) go build -v -ldflags="-s -w" -o $(RELEASE_DIR)/admin-cli-linux-amd64 ./cmd/admin-cli
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=$(RELEASE_CC) go build -v -ldflags="-s -w -X main.Version=$(VERSION)" -o $(RELEASE_DIR)/mirror-cli-linux-amd64 ./cmd/mirror-cli
+	GOOS=windows GOARCH=amd64 go build -v -ldflags="-s -w -X main.Version=$(VERSION)" -o $(RELEASE_DIR)/mirror-cli-windows-amd64.exe ./cmd/mirror-cli
+	GOOS=darwin GOARCH=amd64 go build -v -ldflags="-s -w -X main.Version=$(VERSION)" -o $(RELEASE_DIR)/mirror-cli-darwin-amd64 ./cmd/mirror-cli
 
 build-linux:
 	@echo "Linux binaries are downloaded from GitHub releases during deployment."
@@ -214,7 +227,7 @@ docs-html:
 
 docs-cli:
 	@echo "Generating CLI documentation (Markdown)..."
-	@go run cmd/mirror-cli/main.go docs generate
+	@go run ./cmd/mirror-cli docs generate
 
 docs-check: docs-cli docs-html
 	@git diff --exit-code -- docs web/docu || { echo "Generated docs are out of date. Run 'make docs-cli docs-html' and commit the result."; exit 1; }

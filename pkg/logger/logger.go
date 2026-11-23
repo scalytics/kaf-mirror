@@ -221,6 +221,16 @@ func SetLevel(level Level) {
 	defaultLogger.level = level
 }
 
+func SetOutput(w io.Writer) {
+	defaultLogger.mu.Lock()
+	defer defaultLogger.mu.Unlock()
+	defaultLogger.debugLogger.SetOutput(w)
+	defaultLogger.infoLogger.SetOutput(w)
+	defaultLogger.warnLogger.SetOutput(w)
+	defaultLogger.errorLogger.SetOutput(w)
+	defaultLogger.fatalLogger.SetOutput(w)
+}
+
 // GetProductionLogDir returns the appropriate log directory for production
 func GetProductionLogDir() string {
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
