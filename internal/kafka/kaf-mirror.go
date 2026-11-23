@@ -14,6 +14,7 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
@@ -50,6 +51,7 @@ type KafMirrorImpl struct {
 	regexMaps         []regexMapping
 	mapMu             sync.RWMutex
 	wg                sync.WaitGroup
+	reports           sync.WaitGroup
 	cancelFunc        context.CancelFunc
 	jobID             string
 	onPanic           func(jobID string, reason string)
@@ -127,7 +129,7 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 			if rec := recover(); rec != nil {
 				reason := fmt.Sprintf("consumer panic: %v", rec)
 				logger.Error("[Job %s] %s", jobID, reason)
-				go onPanic(jobID, reason)
+				r.reportFailure(onPanic, jobID, reason)
 			}
 		}()
 		logger.Info("[Job %s] Starting consumer goroutine", jobID)
@@ -138,7 +140,7 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 		if err != nil {
 			reason := fmt.Sprintf("consumer stopped: %v", err)
 			logger.Error("[Job %s] %s", jobID, reason)
-			go onPanic(jobID, reason)
+			r.reportFailure(onPanic, jobID, reason)
 		}
 		logger.Info("[Job %s] Consumer goroutine ended", jobID)
 	}()
@@ -149,7 +151,7 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 			if rec := recover(); rec != nil {
 				reason := fmt.Sprintf("metrics panic: %v", rec)
 				logger.Error("[Job %s] %s", jobID, reason)
-				go onPanic(jobID, reason)
+				r.reportFailure(onPanic, jobID, reason)
 			}
 		}()
 		logger.Info("[Job %s] Starting metrics collection goroutine", jobID)
@@ -166,6 +168,14 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 	}
 
 	logger.Info("[Job %s] Both goroutines started successfully", jobID)
+}
+
+func (r *KafMirrorImpl) reportFailure(onPanic func(jobID string, reason string), jobID string, reason string) {
+	r.reports.Add(1)
+	go func() {
+		defer r.reports.Done()
+		onPanic(jobID, reason)
+	}()
 }
 
 // Stop gracefully shuts down the kaf-mirror.
@@ -320,7 +330,7 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 			if producerMetrics.ConsecutiveErrors > 100 {
 				reason := fmt.Sprintf("producer has failed %d consecutive times", producerMetrics.ConsecutiveErrors)
 				logger.Error("[Job %s] %s", jobID, reason)
-				go onPanic(jobID, reason)
+				r.reportFailure(onPanic, jobID, reason)
 				return
 			}
 
@@ -677,21 +687,48 @@ func (r *KafMirrorImpl) discoverTopicsLoop(ctx context.Context) {
 	ticker := time.NewTicker(r.discoveryInterval)
 	defer ticker.Stop()
 
+	failedRuns := 0
 	for {
 		select {
 		case <-ticker.C:
-			if err := r.discoverAndSyncTopics(ctx); err != nil {
+			err := r.discoverAndSyncTopics(ctx)
+			if ctx.Err() != nil {
+				return
+			}
+			var mappingErr *discoveryMappingError
+			switch {
+			case err == nil:
+				if failedRuns > 0 {
+					logger.Info("[Job %s] Topic discovery works again after %d failed runs", r.jobID, failedRuns)
+				}
+				failedRuns = 0
+			case errors.As(err, &mappingErr):
 				reason := fmt.Sprintf("topic discovery failed: %v", err)
 				logger.Error("[Job %s] %s", r.jobID, reason)
 				if r.onPanic != nil {
-					go r.onPanic(r.jobID, reason)
+					r.reportFailure(r.onPanic, r.jobID, reason)
 				}
 				return
+			default:
+				failedRuns++
+				logger.Warn("[Job %s] Topic discovery failed (%d runs in a row), keeping the current topics and retrying in %s: %v", r.jobID, failedRuns, r.discoveryInterval, err)
 			}
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+type discoveryMappingError struct {
+	err error
+}
+
+func (e *discoveryMappingError) Error() string {
+	return e.err.Error()
+}
+
+func (e *discoveryMappingError) Unwrap() error {
+	return e.err
 }
 
 func (r *KafMirrorImpl) discoverAndSyncTopics(ctx context.Context) error {
@@ -733,13 +770,13 @@ func (r *KafMirrorImpl) discoverAndSyncTopics(ctx context.Context) error {
 
 			targetTopic := rm.regex.ReplaceAllString(sourceTopic, rm.target)
 			if targetTopic == "" {
-				return fmt.Errorf("regex mapping for %s produced empty target topic", sourceTopic)
+				return &discoveryMappingError{fmt.Errorf("regex mapping for %s produced empty target topic", sourceTopic)}
 			}
 			r.mapMu.RLock()
 			for existingSource, existingTarget := range r.topicMap {
 				if existingTarget == targetTopic && existingSource != sourceTopic {
 					r.mapMu.RUnlock()
-					return fmt.Errorf("target topic %s is mapped from multiple sources: %s and %s", targetTopic, existingSource, sourceTopic)
+					return &discoveryMappingError{fmt.Errorf("target topic %s is mapped from multiple sources: %s and %s", targetTopic, existingSource, sourceTopic)}
 				}
 			}
 			r.mapMu.RUnlock()
@@ -770,7 +807,12 @@ func ensureTopicWithRetry(ctx context.Context, admin AdminClientAPI, topicName s
 		if err := admin.EnsureTopicExists(ctx, topicName, partitions, replicationFactor); err != nil {
 			lastErr = err
 			logger.Warn("Failed to create target topic %s (attempt %d/5): %v", topicName, attempt, err)
-			time.Sleep(time.Duration(attempt) * time.Second)
+			if attempt == 5 {
+				break
+			}
+			if err := sleepContext(ctx, time.Duration(attempt)*time.Second); err != nil {
+				return err
+			}
 			continue
 		}
 		return nil
@@ -1125,6 +1167,10 @@ func NewKafMirrorImplForTest(producer *Producer, topicMap map[string]string) *Ka
 		topicMap:       topicMap,
 		incidentStates: make(map[string]bool),
 	}
+}
+
+func (r *KafMirrorImpl) WaitForFailureReportsForTest() {
+	r.reports.Wait()
 }
 
 func (r *KafMirrorImpl) SetIntervalsForTest(metrics, discovery time.Duration) {

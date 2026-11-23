@@ -31,7 +31,7 @@ type trackedMirror struct {
 	stopped atomic.Int32
 }
 
-func setupFailureTest(t *testing.T) (*sqlx.DB, func() []*trackedMirror, string, func() error, func() error) {
+func setupFailureTest(t *testing.T) (*sqlx.DB, func() []*trackedMirror, string, func() error, func() error, func() error) {
 	db, jm, _ := setupManagerTest(t)
 	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "src", Brokers: "localhost:9092", SecurityConfig: "{}"}))
 	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "tgt", Brokers: "localhost:9093", SecurityConfig: "{}"}))
@@ -51,11 +51,11 @@ func setupFailureTest(t *testing.T) (*sqlx.DB, func() []*trackedMirror, string, 
 		mirrors = append(mirrors, tm)
 		return tm.mirror, nil
 	}
-	return db, func() []*trackedMirror { return mirrors }, jobID, func() error { return jm.StartJob(jobID) }, func() error { return jm.StopJob(jobID) }
+	return db, func() []*trackedMirror { return mirrors }, jobID, func() error { return jm.StartJob(jobID) }, func() error { return jm.StopJob(jobID) }, func() error { return jm.RestartJob(jobID) }
 }
 
 func TestJobFailureStopsCurrentInstanceAndMarksFailed(t *testing.T) {
-	db, mirrors, jobID, start, _ := setupFailureTest(t)
+	db, mirrors, jobID, start, _, _ := setupFailureTest(t)
 	require.NoError(t, start())
 
 	mirrors()[0].onFail(jobID, "producer has failed 101 consecutive times")
@@ -71,7 +71,7 @@ func TestJobFailureStopsCurrentInstanceAndMarksFailed(t *testing.T) {
 }
 
 func TestJobFailureOfReplacedInstanceLeavesNewInstanceAlone(t *testing.T) {
-	db, mirrors, jobID, start, stop := setupFailureTest(t)
+	db, mirrors, jobID, start, stop, _ := setupFailureTest(t)
 	require.NoError(t, start())
 	require.NoError(t, stop())
 	require.NoError(t, start())
@@ -89,7 +89,7 @@ func TestJobFailureOfReplacedInstanceLeavesNewInstanceAlone(t *testing.T) {
 }
 
 func TestJobFailureAfterStopKeepsJobPaused(t *testing.T) {
-	db, mirrors, jobID, start, stop := setupFailureTest(t)
+	db, mirrors, jobID, start, stop, _ := setupFailureTest(t)
 	require.NoError(t, start())
 	require.NoError(t, stop())
 
@@ -103,7 +103,7 @@ func TestJobFailureAfterStopKeepsJobPaused(t *testing.T) {
 }
 
 func TestStopAfterJobFailureKeepsFailedReason(t *testing.T) {
-	db, mirrors, jobID, start, stop := setupFailureTest(t)
+	db, mirrors, jobID, start, stop, _ := setupFailureTest(t)
 	require.NoError(t, start())
 
 	mirrors()[0].onFail(jobID, "topic discovery failed: source unreachable")
@@ -115,4 +115,18 @@ func TestStopAfterJobFailureKeepsFailedReason(t *testing.T) {
 	require.NotNil(t, job.FailedReason)
 	assert.Equal(t, "topic discovery failed: source unreachable", *job.FailedReason)
 	assert.Equal(t, int32(1), mirrors()[0].stopped.Load())
+}
+
+func TestRestartOfFailedJobClearsFailedReason(t *testing.T) {
+	db, mirrors, jobID, start, _, restart := setupFailureTest(t)
+	require.NoError(t, start())
+	mirrors()[0].onFail(jobID, "topic discovery failed: source unreachable")
+
+	require.NoError(t, restart())
+
+	job, err := database.GetJob(db, jobID)
+	require.NoError(t, err)
+	assert.Equal(t, "active", job.Status)
+	assert.Nil(t, job.FailedReason)
+	assert.Len(t, mirrors(), 2)
 }

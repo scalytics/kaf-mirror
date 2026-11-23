@@ -18,6 +18,7 @@ import (
 	"kaf-mirror/internal/database"
 	"kaf-mirror/internal/kafka"
 	"kaf-mirror/tests/mocks"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -40,9 +41,9 @@ func idleMirrorForTest(t *testing.T, produce func(context.Context, *kgo.Record, 
 	return km, flags
 }
 
-func startAndWaitForFailure(t *testing.T, km *kafka.KafMirrorImpl) string {
+func startAndWaitForFailure(t *testing.T, km *kafka.KafMirrorImpl, metrics func(database.ReplicationMetric)) string {
 	reasons := make(chan string, 1)
-	km.Start("job-33", func(database.ReplicationMetric) {}, func(jobID string, reason string) {
+	km.Start("job-33", metrics, func(jobID string, reason string) {
 		km.Stop()
 		reasons <- reason
 	})
@@ -64,25 +65,25 @@ func TestProducerErrorLimitStopsJobAndClosesClients(t *testing.T) {
 	}
 	km.SetIntervalsForTest(time.Millisecond, 0)
 
-	reason := startAndWaitForFailure(t, km)
+	reason := startAndWaitForFailure(t, km, func(database.ReplicationMetric) {})
 
 	assert.Equal(t, "producer has failed 101 consecutive times", reason)
 	assert.True(t, flags.consumer.Load())
 	assert.True(t, flags.producer.Load())
 }
 
-func TestDiscoveryErrorStopsJobAndClosesClients(t *testing.T) {
+func TestDiscoveryMappingConflictStopsJobAndClosesClients(t *testing.T) {
 	restore := kafka.SetAdminClientFactoryForTest(func(config.ClusterConfig) (kafka.AdminClientAPI, error) {
-		return nil, errors.New("source unreachable")
+		return &fakeAdmin{info: &kafka.ClusterInfo{Topics: map[string]kafka.TopicInfo{"ev.a": {Name: "ev.a", Partitions: 1}}}}, nil
 	})
 	defer restore()
 	km, flags := idleMirrorForTest(t, nil)
-	require.NoError(t, km.AddRegexMapForTest("^big.*", "$0"))
+	require.NoError(t, km.AddRegexMapForTest(`^ev\..*$`, "big"))
 	km.SetIntervalsForTest(time.Hour, time.Millisecond)
 
-	reason := startAndWaitForFailure(t, km)
+	reason := startAndWaitForFailure(t, km, func(database.ReplicationMetric) {})
 
-	assert.Equal(t, "topic discovery failed: failed to create source admin client: source unreachable", reason)
+	assert.Equal(t, "topic discovery failed: target topic big is mapped from multiple sources: big and ev.a", reason)
 	assert.True(t, flags.consumer.Load())
 	assert.True(t, flags.producer.Load())
 }
@@ -95,9 +96,55 @@ func TestConsumerPanicStopsJobAndClosesClients(t *testing.T) {
 	km.Consumer.Client.(*mocks.MockKgoClient).CloseFunc = func() { closed.consumer.Store(true) }
 	km.SetRecordHook(func(string, []byte, []byte) { panic("hook exploded") })
 
-	reason := startAndWaitForFailure(t, km)
+	reason := startAndWaitForFailure(t, km, func(database.ReplicationMetric) {})
 
 	assert.Equal(t, "consumer panic: hook exploded", reason)
 	assert.True(t, closed.consumer.Load())
 	assert.Empty(t, log.get())
+}
+
+func TestMetricsPanicStopsJobAndClosesClients(t *testing.T) {
+	km, flags := idleMirrorForTest(t, nil)
+	km.SetIntervalsForTest(time.Millisecond, 0)
+
+	reason := startAndWaitForFailure(t, km, func(database.ReplicationMetric) { panic("sink exploded") })
+
+	assert.Equal(t, "metrics panic: sink exploded", reason)
+	assert.True(t, flags.consumer.Load())
+	assert.True(t, flags.producer.Load())
+}
+
+type blockingAdmin struct {
+	fakeAdmin
+	enter func()
+}
+
+func (b *blockingAdmin) GetClusterInfo(ctx context.Context) (*kafka.ClusterInfo, error) {
+	b.enter()
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestStopDuringDiscoveryDoesNotFailJob(t *testing.T) {
+	entered := make(chan struct{})
+	var once sync.Once
+	restore := kafka.SetAdminClientFactoryForTest(func(config.ClusterConfig) (kafka.AdminClientAPI, error) {
+		return &blockingAdmin{fakeAdmin: fakeAdmin{info: &kafka.ClusterInfo{}}, enter: func() { once.Do(func() { close(entered) }) }}, nil
+	})
+	defer restore()
+	km, _ := idleMirrorForTest(t, nil)
+	require.NoError(t, km.AddRegexMapForTest("^big.*", "$0"))
+	km.SetIntervalsForTest(time.Hour, time.Millisecond)
+	var failures atomic.Int32
+	km.Start("job-33", func(database.ReplicationMetric) {}, func(string, string) { failures.Add(1) })
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("discovery did not start")
+	}
+
+	km.Stop()
+	km.WaitForFailureReportsForTest()
+
+	assert.Equal(t, int32(0), failures.Load())
 }

@@ -476,11 +476,6 @@ func (jm *JobManager) RestartJob(jobID string) error {
 		return fmt.Errorf("failed to start job after restart: %v", err)
 	}
 
-	job.Status = "active"
-	if err := database.UpdateJob(jm.Db, job); err != nil {
-		return fmt.Errorf("failed to update job status after restart: %v", err)
-	}
-
 	return nil
 }
 
