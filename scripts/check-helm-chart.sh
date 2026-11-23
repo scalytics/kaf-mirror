@@ -35,7 +35,7 @@ if grep -q "scheme: https" <<<"$monitor_out"; then
   fail "default ServiceMonitor scrapes HTTPS"
 fi
 
-tls_mon_out=$(helm template km "$chart"   --api-versions monitoring.coreos.com/v1   --set config.server.tls.existingSecret=km-tls   --set config.server.allowInsecure=false)
+tls_mon_out=$(helm template km "$chart" --api-versions monitoring.coreos.com/v1 --set config.server.tls.existingSecret=km-tls --set config.server.allowInsecure=false)
 grep -q "kind: ServiceMonitor" <<<"$tls_mon_out" || fail "ServiceMonitor is not rendered with TLS"
 grep -q "scheme: https" <<<"$tls_mon_out" || fail "tls ServiceMonitor does not scrape HTTPS"
 
