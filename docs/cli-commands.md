@@ -800,7 +800,7 @@ mirror-cli login [username] [flags]
 ### Options
 
 ```
-  -, --password string   User's password
+  -, --password string   User's password. Leave it out to be asked without echo, or pipe it on stdin when there is no terminal
 ```
 
 ### mirror-cli logout
@@ -981,13 +981,7 @@ This command adds a new user with the specified username and password.
 ### Usage
 
 ```
-mirror-cli users add [flags]
-```
-
-### Options
-
-```
-  -, --password string   User's password
+mirror-cli users add
 ```
 
 #### mirror-cli users change-password
@@ -1039,7 +1033,7 @@ mirror-cli users reset-password [username] [flags]
 ### Options
 
 ```
-  -, --password-file string   Write new password to file instead of stdout
+  -, --password-file string   File for the new password, created with mode 0600. Default: a new file in the temp directory
 ```
 
 #### mirror-cli users reset-token

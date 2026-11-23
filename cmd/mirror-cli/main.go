@@ -218,9 +218,10 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			password, _ := cmd.Flags().GetString("password")
 			if password == "" {
-				prompt := &survey.Password{Message: "Password:"}
-				if err := survey.AskOne(prompt, &password); err != nil {
-					fmt.Println("Login cancelled.")
+				var err error
+				password, err = readSecret("Password:")
+				if err != nil {
+					fmt.Printf("Login cancelled: %v\n", err)
 					return
 				}
 			}
@@ -258,7 +259,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			fmt.Println("Login successful. Token stored.")
 		},
 	}
-	loginCmd.Flags().String("password", "", "User's password")
+	loginCmd.Flags().String("password", "", "User's password. Leave it out to be asked without echo, or pipe it on stdin when there is no terminal")
 
 	var usersCmd = &cobra.Command{
 		Use:   "users",
@@ -383,17 +384,24 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				return
 			}
 
+			secretFile, err := writePasswordFile("", password)
+			if err != nil {
+				fmt.Printf("Error: User created, but the password file could not be written: %v\n", err)
+				fmt.Printf("Run 'mirror-cli users reset-password %s' to set a new password.\n", username)
+				return
+			}
+
 			fmt.Println("=================================================================")
 			fmt.Println("  USER CREATED")
 			fmt.Println("=================================================================")
 			fmt.Printf("  Username: %s\n", username)
 			fmt.Println("  Password: [REDACTED]")
+			fmt.Printf("  Password File: %s\n", secretFile)
 			fmt.Println("=================================================================")
 			fmt.Println("  Deliver credentials securely to the user.")
 			fmt.Println("=================================================================")
 		},
 	}
-	addUserCmd.Flags().String("password", "", "User's password")
 
 	var setUserRoleCmd = &cobra.Command{
 		Use:   "set-role [username] [role]",
@@ -646,45 +654,17 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			}
 
 			newPassword := resetResp["new_password"]
-			outputPath := passwordFile
-			if outputPath == "" {
-				file, err := os.CreateTemp("", "kaf-mirror-password-*.txt")
-				if err != nil {
-					fmt.Printf("Error: Failed to create password file: %v\n", err)
-					return
-				}
-				outputPath = file.Name()
-				if _, err := file.WriteString(newPassword + "\n"); err != nil {
-					file.Close()
-					fmt.Printf("Error: Failed to write password file: %v\n", err)
-					return
-				}
-				if err := file.Close(); err != nil {
-					fmt.Printf("Error: Failed to close password file: %v\n", err)
-					return
-				}
-			} else {
-				file, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-				if err != nil {
-					fmt.Printf("Error: Failed to open password file: %v\n", err)
-					return
-				}
-				if _, err := file.WriteString(newPassword + "\n"); err != nil {
-					file.Close()
-					fmt.Printf("Error: Failed to write password file: %v\n", err)
-					return
-				}
-				if err := file.Close(); err != nil {
-					fmt.Printf("Error: Failed to close password file: %v\n", err)
-					return
-				}
+			outputPath, err := writePasswordFile(passwordFile, newPassword)
+			if err != nil {
+				fmt.Printf("Error: Failed to write password file: %v\n", err)
+				return
 			}
 			fmt.Println("=================================================================")
 			fmt.Println("  PASSWORD RESET SUCCESSFUL")
 			fmt.Println("=================================================================")
 			fmt.Printf("  Username: %s\n", username)
 			fmt.Println("  New Password: ********")
-			fmt.Println("  Password File: [REDACTED]")
+			fmt.Printf("  Password File: %s\n", outputPath)
 			fmt.Println("=================================================================")
 			fmt.Println("  Please provide this password to the user securely.")
 			fmt.Println("  Delete the password file after delivery.")
@@ -692,7 +672,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			fmt.Println("=================================================================")
 		},
 	}
-	resetUserPasswordCmd.Flags().StringVar(&passwordFile, "password-file", "", "Write new password to file instead of stdout")
+	resetUserPasswordCmd.Flags().StringVar(&passwordFile, "password-file", "", "File for the new password, created with mode 0600. Default: a new file in the temp directory")
 
 	usersCmd.AddCommand(listUsersCmd, addUserCmd, setUserRoleCmd, resetTokenCmd, deleteUserCmd, resetUserPasswordCmd)
 
@@ -1561,7 +1541,6 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			}
 
 			fmt.Printf("Username: %s\n", user["username"])
-			fmt.Printf("Token: %s\n", token)
 			fmt.Printf("Role: %s\n", user["role"])
 		},
 	}
@@ -1766,12 +1745,11 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 func main() {
 	rootCmd := NewRootCmd()
 
-	rootCmd.ParseFlags(os.Args[1:])
-
-	args := rootCmd.Flags().Args()
-	hasSubcommand := len(args) > 0
-
-	if !hasSubcommand {
+	if wantsInteractiveShell(rootCmd, os.Args[1:]) {
+		if !stdioIsTerminal() {
+			fmt.Fprintln(os.Stderr, noTerminalShellMessage)
+			os.Exit(1)
+		}
 		httpsUrl := strings.Replace(BackendURL, "http://", "https://", 1)
 		_, err := http.Get(httpsUrl)
 		if err == nil {
@@ -1990,8 +1968,10 @@ func SaveToken(token string) error {
 	if err := os.MkdirAll(tokenDir, 0700); err != nil {
 		return err
 	}
-	tokenPath := filepath.Join(tokenDir, "token")
-	return ioutil.WriteFile(tokenPath, []byte(token), 0600)
+	if err := os.Chmod(tokenDir, 0700); err != nil {
+		return err
+	}
+	return writePrivateFile(filepath.Join(tokenDir, "token"), token)
 }
 
 func ClearToken() error {
@@ -2579,6 +2559,10 @@ func configureAI(configData *configData) {
 }
 
 func runDashboard(cmd *cobra.Command, args []string) {
+	if !stdioIsTerminal() {
+		fmt.Fprintln(os.Stderr, "Error: the dashboard needs a terminal on stdin and stdout.")
+		os.Exit(1)
+	}
 	token, err := LoadToken()
 	if err != nil {
 		log.Fatalf("You must be logged in to perform this action. Please run 'mirror-cli login'.")
@@ -4859,10 +4843,7 @@ func maskSensitiveValue(value interface{}) string {
 	if val == "" || val == "not set" {
 		return val
 	}
-	if len(val) <= 4 {
-		return "****"
-	}
-	return val[:4] + "****"
+	return "********"
 }
 
 func configureAIProvider(provider string) {
@@ -6167,7 +6148,7 @@ func updateConfigParameter(path, value string) {
 		return
 	}
 
-	fmt.Printf("Successfully updated %s = %s\n", path, value)
+	fmt.Printf("Successfully updated %s = %s\n", path, displayConfigValue(path, value))
 }
 
 // shouldConvertToInt determines if a config path should have its value converted to integer

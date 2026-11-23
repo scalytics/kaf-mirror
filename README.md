@@ -302,7 +302,17 @@ Before you can use the `mirror-cli`, you need to log in to the backend:
 ./mirror-cli login <username>
 ```
 
-It asks for the password without echo. Do not pass `--password`, because the password then ends up in the shell history and the process list. This will authenticate with the API and store a session token securely on your local machine.
+It asks for the password without echo. Do not pass `--password`, because the password then ends up in the shell history and the process list. This will authenticate with the API and store a session token in `~/.kaf-mirror/token` with mode `0600`.
+
+Without a terminal, for example in a script, `login` reads the password from the first line of stdin:
+
+```bash
+read -rs KM_PASSWORD
+printf '%s\n' "$KM_PASSWORD" | ./mirror-cli login admin@localhost
+unset KM_PASSWORD
+```
+
+Running `mirror-cli` without a command starts the interactive shell, which needs a terminal on stdin and stdout. Without one it prints an error and exits with status 1. `mirror-cli --help` and the other commands work without a terminal. `mirror-cli dashboard` also needs a terminal.
 
 **Configuration Management**
 
@@ -336,11 +346,11 @@ It asks for the password without echo. Do not pass `--password`, because the pas
 **User Management**
 
 - `./mirror-cli users list`: Lists all users. Requires `users:list` permission.
-- `./mirror-cli users add`: Adds a new user with interactive prompts and generated password. Requires `users:create` permission. Operators can only create users with the `monitoring` role.
+- `./mirror-cli users add`: Adds a new user with interactive prompts and a generated password. The password is written to a new mode `0600` file in the temp directory, and only the file path is printed. Requires `users:create` permission. Operators can only create users with the `monitoring` role.
 - `./mirror-cli users set-role <username> <role>`: Sets a user's role. Requires `users:assign-roles` permission. Users cannot change their own role.
-- `./mirror-cli users reset-password [username]`: Reset another user's password and generate a new secure password. **Admin only**. Cannot reset own password. The new password is written to a file (temp by default or `--password-file`).
+- `./mirror-cli users reset-password [username]`: Reset another user's password and generate a new secure password. **Admin only**. Cannot reset own password. The new password is written to a mode `0600` file (temp by default or `--password-file`), and the file path is printed.
 - `./mirror-cli users delete <username>`: Delete a user account. Requires `users:delete` permission.
-- `./mirror-cli whoami`: Displays information about the current user.
+- `./mirror-cli whoami`: Displays the username and role of the current user. It does not print the API token.
 - `./mirror-cli change-password`: Changes the current user's password.
 - `./mirror-cli reset-token`: Resets the current user's API token.
 
@@ -417,91 +427,87 @@ Automated scheduling is controlled by `compliance.schedule` (daily/weekly/monthl
 
 **d) Backup and Data Management**
 
-The `admin-cli` provides comprehensive backup, restore, and import capabilities for disaster recovery and system migration.
+The `admin-cli` provides backup, restore, and import commands for disaster recovery and system migration.
 
 **Backup Operations**
 
-Create backups of your kaf-mirror system data:
+`backup database` and `backup full` take a consistent copy of the SQLite database with `VACUUM INTO`. The copy includes writes that are still in the WAL file (`kaf-mirror.db-wal`), so you can run them while kaf-mirror runs. Every backup file is created with mode `0600`, because the database holds password hashes and API tokens and the config file can hold credentials, and `backup full` creates its directory with mode `0700`. A backup never overwrites an existing file: if the path exists, the command fails and leaves the file alone.
 
-- `./admin-cli backup database <output-path>`: Backup the SQLite database containing all jobs, users, clusters, and operational data. Automatically appends timestamp if extension not provided.
-- `./admin-cli backup config <output-path>`: Backup the configuration file. Use `--config-path` flag to specify custom config location.
-- `./admin-cli backup full <output-directory>`: Create complete system backup including database and configuration in a timestamped directory.
+- `./admin-cli backup database <output-path>`: Back up the SQLite database with all jobs, users, clusters and operational data. A path that does not end in `.db` gets `-backup-<timestamp>.db` added.
+- `./admin-cli backup config <output-path>`: Back up the configuration file. A path that does not end in `.yml` gets `-config-backup-<timestamp>.yml` added. Use `--config-path` to name the config file.
+- `./admin-cli backup full <output-directory>`: Write `database.db` and `config.yml` to a new `kaf-mirror-backup-<timestamp>` directory.
 
 Examples:
 ```bash
-# Backup database with auto-generated filename
 ./admin-cli backup database my-backup
-# Creates: my-backup-backup-20240813-150405.db
-
-# Backup configuration
-./admin-cli backup config config-backup --config-path configs/production.yml
-
-# Full system backup
-./admin-cli backup full /backup/location
-# Creates: /backup/location/kaf-mirror-backup-20240813-150405/
+./admin-cli backup database kaf-mirror-copy.db
+./admin-cli backup config config-backup --config-path configs/default.yml
+./admin-cli backup full /tmp/kaf-mirror-backups
+ls -l my-backup-backup-*.db config-backup-config-backup-*.yml /tmp/kaf-mirror-backups/kaf-mirror-backup-*/
 ```
+
+The first command writes `my-backup-backup-<timestamp>.db`, for example `my-backup-backup-20240813-150405.db`. The third writes `config-backup-config-backup-<timestamp>.yml`.
+
+For a backup of the database in the Helm chart, see "Back up the database" in [deploy/helm/kaf-mirror/README.md](deploy/helm/kaf-mirror/README.md).
 
 **Restore Operations**
 
-Restore from previously created backups:
+Stop kaf-mirror before you restore or import a database. The restore refuses to run while another process has the database open, which it detects by the `kaf-mirror.db-wal` file. It checks that the backup is a readable SQLite database, writes a copy next to the database, removes the old `-wal` and `-shm` files and then moves the copy in place with mode `0600`.
 
-- `./admin-cli restore database <backup-path>`: Restore database from backup file. **Warning: Overwrites current database.**
-- `./admin-cli restore config <backup-path>`: Restore configuration from backup. Use `--config-path` flag to specify target location.
+- `./admin-cli restore database <backup-path>`: Restore the database from a backup file. **Overwrites the current database.**
+- `./admin-cli restore config <backup-path>`: Restore the configuration from a backup. Use `--config-path` to name the target file.
+
+Restore and import ask for confirmation. Without a terminal, for example in a script, they fail unless you pass `--yes`.
 
 Examples:
 ```bash
-# Restore database (requires confirmation)
 ./admin-cli restore database my-backup-backup-20240813-150405.db
-
-# Restore configuration to custom location
-./admin-cli restore config config-backup.yml --config-path configs/default.yml
+./admin-cli restore config config-backup-config-backup-20240813-150405.yml --config-path configs/default.yml
+./admin-cli restore database my-backup-backup-20240813-150405.db --yes
 ```
+
+Replace the timestamps with the ones of your backup files.
 
 **Import Operations**
 
-Import data from external kaf-mirror instances or other sources:
+Import data from another kaf-mirror instance. `import database` and `import full` replace the database the same way as `restore database`.
 
-- `./admin-cli import database <source-path>`: Import database from another kaf-mirror instance. **Replaces current database.**
-- `./admin-cli import config <source-path>`: Import configuration from external source.
-- `./admin-cli import full <source-directory>`: Import complete system from external backup directory.
+- `./admin-cli import database <source-path>`: Import the database of another kaf-mirror instance. **Replaces the current database.**
+- `./admin-cli import config <source-path>`: Import a configuration file.
+- `./admin-cli import full <source-directory>`: Import `database.db` and `config.yml` from a `backup full` directory.
 
 Examples:
 ```bash
-# Import database from another system
 ./admin-cli import database /path/to/external/kaf-mirror.db
-
-# Import configuration
 ./admin-cli import config /path/to/external/config.yml
-
-# Import full system backup
-./admin-cli import full /path/to/kaf-mirror-backup-20240813-150405/
+./admin-cli import full /tmp/kaf-mirror-backups/kaf-mirror-backup-20240813-150405
 ```
 
 **Backup Best Practices**
 
-- **Regular Backups**: Schedule daily database backups using cron jobs
-- **Configuration Versioning**: Backup configuration before making changes
-- **Migration Support**: Use full backups when migrating between environments
-- **Disaster Recovery**: Store backups in separate location from production system
-- **Testing**: Regularly test restore procedures in non-production environment
+- **Regular Backups**: Schedule daily database backups, for example with cron. Each run needs a new file name, so keep the default timestamped name or add the date.
+- **Configuration Versioning**: Back up the configuration before you change it.
+- **Migration Support**: Use full backups when you move between environments.
+- **Disaster Recovery**: Store backups away from the production system, readable only by the operators.
+- **Testing**: Test the restore regularly in a non-production environment.
 
 **Migration Workflow**
 
 To migrate kaf-mirror between systems:
 
-1. **Source System**: Create full backup
+1. **Source system**: create a full backup.
    ```bash
    ./admin-cli backup full /tmp/migration-backup
    ```
 
-2. **Target System**: Import full backup
+2. **Target system**: stop kaf-mirror, copy the backup directory over and import it.
    ```bash
    ./admin-cli import full /tmp/migration-backup/kaf-mirror-backup-20240813-150405
    ```
 
-3. **Verification**: Verify all clusters, jobs, and users migrated correctly
+3. **Verification**: start kaf-mirror and check that all clusters, jobs and users were migrated.
    ```bash
-   ./mirror-cli login <username>
+   ./mirror-cli login admin@localhost
    ./mirror-cli clusters list
    ./mirror-cli jobs list
    ```

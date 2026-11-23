@@ -40,7 +40,7 @@ func copyFile(src, dst string) error {
 	}
 	defer sourceFile.Close()
 
-	destFile, err := os.Create(dst)
+	destFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, privateFileMode)
 	if err != nil {
 		return err
 	}
@@ -348,7 +348,7 @@ and for emergency maintenance. It interacts directly with the database.`,
 				outputPath = fmt.Sprintf("%s-backup-%s.db", strings.TrimSuffix(outputPath, filepath.Ext(outputPath)), timestamp)
 			}
 
-			if err := copyFile(dbPath, outputPath); err != nil {
+			if err := backupDatabase(db, outputPath); err != nil {
 				log.Fatalf("Failed to backup database: %v", err)
 			}
 
@@ -373,7 +373,7 @@ and for emergency maintenance. It interacts directly with the database.`,
 				outputPath = fmt.Sprintf("%s-config-backup-%s.yml", strings.TrimSuffix(outputPath, filepath.Ext(outputPath)), timestamp)
 			}
 
-			if err := copyFile(configPath, outputPath); err != nil {
+			if err := copyPrivateFile(configPath, outputPath); err != nil {
 				log.Fatalf("Failed to backup configuration: %v", err)
 			}
 
@@ -392,19 +392,22 @@ and for emergency maintenance. It interacts directly with the database.`,
 			timestamp := time.Now().Format("20060102-150405")
 			backupDir := filepath.Join(outputDir, fmt.Sprintf("kaf-mirror-backup-%s", timestamp))
 
-			if err := os.MkdirAll(backupDir, 0755); err != nil {
+			if err := os.MkdirAll(backupDir, 0700); err != nil {
 				log.Fatalf("Failed to create backup directory: %v", err)
+			}
+			if err := os.Chmod(backupDir, 0700); err != nil {
+				log.Fatalf("Failed to set backup directory permissions: %v", err)
 			}
 
 			dbBackupPath := filepath.Join(backupDir, "database.db")
-			if err := copyFile(dbPath, dbBackupPath); err != nil {
+			if err := backupDatabase(db, dbBackupPath); err != nil {
 				log.Fatalf("Failed to backup database: %v", err)
 			}
 			fmt.Printf("Database backed up to: %s\n", dbBackupPath)
 
 			if _, err := os.Stat(configPath); err == nil {
 				configBackupPath := filepath.Join(backupDir, "config.yml")
-				if err := copyFile(configPath, configBackupPath); err != nil {
+				if err := copyPrivateFile(configPath, configBackupPath); err != nil {
 					log.Fatalf("Failed to backup configuration: %v", err)
 				}
 				fmt.Printf("Configuration backed up to: %s\n", configBackupPath)
@@ -432,17 +435,17 @@ and for emergency maintenance. It interacts directly with the database.`,
 				log.Fatalf("Backup file not found: %s", backupPath)
 			}
 
-			confirm := false
-			prompt := &survey.Confirm{
-				Message: "This will overwrite the current database. Are you sure?",
+			confirm, err := confirmAction(cmd, "This will overwrite the current database. Are you sure?")
+			if err != nil {
+				log.Fatalf("Restore cancelled: %v", err)
 			}
-			survey.AskOne(prompt, &confirm)
 			if !confirm {
 				fmt.Println("Restore cancelled.")
 				return
 			}
 
-			if err := copyFile(backupPath, dbPath); err != nil {
+			closeDB()
+			if err := restoreDatabase(backupPath, dbPath); err != nil {
 				log.Fatalf("Failed to restore database: %v", err)
 			}
 
@@ -462,11 +465,10 @@ and for emergency maintenance. It interacts directly with the database.`,
 				log.Fatalf("Backup file not found: %s", backupPath)
 			}
 
-			confirm := false
-			prompt := &survey.Confirm{
-				Message: "This will overwrite the current configuration. Are you sure?",
+			confirm, err := confirmAction(cmd, "This will overwrite the current configuration. Are you sure?")
+			if err != nil {
+				log.Fatalf("Restore cancelled: %v", err)
 			}
-			survey.AskOne(prompt, &confirm)
 			if !confirm {
 				fmt.Println("Restore cancelled.")
 				return
@@ -500,17 +502,17 @@ and for emergency maintenance. It interacts directly with the database.`,
 			}
 
 			if !merge {
-				confirm := false
-				prompt := &survey.Confirm{
-					Message: "This will replace the current database. Use --merge to merge instead. Continue?",
+				confirm, err := confirmAction(cmd, "This will replace the current database. Use --merge to merge instead. Continue?")
+				if err != nil {
+					log.Fatalf("Import cancelled: %v", err)
 				}
-				survey.AskOne(prompt, &confirm)
 				if !confirm {
 					fmt.Println("Import cancelled.")
 					return
 				}
 
-				if err := copyFile(sourcePath, dbPath); err != nil {
+				closeDB()
+				if err := restoreDatabase(sourcePath, dbPath); err != nil {
 					log.Fatalf("Failed to import database: %v", err)
 				}
 				fmt.Printf("Database imported from: %s\n", sourcePath)
@@ -533,11 +535,10 @@ and for emergency maintenance. It interacts directly with the database.`,
 				log.Fatalf("Source configuration not found: %s", sourcePath)
 			}
 
-			confirm := false
-			prompt := &survey.Confirm{
-				Message: "This will overwrite the current configuration. Are you sure?",
+			confirm, err := confirmAction(cmd, "This will overwrite the current configuration. Are you sure?")
+			if err != nil {
+				log.Fatalf("Import cancelled: %v", err)
 			}
-			survey.AskOne(prompt, &confirm)
 			if !confirm {
 				fmt.Println("Import cancelled.")
 				return
@@ -567,18 +568,18 @@ and for emergency maintenance. It interacts directly with the database.`,
 				log.Fatalf("Source directory not found: %s", sourceDir)
 			}
 
-			confirm := false
-			prompt := &survey.Confirm{
-				Message: "This will overwrite database and configuration. Are you sure?",
+			confirm, err := confirmAction(cmd, "This will overwrite database and configuration. Are you sure?")
+			if err != nil {
+				log.Fatalf("Import cancelled: %v", err)
 			}
-			survey.AskOne(prompt, &confirm)
 			if !confirm {
 				fmt.Println("Import cancelled.")
 				return
 			}
 
 			if _, err := os.Stat(dbSourcePath); err == nil {
-				if err := copyFile(dbSourcePath, dbPath); err != nil {
+				closeDB()
+				if err := restoreDatabase(dbSourcePath, dbPath); err != nil {
 					log.Fatalf("Failed to import database: %v", err)
 				}
 				fmt.Printf("Database imported from: %s\n", dbSourcePath)
@@ -599,6 +600,8 @@ and for emergency maintenance. It interacts directly with the database.`,
 		},
 	}
 	importFullCmd.Flags().String("config-path", "configs/default.yml", "Path to configuration file")
+
+	addYesFlag(restoreDatabaseCmd, restoreConfigCmd, importDatabaseCmd, importConfigCmd, importFullCmd)
 
 	backupCmd.AddCommand(backupDatabaseCmd, backupConfigCmd, backupFullCmd)
 	restoreCmd.AddCommand(restoreDatabaseCmd, restoreConfigCmd)

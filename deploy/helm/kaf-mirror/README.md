@@ -42,6 +42,18 @@ kubectl exec deploy/km-kaf-mirror -- sh -c 'cat /tmp/kaf-mirror-admin-reset-*'
 kubectl exec deploy/km-kaf-mirror -- sh -c 'rm /tmp/kaf-mirror-admin-reset-*'
 ```
 
+## Back up the database
+
+The database is `/app/data/kaf-mirror.db` on the PVC. `admin-cli backup database` takes a consistent copy with `VACUUM INTO` while the pod runs, including writes still in the WAL file, and creates it with mode `0600`. Write the backup to the PVC, copy it out with a private umask, then delete it in the pod:
+
+```bash
+kubectl exec deploy/km-kaf-mirror -- ./admin-cli --db-path /app/data/kaf-mirror.db backup database /app/data/kaf-mirror-backup.db
+(umask 077 && kubectl exec deploy/km-kaf-mirror -- cat /app/data/kaf-mirror-backup.db > kaf-mirror-backup.db)
+kubectl exec deploy/km-kaf-mirror -- rm /app/data/kaf-mirror-backup.db
+```
+
+The backup refuses to overwrite an existing file, so delete the old copy in the pod first or pick a new name. `admin-cli restore database` refuses to replace a database that another process has open, so it cannot run in the kaf-mirror pod while the server runs. To restore, scale the deployment to 0 and run `admin-cli restore database` in a separate pod that mounts the same PVC. The chart has no helper for that yet. See "Backup and Data Management" in the main README.
+
 ## TLS
 
 Create a TLS Secret from your certificate and key files, then point the chart at it. The Secret is mounted read-only at `/app/tls`, the liveness and readiness probes switch to HTTPS, and the ServiceMonitor scrapes HTTPS (it skips certificate verification, as the kubelet probes do).

@@ -950,7 +950,7 @@
 <br>
 <h3 id="options">Options</h3>
 <br>
-<pre><code>  -, --password string   User&#39;s password
+<pre><code>  -, --password string   User&#39;s password. Leave it out to be asked without echo, or pipe it on stdin when there is no terminal
 </code></pre>
 <br>
 </div><div class="command-card" id="mirror-cli-logout"><h3 id="mirror-cli-logout">mirror-cli logout</h3>
@@ -1117,12 +1117,7 @@
 <br>
 <h3 id="usage">Usage</h3>
 <br>
-<pre><code>mirror-cli users add [flags]
-</code></pre>
-<br>
-<h3 id="options">Options</h3>
-<br>
-<pre><code>  -, --password string   User&#39;s password
+<pre><code>mirror-cli users add
 </code></pre>
 <br>
 <h4 id="mirror-cli-users-change-password">mirror-cli users change-password</h4>
@@ -1169,7 +1164,7 @@
 <br>
 <h3 id="options">Options</h3>
 <br>
-<pre><code>  -, --password-file string   Write new password to file instead of stdout
+<pre><code>  -, --password-file string   File for the new password, created with mode 0600. Default: a new file in the temp directory
 </code></pre>
 <br>
 <h4 id="mirror-cli-users-reset-token">mirror-cli users reset-token</h4>
