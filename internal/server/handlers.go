@@ -477,15 +477,13 @@ func (s *Server) handleTestClusterConnection(c *fiber.Ctx) error {
 	clusterConfig := database.ClusterConfigFromRow(req.KafkaCluster)
 	if req.Security != nil {
 		database.MergeSecurity(&clusterConfig.Security, *req.Security)
-		if clusterConfig.Security.APIKey != "" || clusterConfig.Security.Username != "" {
-			clusterConfig.Security.Enabled = true
-		}
 	}
+	database.EnableSecurityIfConfigured(&clusterConfig.Security)
 	if err := kafka.ValidateSecurity(clusterConfig); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), clusterTestTimeout)
+	ctx, cancel := context.WithTimeout(c.UserContext(), clusterTestTimeout)
 	defer cancel()
 	if err := kafka.TestConnection(ctx, clusterConfig); err != nil {
 		return fiber.NewError(fiber.StatusServiceUnavailable, fmt.Sprintf("Failed to connect to cluster: %v", err))
