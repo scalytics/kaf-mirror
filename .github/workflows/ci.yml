@@ -65,3 +65,18 @@ jobs:
         with:
           name: coverage.out
           path: coverage.out
+
+  helm:
+    name: Helm Chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+
+      - name: Lint and render the chart
+        run: make helm-check

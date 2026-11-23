@@ -8,16 +8,23 @@ replicaCount: 1
 service:
   type: ClusterIP
   port: 8088
-  targetPort: 8080
 
-# Kafka clusters — override per deployment. See configs/docker.yml for schema.
 config:
   server:
     host: "0.0.0.0"
     port: 8080
     mode: "production"
-  sourceBrokers: "kafscale-broker:9092"
-  targetBrokers: "kafscale-broker-standby:9092"
+    allowInsecure: true
+    tls:
+      existingSecret: ""
+      certKey: "tls.crt"
+      keyKey: "tls.key"
+    corsAllowedOrigins: ["*"]
+  logLevel: "INFO"
+  sourceBrokers: "kafka-source:9092"
+  targetBrokers: "kafka-target:9092"
+
+secretEnv: []
 
 persistence:
   enabled: true
@@ -34,24 +41,17 @@ resources:
 
 probes:
   liveness:
-    httpGet:
-      path: /health
-      port: 8080
     initialDelaySeconds: 15
     periodSeconds: 20
   readiness:
-    httpGet:
-      path: /health
-      port: 8080
     initialDelaySeconds: 5
     periodSeconds: 10
 
-# Alpine `adduser -S kaf-mirror` is UID/GID 100.
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 100
-  runAsGroup: 100
-  fsGroup: 100
+  runAsGroup: 101
+  fsGroup: 101
   seccompProfile:
     type: RuntimeDefault
 
@@ -69,14 +69,11 @@ serviceAccount:
   name: ""
   annotations: {}
 
-labels:
-  app.kubernetes.io/part-of: ops-foundation
+labels: {}
 
-# /metrics is unauthenticated Go runtime metrics.
 metrics:
   enabled: true
   path: "/metrics"
-  port: 8088
   serviceMonitor:
     labels: {}
     interval: 30s

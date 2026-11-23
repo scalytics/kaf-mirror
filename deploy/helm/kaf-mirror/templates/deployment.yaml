@@ -7,6 +7,8 @@ metadata:
     {{- include "kaf-mirror.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "kaf-mirror.selectorLabels" . | nindent 6 }}
@@ -24,15 +26,35 @@ spec:
         - name: kaf-mirror
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: CONFIG_PATH
+              value: /app/configs/default.yml
+            - name: KAF_MIRROR_SERVER_HOST
+              value: {{ .Values.config.server.host | quote }}
+            {{- range .Values.secretEnv }}
+            - name: {{ .name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secretName }}
+                  key: {{ .key }}
+            {{- end }}
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: {{ .Values.config.server.port }}
               protocol: TCP
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: {{ if .Values.config.server.tls.existingSecret }}HTTPS{{ else }}HTTP{{ end }}
             {{- toYaml .Values.probes.liveness | nindent 12 }}
           readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: {{ if .Values.config.server.tls.existingSecret }}HTTPS{{ else }}HTTP{{ end }}
             {{- toYaml .Values.probes.readiness | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
@@ -40,24 +62,51 @@ spec:
             - name: config
               mountPath: /app/configs
               readOnly: true
-            {{- if .Values.persistence.enabled }}
             - name: data
               mountPath: /app/data
-            {{- end }}
+            - name: logs
+              mountPath: /app/logs
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.config.server.tls.existingSecret }}
+            - name: tls
+              mountPath: /app/tls
+              readOnly: true
+            {{- end }}
       volumes:
         - name: config
           configMap:
             name: {{ include "kaf-mirror.fullname" . }}-config
-        {{- if .Values.persistence.enabled }}
         - name: data
+          {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:
             claimName: {{ include "kaf-mirror.fullname" . }}-data
-        {{- end }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: logs
+          emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- if .Values.config.server.tls.existingSecret }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.config.server.tls.existingSecret }}
+            items:
+              - key: {{ .Values.config.server.tls.certKey }}
+                path: {{ .Values.config.server.tls.certKey }}
+              - key: {{ .Values.config.server.tls.keyKey }}
+                path: {{ .Values.config.server.tls.keyKey }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}

@@ -110,34 +110,54 @@ for Kafka connectivity checks, is listed at [scalytics.io/open-source](https://w
   ```bash
   make dev-up   # uses docker compose
   ```
-- The UI/API is at `http://localhost:8080` (`server.host` defaults to `localhost`). Production requires TLS unless `server.allow_insecure` is set.
-- Stop and clean:
+- The UI/API is at `http://localhost:8080`. The compose file uses `configs/docker.yml`, which binds `0.0.0.0` so the published port answers. Production requires TLS unless `server.allow_insecure` is set.
+- Data and logs are in the Docker volumes `kaf-mirror_kaf-mirror-data` (`/app/data`) and `kaf-mirror_kaf-mirror-logs` (`/app/logs`). They are kept when the container restarts or is recreated.
+- Stop and clean. This also deletes the data and log volumes:
   ```bash
   make dev-down
   ```
-- Data and logs are under `./data` and `./logs`.
 
-Admin bootstrap is automatic: on first start, the server seeds roles/permissions and creates `admin@localhost` with a random password printed in the logs. If you need to recreate roles or (re)bootstrap when the DB is empty:
+Admin bootstrap is automatic. On first start, the server seeds roles and permissions and creates `admin@localhost` with a random password. The password is not printed. The server writes it to a file named `kaf-mirror-bootstrap-<random>` in the database directory, readable only by the kaf-mirror user, and prints the file path in the log. In the container that directory is `/app/data`, so the file is on the data volume and survives a restart. Read the password, deliver it securely, then delete the file:
 ```bash
-docker-compose -p kaf-mirror exec kaf-mirror ./admin-cli repair
+docker compose -p kaf-mirror logs kaf-mirror | grep "Password File"
+docker compose -p kaf-mirror exec kaf-mirror sh -c 'cat /app/data/kaf-mirror-bootstrap-*'
+docker compose -p kaf-mirror exec kaf-mirror sh -c 'rm /app/data/kaf-mirror-bootstrap-*'
+```
+If you need to recreate roles or bootstrap again when the DB is empty:
+```bash
+docker compose -p kaf-mirror exec kaf-mirror ./admin-cli repair
 ```
 To reset the initial admin password:
 ```bash
-docker-compose -p kaf-mirror exec kaf-mirror ./admin-cli reset-admin-password admin@localhost
+docker compose -p kaf-mirror exec kaf-mirror ./admin-cli reset-admin-password admin@localhost
 ```
 
 ### 1b. Run from prebuilt image (GHCR)
 
-You can pull and run the published container without building locally:
+You can pull and run the published container without building locally. Keep `/app/data` (SQLite and the bootstrap password file) and `/app/logs` on named volumes so they survive a restart or a new container:
 ```bash
 docker pull ghcr.io/scalytics/kaf-mirror:v1.3.1
-docker run -p 8080:8080 ghcr.io/scalytics/kaf-mirror:v1.3.1
+docker run -d --name kaf-mirror -p 8080:8080 \
+  -v kaf-mirror-data:/app/data \
+  -v kaf-mirror-logs:/app/logs \
+  ghcr.io/scalytics/kaf-mirror:v1.3.1
 ```
 You can also use the `latest` tag if you prefer:
 ```bash
 docker pull ghcr.io/scalytics/kaf-mirror:latest
 ```
-The UI/API will be at `http://localhost:8080`.
+The UI/API will be at `http://localhost:8080`:
+```bash
+curl -s http://localhost:8080/health
+```
+The image sets `KAF_MIRROR_SERVER_HOST=0.0.0.0`, so the server listens on all container interfaces. The bundled `configs/default.yml` keeps `host: "localhost"` for runs outside Docker. To listen on another address, pass `-e KAF_MIRROR_SERVER_HOST=<address>`. The image runs in `development` mode. If you mount a config with `mode: "production"`, give it TLS or set `server.allow_insecure`.
+
+Read the bootstrap admin password, then delete the file:
+```bash
+docker logs kaf-mirror | grep "Password File"
+docker exec kaf-mirror sh -c 'cat /app/data/kaf-mirror-bootstrap-*'
+docker exec kaf-mirror sh -c 'rm /app/data/kaf-mirror-bootstrap-*'
+```
 
 ## What a Copied Record Keeps
 
@@ -192,7 +212,7 @@ All ongoing management is performed via the `mirror-cli`, which interacts with t
 
 **a) Initial Setup & Configuration**
 
-The server auto-bootstraps on first start: it seeds default roles/permissions and creates `admin@localhost` with a random password printed once in the logs. For repairs or reseeding when empty, use:
+The server auto-bootstraps on first start: it seeds default roles/permissions and creates `admin@localhost` with a random password. The password is written to a `kaf-mirror-bootstrap-<random>` file next to the database, readable only by the kaf-mirror user, and the log prints the file path. Read it, deliver it securely, and delete the file. For repairs or reseeding when empty, use:
 ```bash
 ./admin-cli repair
 ```
@@ -451,6 +471,22 @@ This will create a deployment, a service, a persistent volume claim, a configmap
 *   **`k8s/secrets.yaml`**: This file provides a template for managing secrets. You will need to add your base64-encoded secrets (e.g., TLS keys, API tokens) to this file.
 *   **`k8s/deployment.yaml`**: This file defines the deployment of the application. It is configured to use the `ConfigMap` for configuration, the `PersistentVolumeClaim` for data storage, and the `Secret` for sensitive information.
 *   **`k8s/service.yaml`**: This file exposes the application via a `LoadBalancer` service.
+
+### 5. Run with Helm
+
+The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health`:
+
+```bash
+helm install km deploy/helm/kaf-mirror --wait
+kubectl port-forward svc/km-kaf-mirror 8088:8088
+```
+
+*   **TLS:** by default the server runs without TLS (`config.server.allowInsecure: true`). For production, create a TLS Secret, set `config.server.tls.existingSecret` to its name and `config.server.allowInsecure` to `false`. The Secret is mounted at `/app/tls` and the probes use HTTPS.
+*   **Tokens:** `secretEnv` sets `KAF_MIRROR_AI_TOKEN`, `KAF_MIRROR_AI_API_SECRET` or `KAF_MIRROR_MONITORING_SPLUNK_HEC_TOKEN` from a Secret key. Do not pass secrets with `--set`.
+*   **Upgrades:** the Deployment uses the `Recreate` strategy, because SQLite on a ReadWriteOnce volume must not be opened by two pods. Keep one replica.
+*   **Bootstrap password:** it is written to `/app/data/kaf-mirror-bootstrap-<random>` on the PVC. Read it with `kubectl exec deploy/km-kaf-mirror -- sh -c 'cat /app/data/kaf-mirror-bootstrap-*'`, then delete the file.
+
+All values are listed in [deploy/helm/kaf-mirror/README.md](deploy/helm/kaf-mirror/README.md).
 
 ## Security
 
