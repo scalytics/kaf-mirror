@@ -31,6 +31,7 @@ const (
 )
 
 type Sample struct {
+	Job        string
 	Consumed   int64
 	Produced   int64
 	Bytes      int64
@@ -56,7 +57,7 @@ type Controller struct {
 	mu        sync.Mutex
 	db        *sqlx.DB
 	cfg       config.ProtectionConfig
-	samples   []timedSample
+	samples   map[string][]timedSample
 	hits      []ingestHit
 	baselines map[string]*topicBaseline
 }
@@ -152,19 +153,26 @@ func (c *Controller) Observe(s Sample) (haltReason string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := time.Now()
-	c.samples = append(c.samples, timedSample{at: now, s: s})
+	if c.samples == nil {
+		c.samples = make(map[string][]timedSample)
+	}
+	samples := c.samples[s.Job]
+	if n := len(samples); n > 0 && countersDropped(samples[n-1].s, s) {
+		samples = nil
+	}
+	samples = append(samples, timedSample{at: now, s: s})
 	cutoff := now.Add(-time.Minute)
-	kept := c.samples[:0]
-	for _, sample := range c.samples {
+	kept := samples[:0]
+	for _, sample := range samples {
 		if sample.at.After(cutoff) {
 			kept = append(kept, sample)
 		}
 	}
-	c.samples = kept
-	if len(c.samples) < 2 {
+	c.samples[s.Job] = kept
+	if len(kept) < 2 {
 		return ""
 	}
-	first, last := c.samples[0].s, c.samples[len(c.samples)-1].s
+	first, last := kept[0].s, kept[len(kept)-1].s
 	consumed := last.Consumed - first.Consumed
 	tombstones := last.Tombstones - first.Tombstones
 	errors := last.Errors - first.Errors
@@ -205,7 +213,7 @@ func (c *Controller) Observe(s Sample) (haltReason string) {
 	if errors >= int64(burst) {
 		return fmt.Sprintf("auto-halt: produce/auth error storm (%d errors in 60s)", errors)
 	}
-	if produced > 20 && last.Lag+int64(len(c.samples)) < first.Lag && first.Lag > 100 {
+	if produced > 20 && last.Lag+int64(len(kept)) < first.Lag && first.Lag > 100 {
 		avgOld := float64(first.Bytes+1) / float64(first.Produced+1)
 		avgNew := float64(bytes+1) / float64(produced+1)
 		if avgNew > avgOld*8 {
@@ -213,6 +221,11 @@ func (c *Controller) Observe(s Sample) (haltReason string) {
 		}
 	}
 	return ""
+}
+
+func countersDropped(prev, next Sample) bool {
+	return next.Consumed < prev.Consumed || next.Produced < prev.Produced || next.Bytes < prev.Bytes ||
+		next.Errors < prev.Errors || next.Tombstones < prev.Tombstones
 }
 
 func (c *Controller) tripwires() (fileHit, envHit bool) {

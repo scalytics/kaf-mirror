@@ -112,6 +112,8 @@ kaf-mirror samples records and will halt if:
 - A burst of produce/auth errors
 - Payloads get much larger while source lag suddenly drops
 
+The counter checks (empty values, errors, payload size) look at the reports of the last 60 seconds of one job. Reports of different jobs are never compared with each other, and when a job restarts its counters start a new window.
+
 These are heuristics. They can fire on a legitimate bulk rewrite. If you already know the source is bad, halt yourself; do not wait for auto.
 
 Automatic halt cannot see ransomware that only encrypts **S3 objects** under kafscale (for example SSE-C). That is outside the Kafka consume path. Already-written S3 objects staying read-only is still what saved data in the incident.

@@ -24,10 +24,12 @@ import (
 )
 
 type ConsumerMetrics struct {
-	RecordsProcessed int64
-	BytesProcessed   int64
-	ConsumerLag      int64
-	Tombstones       int64
+	RecordsProcessed  int64
+	BytesProcessed    int64
+	RecordsReplicated int64
+	BytesReplicated   int64
+	ConsumerLag       int64
+	Tombstones        int64
 }
 
 const (
@@ -44,6 +46,8 @@ type Consumer struct {
 	Client           KgoClient
 	recordsProcessed int64
 	bytesProcessed   int64
+	recordsAcked     int64
+	bytesAcked       int64
 	tombstones       int64
 	jobID            string
 	mu               sync.RWMutex
@@ -128,6 +132,7 @@ type partitionBatch struct {
 	status   []int
 	sends    []int
 	failures []int
+	acked    []bool
 	errs     []error
 	failedAt int
 	inflight int
@@ -181,6 +186,7 @@ func (c *Consumer) ConsumeAsync(ctx context.Context, handler AsyncHandler) error
 				status:   make([]int, len(partition.Records)),
 				sends:    make([]int, len(partition.Records)),
 				failures: make([]int, len(partition.Records)),
+				acked:    make([]bool, len(partition.Records)),
 				errs:     make([]error, len(partition.Records)),
 				failedAt: -1,
 			})
@@ -327,6 +333,12 @@ func (c *Consumer) recordDone(round *batchRound, b *partitionBatch, i int) func(
 			}
 			if err == nil {
 				b.status[i] = recordAcked
+				if !b.acked[i] {
+					b.acked[i] = true
+					record := b.records[i]
+					atomic.AddInt64(&c.recordsAcked, 1)
+					atomic.AddInt64(&c.bytesAcked, int64(len(record.Value)+len(record.Key)))
+				}
 			} else {
 				b.status[i] = recordFailed
 				b.failures[i]++
@@ -520,10 +532,12 @@ func (c *Consumer) GetMetrics() ConsumerMetrics {
 	c.mu.RUnlock()
 
 	return ConsumerMetrics{
-		RecordsProcessed: atomic.LoadInt64(&c.recordsProcessed),
-		BytesProcessed:   atomic.LoadInt64(&c.bytesProcessed),
-		ConsumerLag:      calculatedLag,
-		Tombstones:       atomic.LoadInt64(&c.tombstones),
+		RecordsProcessed:  atomic.LoadInt64(&c.recordsProcessed),
+		BytesProcessed:    atomic.LoadInt64(&c.bytesProcessed),
+		RecordsReplicated: atomic.LoadInt64(&c.recordsAcked),
+		BytesReplicated:   atomic.LoadInt64(&c.bytesAcked),
+		ConsumerLag:       calculatedLag,
+		Tombstones:        atomic.LoadInt64(&c.tombstones),
 	}
 }
 

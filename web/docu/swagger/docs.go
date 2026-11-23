@@ -1542,7 +1542,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get the current consumer lag for a replication job.",
+                "description": "Get the lag of the job consumer group kaf-mirror-job-{id} per mapped source topic: the sum over all partitions of the end offset minus the committed offset. A partition without a commit, or with a commit below the log start, counts from its log start offset, and a partition never counts below 0. A topic whose offsets cannot be read has an error string as its value.",
                 "produces": [
                     "application/json"
                 ],
@@ -1662,7 +1662,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get the latest replication metrics for a job.",
+                "description": "Get the totals of a job since it was created (messages, bytes, errors, tombstones) and the lag of the last sample.",
                 "produces": [
                     "application/json"
                 ],
@@ -1726,7 +1726,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/database.ReplicationMetric"
+                                "$ref": "#/definitions/database.AggregatedMetric"
                             }
                         }
                     }
@@ -3089,6 +3089,9 @@ const docTemplate = `{
                 "port": {
                     "type": "integer"
                 },
+                "shutdownTimeout": {
+                    "type": "string"
+                },
                 "tls": {
                     "type": "object",
                     "properties": {
@@ -3193,6 +3196,47 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "total_insights": {
+                    "type": "integer"
+                }
+            }
+        },
+        "database.AggregatedMetric": {
+            "type": "object",
+            "properties": {
+                "avg_lag": {
+                    "type": "number"
+                },
+                "avg_throughput": {
+                    "type": "number"
+                },
+                "bytes_consumed_delta": {
+                    "type": "integer"
+                },
+                "bytes_transferred_delta": {
+                    "type": "integer"
+                },
+                "error_count_delta": {
+                    "type": "integer"
+                },
+                "job_id": {
+                    "type": "string"
+                },
+                "messages_consumed_delta": {
+                    "type": "integer"
+                },
+                "messages_replicated_delta": {
+                    "type": "integer"
+                },
+                "period": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "tombstone_count_delta": {
+                    "type": "integer"
+                },
+                "total_errors": {
                     "type": "integer"
                 }
             }

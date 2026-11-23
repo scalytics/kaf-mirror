@@ -254,6 +254,7 @@ func TestMetricsAPI(t *testing.T) {
 	err := database.CreateJob(ctx.Server.Db, job)
 	assert.NoError(t, err)
 
+	recorder := database.NewMetricsRecorder()
 	metric1 := &database.ReplicationMetric{
 		JobID:              jobID,
 		MessagesReplicated: 100,
@@ -262,7 +263,7 @@ func TestMetricsAPI(t *testing.T) {
 		ErrorCount:         0,
 		Timestamp:          time.Now().Add(-10 * time.Second),
 	}
-	err = database.InsertMetrics(ctx.Server.Db, metric1)
+	err = recorder.Insert(ctx.Server.Db, metric1)
 	assert.NoError(t, err)
 
 	metric2 := &database.ReplicationMetric{
@@ -273,7 +274,7 @@ func TestMetricsAPI(t *testing.T) {
 		ErrorCount:         1,
 		Timestamp:          time.Now(),
 	}
-	err = database.InsertMetrics(ctx.Server.Db, metric2)
+	err = recorder.Insert(ctx.Server.Db, metric2)
 	assert.NoError(t, err)
 
 	req := httptest.NewRequest("GET", "/api/v1/jobs/"+jobID+"/metrics/history", nil)

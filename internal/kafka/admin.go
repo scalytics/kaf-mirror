@@ -175,6 +175,21 @@ func (a *AdminClient) GetClusterInfo(ctx context.Context) (*ClusterInfo, error) 
 		clusterInfo.Topics[topic] = topicInfo
 	}
 
+	names := make([]string, 0, len(clusterInfo.Topics))
+	for name := range clusterInfo.Topics {
+		names = append(names, name)
+	}
+	configs, err := a.describeTopicConfigs(ctx, names)
+	if err != nil {
+		logger.Warn("Could not read all topic configs, compression is reported as NONE for those topics: %v", err)
+	}
+	for name, values := range configs {
+		if info, ok := clusterInfo.Topics[name]; ok {
+			info.Config = values
+			clusterInfo.Topics[name] = info
+		}
+	}
+
 	logger.Info("Retrieved cluster info: %d brokers, %d topics", clusterInfo.BrokerCount, len(clusterInfo.Topics))
 	return clusterInfo, nil
 }
@@ -338,41 +353,60 @@ func EnsureTopicExistsForTest(ctx context.Context, client TopicCreator, topicNam
 	return ensureTopicExists(ctx, client, topicName, partitions, replicationFactor)
 }
 
+func (a *AdminClient) describeTopicConfigs(ctx context.Context, topicNames []string) (map[string]map[string]string, error) {
+	configs := make(map[string]map[string]string)
+	if len(topicNames) == 0 {
+		return configs, nil
+	}
+	described, err := a.client.DescribeTopicConfigs(ctx, topicNames...)
+	for _, topic := range described {
+		if topic.Err != nil {
+			logger.Warn("Could not describe config for topic %s: %v", topic.Name, topic.Err)
+			continue
+		}
+		values := make(map[string]string, len(topic.Configs))
+		for _, entry := range topic.Configs {
+			if entry.Value != nil {
+				values[entry.Key] = *entry.Value
+			}
+		}
+		configs[topic.Name] = values
+	}
+	if err != nil {
+		return configs, fmt.Errorf("failed to describe topic configs: %w", err)
+	}
+	return configs, nil
+}
+
 func (a *AdminClient) GetTopicDetails(ctx context.Context, topicNames ...string) ([]TopicDetails, error) {
 	listedTopics, err := a.client.ListTopics(ctx, topicNames...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list topics: %w", err)
 	}
 
-	describedConfigs, err := a.client.DescribeTopicConfigs(ctx, topicNames...)
+	configs, err := a.describeTopicConfigs(ctx, topicNames)
 	if err != nil {
-		return nil, fmt.Errorf("failed to describe topic configs: %w", err)
+		return nil, err
 	}
 
 	var details []TopicDetails
-	for _, topic := range describedConfigs {
-		if topic.Err != nil {
-			logger.Warn("Could not describe config for topic %s: %v", topic.Name, topic.Err)
+	for _, name := range topicNames {
+		values, ok := configs[name]
+		if !ok {
 			continue
 		}
-
-		compressionType := "unknown"
-		for _, entry := range topic.Configs {
-			if entry.Key == "compression.type" {
-				if entry.Value != nil {
-					compressionType = *entry.Value
-				}
-				break
-			}
+		compressionType, ok := values["compression.type"]
+		if !ok {
+			compressionType = "unknown"
 		}
 
-		baseDetails, ok := listedTopics[topic.Name]
+		baseDetails, ok := listedTopics[name]
 		if !ok || baseDetails.Err != nil || len(baseDetails.Partitions) == 0 {
 			continue
 		}
 
 		details = append(details, TopicDetails{
-			Name:              topic.Name,
+			Name:              name,
 			Partitions:        int32(len(baseDetails.Partitions)),
 			ReplicationFactor: int16(len(baseDetails.Partitions[0].Replicas)),
 			CompressionType:   compressionType,
@@ -410,21 +444,45 @@ func (a *AdminClient) ListTopics(ctx context.Context, topics ...string) (map[str
 }
 
 func (a *AdminClient) GetTopicLag(ctx context.Context, groupID, topic string) (int64, error) {
-	offsets, err := a.client.FetchOffsetsForTopics(ctx, groupID, topic)
-	if err != nil {
-		return 0, err
+	committed, err := a.client.FetchOffsetsForTopics(ctx, groupID, topic)
+	if errors.Is(err, kerr.GroupIDNotFound) {
+		committed, err = nil, nil
 	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch committed offsets: %w", err)
+	}
+	ends, err := a.client.ListEndOffsets(ctx, topic)
+	if err == nil {
+		err = ends.Error()
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to list end offsets: %w", err)
+	}
+	starts, err := a.client.ListStartOffsets(ctx, topic)
+	if err == nil {
+		err = starts.Error()
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to list start offsets: %w", err)
+	}
+	return TopicLag(topic, committed, starts, ends), nil
+}
 
-	var totalLag int64
-	for _, topicOffsets := range offsets {
-		for _, offset := range topicOffsets {
-			if offset.Err == nil {
-				totalLag += 0
-			}
+func TopicLag(topic string, committed kadm.OffsetResponses, starts, ends kadm.ListedOffsets) int64 {
+	var total int64
+	for partition, end := range ends[topic] {
+		from := int64(0)
+		if start, ok := starts.Lookup(topic, partition); ok {
+			from = start.Offset
+		}
+		if commit, ok := committed.Lookup(topic, partition); ok && commit.Err == nil && commit.At >= from {
+			from = commit.At
+		}
+		if lag := end.Offset - from; lag > 0 {
+			total += lag
 		}
 	}
-
-	return totalLag, nil
+	return total
 }
 
 func (a *AdminClient) CompareClusterOffsets(ctx context.Context, sourceAdmin *AdminClient, topicMap map[string]string) (*OffsetComparisonResult, error) {

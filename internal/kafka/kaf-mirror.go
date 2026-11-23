@@ -61,7 +61,14 @@ type KafMirrorImpl struct {
 	// Incident tracking to prevent spam logging
 	incidentStates map[string]bool
 	incidentMutex  sync.RWMutex
+	incidentHook   func(name string)
 	recordHook     func(topic string, key, value []byte)
+}
+
+func (r *KafMirrorImpl) incidentStarted(name string) {
+	if r.incidentHook != nil {
+		r.incidentHook(name)
+	}
 }
 
 func (r *KafMirrorImpl) SetRecordHook(h func(topic string, key, value []byte)) {
@@ -277,6 +284,29 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record, at
 	})
 }
 
+type stallProgress struct {
+	lastConsumed, lastReplicated int64
+	idleTicks                    int
+}
+
+func (s *stallProgress) stalled(consumed, replicated, lag int64) bool {
+	if consumed < s.lastConsumed || replicated < s.lastReplicated {
+		s.lastConsumed = consumed
+		s.lastReplicated = replicated
+		s.idleTicks = 0
+		return false
+	}
+	moved := consumed > s.lastConsumed || replicated > s.lastReplicated
+	s.lastConsumed = consumed
+	s.lastReplicated = replicated
+	if lag > 0 && !moved {
+		s.idleTicks++
+	} else {
+		s.idleTicks = 0
+	}
+	return s.idleTicks > 6
+}
+
 func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callback func(database.ReplicationMetric), onPanic func(jobID string, reason string)) {
 	interval := r.metricsInterval
 	if interval <= 0 {
@@ -289,6 +319,8 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 
 	// Counter for periodic logging (every 5th tick = ~50 seconds)
 	logCounter := 0
+	var lastErrors int64
+	var progress stallProgress
 
 	for {
 		select {
@@ -297,9 +329,8 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 			consumerMetrics := r.Consumer.GetMetrics()
 			producerMetrics := r.Producer.GetMetrics()
 
-			// Use producer acked totals to avoid counting failed sends
-			totalMessages := producerMetrics.RecordsProduced
-			totalBytes := producerMetrics.BytesProduced
+			totalMessages := consumerMetrics.RecordsReplicated
+			totalBytes := consumerMetrics.BytesReplicated
 			totalConsumed := consumerMetrics.RecordsProcessed
 			totalConsumedBytes := consumerMetrics.BytesProcessed
 			totalErrors := producerMetrics.ErrorCount
@@ -311,9 +342,14 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 			// Disaster detection thresholds
 			criticalLag := currentLag > 200
 			highErrorRate := totalErrors > 0 && totalMessages > 0 && (float64(totalErrors)/float64(totalMessages)) > 0.1
-			sourceStalled := logCounter > 6 && totalConsumed == 0
-			targetStalled := logCounter > 6 && totalConsumed > 0 && totalMessages == 0
-			errorSpike := totalErrors > 0
+			sourceStalled := progress.stalled(totalConsumed, totalMessages, currentLag)
+			var targetStalled bool
+			newErrors := totalErrors - lastErrors
+			if newErrors < 0 {
+				newErrors = totalErrors
+			}
+			lastErrors = totalErrors
+			errorSpike := newErrors > 0
 
 			// Performance milestones (positive events)
 			isFirstProduced := totalMessages == 1 && logCounter <= 2
@@ -337,6 +373,7 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 					logger.ErrorAI("disaster", "performance", jobID, "Critical lag detected: Messages=%d, Bytes=%d, Lag=%d, Errors=%d",
 						totalMessages, totalBytes, currentLag, totalErrors)
 					r.incidentStates["critical_lag"] = true
+					r.incidentStarted("critical_lag")
 				}
 			} else {
 				r.incidentStates["critical_lag"] = false
@@ -347,6 +384,7 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 					logger.ErrorAI("incident", "escalation", jobID, "High error rate detected: Messages=%d, Errors=%d, Rate=%.2f%%",
 						totalMessages, totalErrors, (float64(totalErrors)/float64(totalMessages))*100)
 					r.incidentStates["high_error_rate"] = true
+					r.incidentStarted("high_error_rate")
 				}
 			} else {
 				r.incidentStates["high_error_rate"] = false
@@ -354,8 +392,9 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 
 			if sourceStalled {
 				if !r.incidentStates["source_stalled"] {
-					logger.WarnAI("incident", "start", jobID, "Source stalled: No messages consumed in 60+ seconds")
+					logger.WarnAI("incident", "start", jobID, "Source stalled: no progress for 60+ seconds while lag is %d", currentLag)
 					r.incidentStates["source_stalled"] = true
+					r.incidentStarted("source_stalled")
 				}
 			} else if r.incidentStates["source_stalled"] {
 				logger.InfoAI("incident", "resolved", jobID, "Source throughput resumed: Consumed=%d, Bytes=%d",
@@ -368,6 +407,7 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 					logger.WarnAI("incident", "start", jobID, "Target stalled: Consumed=%d, Produced=%d in 60+ seconds",
 						totalConsumed, totalMessages)
 					r.incidentStates["target_stalled"] = true
+					r.incidentStarted("target_stalled")
 				}
 			} else if r.incidentStates["target_stalled"] {
 				logger.InfoAI("incident", "resolved", jobID, "Target throughput resumed: Produced=%d, Bytes=%d",
@@ -375,11 +415,12 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 				r.incidentStates["target_stalled"] = false
 			}
 
-			if errorSpike && logCounter%3 == 0 {
+			if errorSpike {
 				if !r.incidentStates["error_spike"] {
-					logger.ErrorAI("metrics", "errors", jobID, "Error spike detected: Messages=%d, Bytes=%d, Lag=%d, Errors=%d",
-						totalMessages, totalBytes, currentLag, totalErrors)
+					logger.ErrorAI("metrics", "errors", jobID, "Error spike detected: NewErrors=%d, Messages=%d, Bytes=%d, Lag=%d, Errors=%d",
+						newErrors, totalMessages, totalBytes, currentLag, totalErrors)
 					r.incidentStates["error_spike"] = true
+					r.incidentStarted("error_spike")
 				}
 			} else {
 				r.incidentStates["error_spike"] = false
@@ -869,20 +910,7 @@ func captureTopicInventories(db *sqlx.DB, clusterInventoryID int, clusterInfo *C
 	for _, topicInfo := range clusterInfo.Topics {
 		configData, _ := json.Marshal(topicInfo.Config)
 
-		// Extract compression type from topic configuration
-		compressionType := "NONE"
-		if topicInfo.Config != nil {
-			if compType, exists := topicInfo.Config["compression.type"]; exists {
-				switch compType {
-				case "gzip", "snappy", "lz4", "zstd":
-					compressionType = compType
-				case "producer":
-					compressionType = "producer" // Defer to producer setting
-				default:
-					compressionType = "NONE"
-				}
-			}
-		}
+		compressionType := detectTopicCompression(&topicInfo)
 
 		topic := database.TopicInventory{
 			ClusterInventoryID: clusterInventoryID,
@@ -1094,6 +1122,10 @@ func NewKafMirrorImplForTest(producer *Producer, topicMap map[string]string) *Ka
 
 func (r *KafMirrorImpl) WaitForFailureReportsForTest() {
 	r.reports.Wait()
+}
+
+func (r *KafMirrorImpl) SetIncidentHookForTest(h func(name string)) {
+	r.incidentHook = h
 }
 
 func (r *KafMirrorImpl) SetIntervalsForTest(metrics, discovery time.Duration) {

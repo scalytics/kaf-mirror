@@ -81,6 +81,7 @@ func TestDatabase(t *testing.T) {
 		job := &database.ReplicationJob{ID: jobID, Name: "metrics-job", SourceClusterName: "a", TargetClusterName: "b", Status: "paused"}
 		database.CreateJob(db, job)
 
+		recorder := database.NewMetricsRecorder()
 		metric1 := &database.ReplicationMetric{
 			JobID:              jobID,
 			MessagesReplicated: 100,
@@ -91,7 +92,7 @@ func TestDatabase(t *testing.T) {
 			ErrorCount:         0,
 			Timestamp:          time.Now().Add(-10 * time.Second),
 		}
-		err := database.InsertMetrics(db, metric1)
+		err := recorder.Insert(db, metric1)
 		assert.NoError(t, err)
 
 		metric2 := &database.ReplicationMetric{
@@ -104,7 +105,7 @@ func TestDatabase(t *testing.T) {
 			ErrorCount:         1,
 			Timestamp:          time.Now(),
 		}
-		err = database.InsertMetrics(db, metric2)
+		err = recorder.Insert(db, metric2)
 		assert.NoError(t, err)
 
 		metrics, err := database.GetHistoricalMetrics(db, jobID, time.Now().Add(-1*time.Hour), time.Now())

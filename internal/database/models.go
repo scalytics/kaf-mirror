@@ -68,7 +68,7 @@ type ReplicationMetric struct {
 	CriticalLag        bool      `db:"-" json:"critical_lag"`
 	HighErrorRate      bool      `db:"-" json:"high_error_rate"`
 	ErrorSpike         bool      `db:"-" json:"error_spike"`
-	TombstoneCount     int64     `db:"-" json:"tombstone_count"`
+	TombstoneCount     int64     `db:"tombstone_count" json:"tombstone_count"`
 	Timestamp          time.Time `db:"timestamp" json:"timestamp"`
 }
 
@@ -84,6 +84,7 @@ type AggregatedMetric struct {
 	MessagesConsumedDelta   int       `db:"messages_consumed_delta" json:"messages_consumed_delta"`
 	BytesConsumedDelta      int       `db:"bytes_consumed_delta" json:"bytes_consumed_delta"`
 	ErrorCountDelta         int       `db:"error_count_delta" json:"error_count_delta"`
+	TombstoneCountDelta     int64     `db:"tombstone_count_delta" json:"tombstone_count_delta"`
 	Timestamp               time.Time `db:"timestamp" json:"timestamp"`
 }
 
