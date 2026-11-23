@@ -385,7 +385,7 @@ mirror-cli config edit monitoring platform [platform]
 
 **Configure replication settings**
 
-Configure batch size, compression, and topic discovery interval
+Configure topic discovery interval. batch_size and compression are job settings, not config file keys.
 
 ### Usage
 
@@ -395,13 +395,15 @@ mirror-cli config edit replication
 
 ### Available Subcommands
 
-- **batch-size** - Set replication batch size (KB)
+- **batch-size** - batch_size is a job setting, not a config file key
 - **compression** - Set compression algorithm
 - **discovery-interval** - Set topic discovery interval
 
 ###### mirror-cli config edit replication batch-size
 
-**Set replication batch size (KB)**
+**batch_size is a job setting, not a config file key**
+
+kaf-mirror does not read replication.batch_size from the config file. Set the job batch_size, in KB, with mirror-cli jobs add or PUT /api/v1/jobs/{id}.
 
 ### Usage
 

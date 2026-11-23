@@ -1918,11 +1918,13 @@ func (jm *JobManager) calculateOptimalBatchSize(current int, throughput, lag flo
 		return newSize
 
 	case "optimize":
+		if current >= 5000 {
+			return current
+		}
 		if throughput < 50 {
 			return max(100, current/2)
-		} else {
-			return min(5000, current+300)
 		}
+		return min(5000, current+300)
 
 	default:
 		return current

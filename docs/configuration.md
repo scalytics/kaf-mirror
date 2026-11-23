@@ -57,7 +57,7 @@ This page lists every config key and environment variable that kaf-mirror reads.
 | `ai.features.performance_optimization` | `false` | Stored and shown by `mirror-cli`. The server does not use it. |
 | `ai.features.incident_analysis` | `false` | Stored and shown by `mirror-cli`. The server does not use it. |
 | `ai.self_healing.automated_remediation` | `false` | Force-restarts a job that has had zero throughput for 10 minutes. This is a local rule and does not need an AI provider. |
-| `ai.self_healing.dynamic_throttling` | `false` | Every 5 minutes, changes the `batch_size` of active jobs from their metrics and restarts them. This makes no AI call. |
+| `ai.self_healing.dynamic_throttling` | `false` | Every 5 minutes, changes the `batch_size` of active jobs from their metrics and restarts them. This makes no AI call. Increases stay at or below 10000 KB. Decreases stay at or above 100 KB. Optimize does not raise a size above 5000 KB and does not lower a size that is already 5000 KB or more. |
 | `monitoring.enabled` | `false` | Sends job metrics to `monitoring.platform`. |
 | `monitoring.platform` | empty | `splunk`, `loki` or `prometheus`. |
 | `monitoring.splunk.hec_endpoint` | empty | Splunk HTTP Event Collector URL. |
@@ -81,7 +81,7 @@ This page lists every config key and environment variable that kaf-mirror reads.
 
 While protection is on, kaf-mirror never starts a job that writes into a cluster with the role `prod`. This has no key.
 
-The settings of a job, such as `batch_size` (in KB, default 1000, from 1 to 102400) and `compression`, are stored with the job and set with `mirror-cli jobs add` or the API. The config file has no keys for them.
+The settings of a job, such as `batch_size` (in KB, default 1000, from 1 to 102400) and `compression`, are stored with the job and set with `mirror-cli jobs add` or the API. The config file has no keys for them. `mirror-cli config edit replication batch-size` does not write a config key; use the job API.
 
 ### Clusters in the config file
 
