@@ -30,6 +30,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 )
 
@@ -37,8 +38,8 @@ var (
 	Version string
 )
 
-func writeSecretTempFile(prefix string, secret string) (string, error) {
-	file, err := os.CreateTemp("", prefix)
+func writeSecretFile(dir string, prefix string, secret string) (string, error) {
+	file, err := os.CreateTemp(dir, prefix)
 	if err != nil {
 		return "", err
 	}
@@ -54,7 +55,7 @@ func writeSecretTempFile(prefix string, secret string) (string, error) {
 		return "", err
 	}
 
-	return file.Name(), nil
+	return filepath.Abs(file.Name())
 }
 
 func main() {
@@ -96,7 +97,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to create initial admin user: %v", err)
 		}
-		secretFile, err := writeSecretTempFile("kaf-mirror-bootstrap-*", password)
+		secretFile, err := writeSecretFile(filepath.Dir(cfg.Database.Path), "kaf-mirror-bootstrap-*", password)
 		if err != nil {
 			log.Fatalf("Failed to write password file: %v", err)
 		}

@@ -11,13 +11,20 @@ data:
       host: {{ .Values.config.server.host | quote }}
       port: {{ .Values.config.server.port }}
       mode: {{ .Values.config.server.mode | quote }}
+      allow_insecure: {{ .Values.config.server.allowInsecure }}
       tls:
+        {{- if .Values.config.server.tls.existingSecret }}
+        enabled: true
+        cert_file: "/app/tls/{{ .Values.config.server.tls.certKey }}"
+        key_file: "/app/tls/{{ .Values.config.server.tls.keyKey }}"
+        {{- else }}
         enabled: false
+        {{- end }}
       cors:
-        allowed_origins: ["*"]
+        allowed_origins: {{ toJson .Values.config.server.corsAllowedOrigins }}
     logging:
-      file: "/tmp/kaf-mirror.log"
-      level: "INFO"
+      file: "/app/logs/kaf-mirror.log"
+      level: {{ .Values.config.logLevel | quote }}
       max_size: 100
       max_backups: 5
       max_age: 30
@@ -36,36 +43,14 @@ data:
         brokers: {{ .Values.config.targetBrokers | quote }}
         security:
           enabled: false
-    source_cluster:
-      brokers: {{ .Values.config.sourceBrokers | quote }}
-      security:
-        enabled: false
-    target_cluster:
-      brokers: {{ .Values.config.targetBrokers | quote }}
-      security:
-        enabled: false
     replication:
-      job_id: "qip-bdr-all-tiers"
       batch_size: 1000
       parallelism: 4
       compression: "none"
       topic_discovery_interval: "5m"
-    topics:
-      - source: "qip.bronze.questions.raw"
-        target: "qip.bronze.questions.raw"
-        enabled: true
-      - source: "qip.bronze.ingestion.dlq"
-        target: "qip.bronze.ingestion.dlq"
-        enabled: true
-      - source: "qip.silver.questions.enriched"
-        target: "qip.silver.questions.enriched"
-        enabled: true
-      - source: "qip.gold.questions.ready"
-        target: "qip.gold.questions.ready"
-        enabled: true
-      - source: "qip.ops.questions.skipped"
-        target: "qip.ops.questions.skipped"
-        enabled: true
-      - source: "qip.ops.dataproduct.metadata"
-        target: "qip.ops.dataproduct.metadata"
-        enabled: true
+    ai:
+      token: ""
+      api_secret: ""
+    monitoring:
+      splunk:
+        hec_token: ""

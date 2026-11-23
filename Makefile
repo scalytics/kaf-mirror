@@ -90,7 +90,7 @@ if warnings > 0:
 endef
 export PY_CODEQL_GATE
 
-.PHONY: all build run start stop restart clean test check test-smoke vet race fmt fmt-check commit-check code-ql code-ql-summary code-ql-gate docker docker-build docker-run docs
+.PHONY: all build run start stop restart clean test check test-smoke vet race fmt fmt-check commit-check code-ql code-ql-summary code-ql-gate helm-check docker docker-build docker-run docs
 
 BIN_DIR=bin
 KAF_MIRROR_BINARY=$(BIN_DIR)/kaf-mirror
@@ -164,6 +164,10 @@ race:
 	@echo "Running race tests..."
 	@go test -race ./...
 
+helm-check:
+	@echo "Checking the Helm chart..."
+	@bash scripts/check-helm-chart.sh
+
 fmt:
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then \
@@ -201,7 +205,7 @@ docker-build:
 
 docker-run: docker-build
 	@echo "Running Docker container..."
-	@docker run -p 8080:8080 --name kaf-mirror kaf-mirror:latest
+	@docker run -p 8080:8080 --name kaf-mirror -v kaf-mirror-data:/app/data -v kaf-mirror-logs:/app/logs kaf-mirror:latest
 
 docs-html:
 	@echo "Generating HTML documentation..."

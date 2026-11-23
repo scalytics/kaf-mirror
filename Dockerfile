@@ -21,6 +21,9 @@ COPY --from=builder /app/bin/admin-cli .
 COPY --from=builder /app/bin/mirror-cli .
 COPY configs/default.yml /app/configs/default.yml
 COPY web/ /app/web/
+RUN mkdir -p /app/data /app/logs && chown kaf-mirror:kaf-mirror /app/data /app/logs
+ENV KAF_MIRROR_SERVER_HOST=0.0.0.0
+VOLUME ["/app/data", "/app/logs"]
 USER kaf-mirror
 EXPOSE 8080
 CMD ["./kaf-mirror"]
