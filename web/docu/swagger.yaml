@@ -114,8 +114,6 @@ definitions:
         type: string
       jobID:
         type: string
-      parallelism:
-        type: integer
     type: object
   config.SecurityConfig:
     properties:
@@ -566,10 +564,6 @@ definitions:
         type: string
       name:
         type: string
-      parallelism:
-        type: integer
-      preserve_partitions:
-        type: boolean
       source_cluster_name:
         type: string
       status:
@@ -685,10 +679,6 @@ definitions:
         type: string
       name:
         type: string
-      parallelism:
-        type: integer
-      preserve_partitions:
-        type: boolean
       source_cluster_name:
         type: string
       target_cluster_name:

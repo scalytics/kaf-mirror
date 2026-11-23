@@ -12,6 +12,7 @@ data:
       port: {{ .Values.config.server.port }}
       mode: {{ .Values.config.server.mode | quote }}
       allow_insecure: {{ .Values.config.server.allowInsecure }}
+      shutdown_timeout: "{{ int .Values.config.server.shutdownTimeoutSeconds }}s"
       tls:
         {{- if .Values.config.server.tls.existingSecret }}
         enabled: true
@@ -45,7 +46,6 @@ data:
           {{- toYaml .Values.config.targetSecurity | nindent 10 }}
     replication:
       batch_size: 1000
-      parallelism: 4
       compression: "none"
       topic_discovery_interval: "5m"
     ai:

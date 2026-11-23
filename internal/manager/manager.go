@@ -14,6 +14,7 @@ package manager
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"kaf-mirror/internal/ai"
 	"kaf-mirror/internal/config"
@@ -59,8 +60,15 @@ type JobManager struct {
 	lastAIMetric         map[string]database.ReplicationMetric
 	lastComplianceReport map[string]time.Time
 	closing              int32
+	closeOnce            sync.Once
+	shuttingDown         atomic.Bool
+	shutdownCtx          context.Context
+	shutdownCancel       context.CancelFunc
+	sleep                func(context.Context, time.Duration) error
 	Protection           *protection.Controller
 }
+
+var ErrShuttingDown = errors.New("kaf-mirror is shutting down")
 
 func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 	sink, err := metrics.NewSink(cfg.Monitoring, cfg.Egress.AllowedHosts)
@@ -80,7 +88,7 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		Config:               cfg,
 		KafMirrors:           make(map[string]kafka.KafMirror),
 		Hub:                  hub,
-		KafMirrorFactory:     kafka.NewKafMirror,
+		KafMirrorFactory:     func(c *config.Config) (kafka.KafMirror, error) { return kafka.NewKafMirror(c, db) },
 		metricsSink:          sink,
 		AIClient:             ai.NewClient(aiConfig, cfg.Egress.AllowedHosts),
 		close:                make(chan struct{}),
@@ -89,6 +97,7 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		lastComplianceReport: make(map[string]time.Time),
 		Protection:           protection.New(db, cfg.Protection),
 	}
+	jm.shutdownCtx, jm.shutdownCancel = context.WithCancel(context.Background())
 	if cfg.Protection.Enabled {
 		_ = database.SetProtectionEnabled(db, true)
 	}
@@ -150,6 +159,10 @@ func (jm *JobManager) reconcileAndStartJobs() error {
 		if job.Status == "active" {
 			logger.Info("Job '%s' (%s) is marked as active, ensuring it is started.", job.Name, job.ID)
 			if err := jm.StartJob(job.ID); err != nil {
+				if errors.Is(err, ErrShuttingDown) {
+					logger.Info("Not starting job %s, kaf-mirror is shutting down", job.ID)
+					return nil
+				}
 				logger.Error("Failed to automatically start active job %s: %v", job.ID, err)
 				job.Status = "paused"
 				if updateErr := database.UpdateJob(jm.Db, &job); updateErr != nil {
@@ -162,13 +175,86 @@ func (jm *JobManager) reconcileAndStartJobs() error {
 }
 
 func (jm *JobManager) Close() {
-	atomic.StoreInt32(&jm.closing, 1)
-	close(jm.close)
+	jm.closeOnce.Do(func() {
+		atomic.StoreInt32(&jm.closing, 1)
+		close(jm.close)
+	})
 	jm.wg.Wait()
 	jm.dbOpsMu.Lock()
 	jm.dbOpsClosed = true
 	jm.dbOpsMu.Unlock()
 	jm.dbOpsWg.Wait()
+}
+
+func (jm *JobManager) Shutdown(ctx context.Context) error {
+	jm.shuttingDown.Store(true)
+	if jm.shutdownCancel != nil {
+		jm.shutdownCancel()
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		jm.Mu.Lock()
+		mirrors := jm.KafMirrors
+		jm.KafMirrors = make(map[string]kafka.KafMirror)
+		jm.Mu.Unlock()
+
+		logger.Info("Shutdown: stopping %d running jobs, their status stays active so they resume on the next start", len(mirrors))
+		var stops sync.WaitGroup
+		for jobID, kafMirror := range mirrors {
+			stops.Add(1)
+			go func() {
+				defer stops.Done()
+				kafMirror.Stop()
+				logger.Info("Shutdown: stopped job %s", jobID)
+			}()
+		}
+		stops.Wait()
+		jm.Close()
+	}()
+
+	select {
+	case <-done:
+		logger.Info("Shutdown: all jobs stopped and background work finished")
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("jobs did not stop before the shutdown timeout: %w", ctx.Err())
+	}
+}
+
+func (jm *JobManager) ClosedForTest() bool {
+	return atomic.LoadInt32(&jm.closing) == 1
+}
+
+func (jm *JobManager) ReconcileForTest() error {
+	return jm.reconcileAndStartJobs()
+}
+
+func (jm *JobManager) SetSleepForTest(sleep func(context.Context, time.Duration) error) {
+	jm.sleep = sleep
+}
+
+func (jm *JobManager) ApplyThrottlingChangesForTest(jobID, jobName string, job *database.ReplicationJob, decision *ThrottlingDecision) error {
+	return jm.applyThrottlingChanges(jobID, jobName, job, decision)
+}
+
+func (jm *JobManager) wait(ctx context.Context, d time.Duration) error {
+	sleep := jm.sleep
+	if sleep == nil {
+		sleep = sleepContext
+	}
+	return sleep(ctx, d)
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (jm *JobManager) beginDBOp() bool {
@@ -556,6 +642,9 @@ func (jm *JobManager) StopAllJobs() error {
 }
 
 func (jm *JobManager) StartJob(jobID string) error {
+	if jm.shuttingDown.Load() {
+		return ErrShuttingDown
+	}
 	jm.Mu.Lock()
 	defer jm.Mu.Unlock()
 
@@ -609,6 +698,11 @@ func (jm *JobManager) StartJob(jobID string) error {
 	if err != nil {
 		logger.Error("Failed to create KafMirror for job %s: %v", jobID, err)
 		return err
+	}
+
+	if jm.shuttingDown.Load() {
+		kafMirror.Stop()
+		return ErrShuttingDown
 	}
 
 	if inspector, ok := kafMirror.(kafka.RecordInspector); ok && jm.Protection != nil {
@@ -1545,7 +1639,6 @@ func (jm *JobManager) buildJobConfig(sourceCluster, targetCluster *database.Kafk
 		},
 		Replication: config.ReplicationConfig{
 			BatchSize:              job.BatchSize,
-			Parallelism:            job.Parallelism,
 			Compression:            job.Compression,
 			TopicDiscoveryInterval: jm.topicDiscoveryInterval(),
 		},
@@ -1687,8 +1780,8 @@ func (jm *JobManager) performDynamicThrottling(jobID, jobName string) {
 		if err := jm.applyThrottlingChanges(jobID, jobName, job, throttlingDecision); err != nil {
 			logger.ErrorAI("ai", "throttling", jobID, "Failed to apply throttling changes: %v", err)
 		} else {
-			logger.InfoAI("ai", "throttling", jobID, "Applied throttling changes to job %s: batch_size=%d, parallelism=%d (reason: %s)",
-				jobName, throttlingDecision.NewBatchSize, throttlingDecision.NewParallelism, throttlingDecision.Reason)
+			logger.InfoAI("ai", "throttling", jobID, "Applied throttling changes to job %s: batch_size=%d (reason: %s)",
+				jobName, throttlingDecision.NewBatchSize, throttlingDecision.Reason)
 		}
 	} else {
 		logger.InfoAI("ai", "throttling", jobID, "Throttling changes suppressed for job %s to prevent oscillation", jobName)
@@ -1696,10 +1789,9 @@ func (jm *JobManager) performDynamicThrottling(jobID, jobName string) {
 }
 
 type ThrottlingDecision struct {
-	NewBatchSize   int
-	NewParallelism int
-	Reason         string
-	Confidence     float64
+	NewBatchSize int
+	Reason       string
+	Confidence   float64
 }
 
 func (jm *JobManager) analyzeThrottlingMetrics(metrics []database.ReplicationMetric, job *database.ReplicationJob) *ThrottlingDecision {
@@ -1726,32 +1818,27 @@ func (jm *JobManager) analyzeThrottlingMetrics(metrics []database.ReplicationMet
 	errorRate := float64(totalErrors) / float64(totalMessages) * 100
 
 	currentBatchSize := job.BatchSize
-	currentParallelism := job.Parallelism
 
 	if avgLag > 5000 && errorRate < 1.0 {
 		newBatchSize := jm.calculateOptimalBatchSize(currentBatchSize, avgThroughput, avgLag, "increase")
-		newParallelism := jm.calculateOptimalParallelism(currentParallelism, avgThroughput, maxLag, "increase")
 
-		if newBatchSize != currentBatchSize || newParallelism != currentParallelism {
+		if newBatchSize != currentBatchSize {
 			return &ThrottlingDecision{
-				NewBatchSize:   newBatchSize,
-				NewParallelism: newParallelism,
-				Reason:         fmt.Sprintf("High lag detected (%.0f avg, %d max) - increasing throughput capacity", avgLag, maxLag),
-				Confidence:     0.8,
+				NewBatchSize: newBatchSize,
+				Reason:       fmt.Sprintf("High lag detected (%.0f avg, %d max) - increasing throughput capacity", avgLag, maxLag),
+				Confidence:   0.8,
 			}
 		}
 	}
 
 	if errorRate > 2.0 {
 		newBatchSize := jm.calculateOptimalBatchSize(currentBatchSize, avgThroughput, avgLag, "decrease")
-		newParallelism := jm.calculateOptimalParallelism(currentParallelism, avgThroughput, maxLag, "decrease")
 
-		if newBatchSize != currentBatchSize || newParallelism != currentParallelism {
+		if newBatchSize != currentBatchSize {
 			return &ThrottlingDecision{
-				NewBatchSize:   newBatchSize,
-				NewParallelism: newParallelism,
-				Reason:         fmt.Sprintf("High error rate detected (%.2f%%) - reducing load for stability", errorRate),
-				Confidence:     0.9,
+				NewBatchSize: newBatchSize,
+				Reason:       fmt.Sprintf("High error rate detected (%.2f%%) - reducing load for stability", errorRate),
+				Confidence:   0.9,
 			}
 		}
 	}
@@ -1761,10 +1848,9 @@ func (jm *JobManager) analyzeThrottlingMetrics(metrics []database.ReplicationMet
 
 		if newBatchSize != currentBatchSize {
 			return &ThrottlingDecision{
-				NewBatchSize:   newBatchSize,
-				NewParallelism: currentParallelism,
-				Reason:         fmt.Sprintf("Low throughput (%.0f msg/s) optimization", avgThroughput),
-				Confidence:     0.6,
+				NewBatchSize: newBatchSize,
+				Reason:       fmt.Sprintf("Low throughput (%.0f msg/s) optimization", avgThroughput),
+				Confidence:   0.6,
 			}
 		}
 	}
@@ -1806,27 +1892,6 @@ func (jm *JobManager) calculateOptimalBatchSize(current int, throughput, lag flo
 	}
 }
 
-func (jm *JobManager) calculateOptimalParallelism(current int, throughput float64, maxLag int, direction string) int {
-	switch direction {
-	case "increase":
-		newParallelism := current + 2
-		if newParallelism > 20 {
-			newParallelism = 20
-		}
-		return newParallelism
-
-	case "decrease":
-		newParallelism := current - 1
-		if newParallelism < 1 {
-			newParallelism = 1
-		}
-		return newParallelism
-
-	default:
-		return current
-	}
-}
-
 func (jm *JobManager) shouldApplyThrottling(jobID string, decision *ThrottlingDecision) bool {
 	lastThrottlingQuery := `
 		SELECT timestamp FROM ai_insights 
@@ -1846,27 +1911,40 @@ func (jm *JobManager) shouldApplyThrottling(jobID string, decision *ThrottlingDe
 
 func (jm *JobManager) applyThrottlingChanges(jobID, jobName string, job *database.ReplicationJob, decision *ThrottlingDecision) error {
 	jm.Mu.Lock()
-	defer jm.Mu.Unlock()
-
+	if jm.shuttingDown.Load() {
+		jm.Mu.Unlock()
+		return ErrShuttingDown
+	}
 	kafMirror, isRunning := jm.KafMirrors[jobID]
 	if !isRunning {
+		jm.Mu.Unlock()
 		return fmt.Errorf("job %s is not running, cannot apply throttling", jobID)
 	}
 
 	job.BatchSize = decision.NewBatchSize
-	job.Parallelism = decision.NewParallelism
-
 	if err := database.UpdateJob(jm.Db, job); err != nil {
+		jm.Mu.Unlock()
 		return fmt.Errorf("failed to update job configuration: %v", err)
 	}
 
 	logger.InfoAI("ai", "throttling", jobID, "Restarting job %s to apply throttling changes", jobName)
-
 	kafMirror.Stop()
 	delete(jm.KafMirrors, jobID)
+	jm.Mu.Unlock()
 
-	time.Sleep(2 * time.Second)
+	ctx := jm.shutdownCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := jm.wait(ctx, 2*time.Second); err != nil {
+		return ErrShuttingDown
+	}
 
+	jm.Mu.Lock()
+	defer jm.Mu.Unlock()
+	if jm.shuttingDown.Load() {
+		return ErrShuttingDown
+	}
 	if err := jm.startJobWithNewConfig(jobID, job); err != nil {
 		return fmt.Errorf("failed to restart job with new config: %v", err)
 	}
@@ -1874,7 +1952,7 @@ func (jm *JobManager) applyThrottlingChanges(jobID, jobName string, job *databas
 	insight := &database.AIInsight{
 		JobID:            &jobID,
 		InsightType:      "throttling_adjustment",
-		Recommendation:   fmt.Sprintf("Applied dynamic throttling: batch_size=%d, parallelism=%d. %s", decision.NewBatchSize, decision.NewParallelism, decision.Reason),
+		Recommendation:   fmt.Sprintf("Applied dynamic throttling: batch_size=%d. %s", decision.NewBatchSize, decision.Reason),
 		SeverityLevel:    "info",
 		ResolutionStatus: "applied",
 		AIModel:          "dynamic-throttling-system",
@@ -1889,6 +1967,9 @@ func (jm *JobManager) applyThrottlingChanges(jobID, jobName string, job *databas
 }
 
 func (jm *JobManager) startJobWithNewConfig(jobID string, job *database.ReplicationJob) error {
+	if jm.shuttingDown.Load() {
+		return ErrShuttingDown
+	}
 	sourceCluster, err := database.GetCluster(jm.Db, job.SourceClusterName)
 	if err != nil {
 		return fmt.Errorf("failed to get source cluster: %v", err)
@@ -2256,7 +2337,7 @@ func (jm *JobManager) updateMirrorState(jobID string) {
 	if len(recommendations) == 0 {
 		recommendations = []string{
 			"Monitor replication lag regularly",
-			"Consider increasing parallelism if lag exceeds 10000 messages",
+			"Consider a larger batch size if lag exceeds 10000 messages",
 			"Verify network connectivity between clusters",
 		}
 	}

@@ -14,12 +14,22 @@ package database
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"kaf-mirror/internal/config"
 
 	"github.com/jmoiron/sqlx"
 )
+
+func EnableSecurityIfConfigured(sec *config.SecurityConfig) {
+	if sec == nil {
+		return
+	}
+	if sec.APIKey != "" || sec.Username != "" || sec.Password != "" || sec.Kerberos != (config.KerberosConfig{}) || strings.EqualFold(sec.SASLMechanism, "GSSAPI") {
+		sec.Enabled = true
+	}
+}
 
 func isSecretPlaceholder(s string) bool {
 	return s == "" || s == config.SecretPlaceholder || s == "***MASKED***"
@@ -81,9 +91,7 @@ func ClusterConfigFromRow(cluster KafkaCluster) config.ClusterConfig {
 			MergeSecurity(&out.Security, sec)
 		}
 	}
-	if out.Security.APIKey != "" || out.Security.Username != "" || out.Security.Password != "" {
-		out.Security.Enabled = true
-	}
+	EnableSecurityIfConfigured(&out.Security)
 	return out
 }
 

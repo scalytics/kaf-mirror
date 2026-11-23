@@ -124,7 +124,6 @@ type configData struct {
 	} `yaml:"server"`
 	Replication struct {
 		BatchSize              int    `yaml:"batch_size"`
-		Parallelism            int    `yaml:"parallelism"`
 		Compression            string `yaml:"compression"`
 		TopicDiscoveryInterval string `yaml:"topic_discovery_interval"`
 	} `yaml:"replication"`
@@ -2408,11 +2407,6 @@ func configureReplication(configData *configData) {
 			Validate: survey.Required,
 		},
 		{
-			Name:     "replication.parallelism",
-			Prompt:   &survey.Input{Message: "Enter replication parallelism:", Default: "4"},
-			Validate: survey.Required,
-		},
-		{
 			Name:     "replication.compression",
 			Prompt:   &survey.Select{Message: "Select replication compression:", Options: []string{"none", "gzip", "snappy", "lz4", "zstd"}},
 			Validate: survey.Required,
@@ -2975,158 +2969,6 @@ func createNewCluster(token string) {
 	log.Println("Cluster created successfully.")
 }
 
-func createNewJob(token string) {
-	var job struct {
-		Name          string `json:"name"`
-		SourceCluster string `json:"source_cluster"`
-		TargetCluster string `json:"target_cluster"`
-	}
-
-	clusters, err := fetchClusters(token)
-	if err != nil {
-		log.Printf("Error fetching clusters: %v", err)
-		return
-	}
-	var clusterNames []string
-	for _, c := range clusters {
-		clusterNames = append(clusterNames, c["name"].(string))
-	}
-
-	qs := []*survey.Question{
-		{
-			Name:     "name",
-			Prompt:   &survey.Input{Message: "Enter job name:"},
-			Validate: survey.Required,
-		},
-		{
-			Name: "source_cluster",
-			Prompt: &survey.Select{
-				Message: "Select source cluster:",
-				Options: clusterNames,
-			},
-			Validate: survey.Required,
-		},
-		{
-			Name: "target_cluster",
-			Prompt: &survey.Select{
-				Message: "Select target cluster:",
-				Options: clusterNames,
-			},
-			Validate: survey.Required,
-		},
-	}
-
-	if err := survey.Ask(qs, &job); err != nil {
-		log.Printf("Error creating job: %v", err)
-		return
-	}
-
-	fmt.Println("Fetching topics from source cluster...")
-	topics, err := fetchTopics(token, job.SourceCluster)
-	if err != nil {
-		log.Printf("Error fetching topics: %v", err)
-		return
-	}
-
-	var selectedTopics []string
-	prompt := &survey.MultiSelect{
-		Message: "Select topics to mirror:",
-		Options: topics,
-	}
-	survey.AskOne(prompt, &selectedTopics)
-
-	// Configure replication settings for this job
-	fmt.Println("\n=== Replication Settings ===")
-
-	var batchSize string
-	promptBatch := &survey.Input{
-		Message: "Batch size (messages per batch):",
-		Default: "1000",
-	}
-	survey.AskOne(promptBatch, &batchSize)
-
-	var parallelism string
-	promptParallelism := &survey.Input{
-		Message: "Parallelism (consumer threads):",
-		Default: "4",
-	}
-	survey.AskOne(promptParallelism, &parallelism)
-
-	var compression string
-	promptCompression := &survey.Select{
-		Message: "Compression algorithm:",
-		Options: []string{"none", "gzip", "snappy", "lz4", "zstd"},
-		Default: "none",
-	}
-	survey.AskOne(promptCompression, &compression)
-
-	var enablePartitionMapping bool
-	promptPartitions := &survey.Confirm{
-		Message: "Preserve partition mapping?",
-		Default: true,
-	}
-	survey.AskOne(promptPartitions, &enablePartitionMapping)
-
-	// Topic mappings with custom target names option
-	var mappings []map[string]interface{}
-	for _, topic := range selectedTopics {
-		var targetTopic string
-		var customTarget bool
-		promptCustom := &survey.Confirm{
-			Message: fmt.Sprintf("Use custom target name for topic '%s'?", topic),
-			Default: false,
-		}
-		survey.AskOne(promptCustom, &customTarget)
-
-		if customTarget {
-			promptTarget := &survey.Input{
-				Message: fmt.Sprintf("Target topic name for '%s':", topic),
-				Default: topic,
-			}
-			survey.AskOne(promptTarget, &targetTopic)
-		} else {
-			targetTopic = topic
-		}
-
-		mappings = append(mappings, map[string]interface{}{
-			"source_topic_pattern": topic,
-			"target_topic_pattern": targetTopic,
-			"enabled":              true,
-		})
-	}
-
-	reqBody, _ := json.Marshal(map[string]interface{}{
-		"name":           job.Name,
-		"source_cluster": job.SourceCluster,
-		"target_cluster": job.TargetCluster,
-		"mappings":       mappings,
-		"replication_settings": map[string]interface{}{
-			"batch_size":          batchSize,
-			"parallelism":         parallelism,
-			"compression":         compression,
-			"preserve_partitions": enablePartitionMapping,
-		},
-	})
-	req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/jobs", BackendURL), bytes.NewBuffer(reqBody))
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		log.Printf("Failed to create job: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := ioutil.ReadAll(resp.Body)
-		log.Printf("Failed to create job: %s\n%s", resp.Status, body)
-		return
-	}
-
-	log.Println("Job created successfully.")
-}
-
 func fetchClusters(token string) ([]map[string]interface{}, error) {
 	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/clusters", BackendURL), nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -3343,15 +3185,6 @@ func createReplicationJob(token string) {
 	survey.AskOne(promptBatch, &batchStr)
 	fmt.Sscanf(batchStr, "%d", &batchSize)
 
-	var parallelism int
-	promptParallelism := &survey.Input{
-		Message: "Parallelism (consumer threads):",
-		Default: "4",
-	}
-	var parallelismStr string
-	survey.AskOne(promptParallelism, &parallelismStr)
-	fmt.Sscanf(parallelismStr, "%d", &parallelism)
-
 	var compression string
 	promptCompression := &survey.Select{
 		Message: "Compression algorithm:",
@@ -3359,13 +3192,6 @@ func createReplicationJob(token string) {
 		Default: "none",
 	}
 	survey.AskOne(promptCompression, &compression)
-
-	var preservePartitions bool
-	promptPartitions := &survey.Confirm{
-		Message: "Preserve partition mapping?",
-		Default: true,
-	}
-	survey.AskOne(promptPartitions, &preservePartitions)
 
 	// Topic mappings with custom target names option
 	fmt.Println("\n=== Topic Mapping Configuration ===")
@@ -3404,9 +3230,7 @@ func createReplicationJob(token string) {
 		"target_cluster_name": targetCluster,
 		"topic_mappings":      mappings,
 		"batch_size":          batchSize,
-		"parallelism":         parallelism,
 		"compression":         compression,
-		"preserve_partitions": preservePartitions,
 	}
 
 	fmt.Println("\n=== Job Summary ===")
@@ -3415,9 +3239,7 @@ func createReplicationJob(token string) {
 	fmt.Printf("Target: %s\n", targetCluster)
 	fmt.Printf("Topics/Patterns: %d\n", len(selectedTopics))
 	fmt.Printf("Batch Size: %d\n", batchSize)
-	fmt.Printf("Parallelism: %d\n", parallelism)
 	fmt.Printf("Compression: %s\n", compression)
-	fmt.Printf("Preserve Partitions: %t\n", preservePartitions)
 
 	var confirm bool
 	promptConfirm := &survey.Confirm{
@@ -5674,7 +5496,7 @@ func createReplicationEditCommands() *cobra.Command {
 	replicationCmd := &cobra.Command{
 		Use:   "replication",
 		Short: "Configure replication settings",
-		Long:  "Configure batch size, parallelism, compression, and topic discovery interval",
+		Long:  "Configure batch size, compression, and topic discovery interval",
 	}
 
 	// config edit replication batch-size [size]
@@ -5694,26 +5516,6 @@ func createReplicationEditCommands() *cobra.Command {
 				survey.AskOne(prompt, &size)
 			}
 			updateConfigParameter("replication.batch_size", size)
-		},
-	}
-
-	// config edit replication parallelism [count]
-	parallelismCmd := &cobra.Command{
-		Use:   "parallelism [count]",
-		Short: "Set replication parallelism",
-		Args:  cobra.MaximumNArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			var count string
-			if len(args) > 0 {
-				count = args[0]
-			} else {
-				prompt := &survey.Input{
-					Message: "Enter parallelism count:",
-					Default: "4",
-				}
-				survey.AskOne(prompt, &count)
-			}
-			updateConfigParameter("replication.parallelism", count)
 		},
 	}
 
@@ -5759,7 +5561,7 @@ func createReplicationEditCommands() *cobra.Command {
 		},
 	}
 
-	replicationCmd.AddCommand(batchSizeCmd, parallelismCmd, compressionCmd, discoveryIntervalCmd)
+	replicationCmd.AddCommand(batchSizeCmd, compressionCmd, discoveryIntervalCmd)
 	return replicationCmd
 }
 
@@ -6391,7 +6193,6 @@ func shouldConvertToInt(path string) bool {
 	integerFields := []string{
 		"server.port",
 		"replication.batch_size",
-		"replication.parallelism",
 		"monitoring.retention_days",
 	}
 

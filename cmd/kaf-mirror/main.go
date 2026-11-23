@@ -20,6 +20,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
@@ -31,7 +33,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
+	"time"
 )
 
 var (
@@ -69,6 +73,11 @@ func main() {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 	logger.Info("Logger initialized with level %s, console=%t", cfg.Logging.Level, cfg.Logging.Console)
+
+	shutdownTimeout, err := cfg.Server.ShutdownTimeoutDuration()
+	if err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
 
 	// Initialize database
 	db, err := database.InitDB(cfg.Database.Path)
@@ -139,16 +148,38 @@ func main() {
 	}()
 	fmt.Println("API server started successfully.")
 
-	// Wait for a shutdown signal
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
-	<-shutdown
-
-	fmt.Println("Shutting down...")
-	// The kaf-mirror is now managed by the JobManager, so we don't need to stop it here.
-	// In a real implementation, the JobManager would have a StopAll method.
-	if err := srv.Shutdown(); err != nil {
-		log.Printf("API server shutdown error: %v", err)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	if err := waitAndShutdown(signals, shutdownTimeout, srv.ShutdownWithContext, jobManager.Shutdown); err != nil {
+		log.Printf("Shutdown incomplete: %v", err)
 	}
 	fmt.Println("Shutdown complete.")
+}
+
+func waitAndShutdown(signals <-chan os.Signal, timeout time.Duration, steps ...func(context.Context) error) error {
+	sig := <-signals
+	fmt.Printf("Received %s, shutting down within %s...\n", sig, timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	errs := make([]error, len(steps))
+	var wg sync.WaitGroup
+	for i, step := range steps {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = step(ctx)
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return errors.Join(errs...)
+	case <-ctx.Done():
+		return fmt.Errorf("shutdown did not finish within %s: %w", timeout, ctx.Err())
+	}
 }

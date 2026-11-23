@@ -106,7 +106,7 @@ func TestConsumeRetriesFailedProduceThenCommits(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, 3, calls["0/1"])
-	assert.Equal(t, []string{"0/0", "0/1", "0/2"}, log.get())
+	assert.Equal(t, []string{"0/0", "0/2"}, log.get())
 	assert.Equal(t, int64(3), c.GetMetrics().RecordsProcessed)
 }
 
@@ -134,21 +134,48 @@ func TestConsumeRetryExhaustionStopsWithoutCommittingPastFailedRecord(t *testing
 	assert.Equal(t, int64(1), c.GetMetrics().RecordsProcessed)
 }
 
-func TestConsumeStopsOtherPartitionsAfterRetryExhaustion(t *testing.T) {
+func TestConsumeRetryExhaustionCommitsOnlyAckedPartitions(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	log := &commitLog{}
-	c := newRetryConsumer(fetchOf("orders", partitionRecords{0, []int64{0}}, partitionRecords{1, []int64{0}}), cancel, log, 1, 0)
+	c := newRetryConsumer(fetchOf("orders", partitionRecords{0, []int64{0, 1}}, partitionRecords{1, []int64{0}}), cancel, log, 1, 0)
 
 	calls := map[string]int{}
 	err := c.Consume(ctx, func(ctx context.Context, r *kgo.Record) error {
 		calls[key(r)]++
-		return errors.New("produce failed")
+		if r.Partition == 0 {
+			return errors.New("produce failed")
+		}
+		return nil
 	})
 
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "topic orders partition 0 offset 0 after 1 attempts")
 	assert.Equal(t, 1, calls["0/0"])
-	assert.Equal(t, 0, calls["1/0"])
+	assert.Equal(t, 0, calls["0/1"])
+	assert.Equal(t, 1, calls["1/0"])
+	assert.Equal(t, []string{"1/0"}, log.get())
+}
+
+func TestConsumeRevokeDuringBackoffStopsRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := &commitLog{}
+	c := newRetryConsumer(fetchOf("orders", partitionRecords{0, []int64{0}}), cancel, log, 5, time.Hour)
+	c.SetSleepForTest(func(ctx context.Context, d time.Duration) error {
+		c.RevokePartitions(map[string][]int32{"orders": {0}})
+		<-ctx.Done()
+		return ctx.Err()
+	})
+
+	calls := 0
+	err := c.Consume(ctx, func(ctx context.Context, r *kgo.Record) error {
+		calls++
+		return errors.New("produce failed")
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls)
 	assert.Empty(t, log.get())
 }
 
@@ -210,7 +237,7 @@ func TestConsumeRevokedPartitionStopsRetryWithoutCommit(t *testing.T) {
 	assert.Equal(t, 1, calls["0/1"])
 	assert.Equal(t, 0, calls["0/2"])
 	assert.Equal(t, 1, calls["1/0"])
-	assert.Equal(t, []string{"0/0", "1/0"}, log.get())
+	assert.Equal(t, []string{"1/0"}, log.get())
 }
 
 func TestConsumeSkipsPartitionRevokedBeforeItsRecordsAreHandled(t *testing.T) {
@@ -286,7 +313,7 @@ func TestConsumeLostPartitionStopsRetryWithoutCommit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls["0/1"])
 	assert.Equal(t, 0, calls["1/0"])
-	assert.Equal(t, []string{"0/0"}, log.get())
+	assert.Empty(t, log.get())
 }
 
 func newRevokeOnPollConsumer(fetches kgo.Fetches, cancel context.CancelFunc, log *commitLog, revoke map[string][]int32) *kafka.Consumer {

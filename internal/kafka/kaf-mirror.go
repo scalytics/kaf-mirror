@@ -62,7 +62,6 @@ type KafMirrorImpl struct {
 	incidentStates map[string]bool
 	incidentMutex  sync.RWMutex
 	recordHook     func(topic string, key, value []byte)
-	hookedRecord   *kgo.Record
 }
 
 func (r *KafMirrorImpl) SetRecordHook(h func(topic string, key, value []byte)) {
@@ -70,14 +69,14 @@ func (r *KafMirrorImpl) SetRecordHook(h func(topic string, key, value []byte)) {
 }
 
 // NewKafMirror creates a new replication orchestrator.
-func NewKafMirror(cfg *config.Config) (KafMirror, error) {
+func NewKafMirror(cfg *config.Config, db *sqlx.DB) (KafMirror, error) {
 	topics, topicMap, rules, err := resolveTopicMappings(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	// Validate cluster compatibility and sync state before starting
-	if err := validateAndSyncClusters(cfg, topics, topicMap); err != nil {
+	if err := validateAndSyncClusters(cfg, db, topics, topicMap); err != nil {
 		return nil, fmt.Errorf("cluster validation failed: %w", err)
 	}
 
@@ -128,9 +127,9 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 			}
 		}()
 		logger.Info("[Job %s] Starting consumer goroutine", jobID)
-		err := r.Consumer.Consume(ctx, func(ctx context.Context, record *kgo.Record) error {
+		err := r.Consumer.ConsumeAsync(ctx, func(ctx context.Context, record *kgo.Record, attempt int, done func(error)) {
 			logger.Debug("[Job %s] Received record from topic %s, partition %d, offset %d", jobID, record.Topic, record.Partition, record.Offset)
-			return r.handleRecord(ctx, record)
+			r.handleRecord(ctx, record, attempt, done)
 		})
 		if err != nil {
 			reason := fmt.Sprintf("consumer stopped: %v", err)
@@ -195,7 +194,9 @@ func (r *KafMirrorImpl) GetProducer() *Producer {
 
 // HandleRecordForTest exposes record handling for tests.
 func (r *KafMirrorImpl) HandleRecordForTest(record *kgo.Record) error {
-	return r.handleRecord(context.Background(), record)
+	result := make(chan error, 1)
+	r.handleRecord(context.Background(), record, 1, func(err error) { result <- err })
+	return <-result
 }
 
 func (r *KafMirrorImpl) AddRegexMapForTest(pattern, target string) error {
@@ -209,7 +210,7 @@ func (r *KafMirrorImpl) AddRegexMapForTest(pattern, target string) error {
 	return r.rules.add(rule)
 }
 
-func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) error {
+func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record, attempt int, done func(error)) {
 	r.mapMu.RLock()
 	targetTopic, ok := r.topicMap[string(record.Topic)]
 	r.mapMu.RUnlock()
@@ -219,10 +220,10 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) er
 
 	if targetTopic == "" {
 		logger.Warn("No mapping found for topic: %s", record.Topic)
-		return nil
+		done(nil)
+		return
 	}
-	if record != r.hookedRecord {
-		r.hookedRecord = record
+	if attempt == 1 {
 		if r.recordHook != nil {
 			r.recordHook(string(record.Topic), record.Key, record.Value)
 		}
@@ -266,12 +267,14 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) er
 		outRecord.Timestamp = record.Timestamp
 	}
 
-	if err := r.Producer.ProduceSync(ctx, outRecord); err != nil {
-		logger.Error("Failed to produce record to topic %s: %v", outRecord.Topic, err)
-		return err
-	}
-	logger.Debug("Replicated record to topic %s, partition %d, offset %d", outRecord.Topic, outRecord.Partition, outRecord.Offset)
-	return nil
+	r.Producer.Produce(ctx, outRecord, func(rec *kgo.Record, err error) {
+		if err != nil {
+			logger.Error("Failed to produce record to topic %s: %v", rec.Topic, err)
+		} else {
+			logger.Debug("Replicated record to topic %s, partition %d, offset %d", rec.Topic, rec.Partition, rec.Offset)
+		}
+		done(err)
+	})
 }
 
 func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callback func(database.ReplicationMetric), onPanic func(jobID string, reason string)) {
@@ -453,7 +456,7 @@ func resolveTopicMappings(cfg *config.Config) ([]string, map[string]string, Topi
 }
 
 // validateAndSyncClusters validates cluster compatibility and syncs state before replication
-func validateAndSyncClusters(cfg *config.Config, topics []string, topicMap map[string]string) error {
+func validateAndSyncClusters(cfg *config.Config, db *sqlx.DB, topics []string, topicMap map[string]string) error {
 	logger.Info("Starting cluster validation and state synchronization")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -604,8 +607,9 @@ func validateAndSyncClusters(cfg *config.Config, topics []string, topicMap map[s
 	}
 
 	// Capture inventory snapshot for this job start
-	err = CaptureJobInventory(cfg.Replication.JobID, cfg, sourceInfo, targetInfo, topics, topicMap)
-	if err != nil {
+	if db == nil {
+		logger.Warn("No database for job %s, skipping the startup inventory snapshot", cfg.Replication.JobID)
+	} else if err := CaptureJobInventory(db, sourceAdmin, cfg.Replication.JobID, cfg, sourceInfo, targetInfo, topics, topicMap); err != nil {
 		logger.Warn("Failed to capture job inventory: %v", err)
 	}
 
@@ -778,13 +782,7 @@ func discoveryInterval(cfg *config.Config) time.Duration {
 }
 
 // CaptureJobInventory captures comprehensive inventory data when a job starts
-func CaptureJobInventory(jobID string, cfg *config.Config, sourceInfo, targetInfo *ClusterInfo, topics []string, topicMap map[string]string) error {
-	db, err := database.Open()
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
-	defer db.Close()
-
+func CaptureJobInventory(db *sqlx.DB, sourceAdmin AdminClientAPI, jobID string, cfg *config.Config, sourceInfo, targetInfo *ClusterInfo, topics []string, topicMap map[string]string) error {
 	// Create inventory snapshot
 	snapshotID, err := database.CreateInventorySnapshot(db, jobID, "startup")
 	if err != nil {
@@ -819,11 +817,7 @@ func CaptureJobInventory(jobID string, cfg *config.Config, sourceInfo, targetInf
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sourceAdmin, err := NewAdminClient(cfg.Clusters["source"])
-	if err != nil {
-		logger.Warn("Failed to create admin client for consumer group inventory: %v", err)
-	} else {
-		defer sourceAdmin.Close()
+	if sourceAdmin != nil {
 		err = captureConsumerGroupInventory(db, snapshotID, sourceAdmin, groupID, topics, ctx)
 		if err != nil {
 			logger.Warn("Failed to capture consumer group inventory: %v", err)
@@ -934,7 +928,7 @@ func captureTopicInventories(db *sqlx.DB, clusterInventoryID int, clusterInfo *C
 	return nil
 }
 
-func captureConsumerGroupInventory(db *sqlx.DB, snapshotID int, admin *AdminClient, groupID string, topics []string, ctx context.Context) error {
+func captureConsumerGroupInventory(db *sqlx.DB, snapshotID int, admin AdminClientAPI, groupID string, topics []string, ctx context.Context) error {
 	consumerGroup := database.ConsumerGroupInventory{
 		SnapshotID:   snapshotID,
 		GroupID:      groupID,
@@ -1109,5 +1103,9 @@ func (r *KafMirrorImpl) SetIntervalsForTest(metrics, discovery time.Duration) {
 
 // ValidateAndSyncClustersForTest exposes cluster validation for unit tests.
 func ValidateAndSyncClustersForTest(cfg *config.Config, topics []string, topicMap map[string]string) error {
-	return validateAndSyncClusters(cfg, topics, topicMap)
+	return validateAndSyncClusters(cfg, nil, topics, topicMap)
+}
+
+func ValidateAndSyncClustersWithDBForTest(cfg *config.Config, db *sqlx.DB, topics []string, topicMap map[string]string) error {
+	return validateAndSyncClusters(cfg, db, topics, topicMap)
 }

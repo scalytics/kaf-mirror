@@ -37,9 +37,9 @@ type ReplicationJob struct {
 	Status             string    `db:"status" json:"status"`
 	FailedReason       *string   `db:"failed_reason" json:"failed_reason"`
 	BatchSize          int       `db:"batch_size" json:"batch_size"`
-	Parallelism        int       `db:"parallelism" json:"parallelism"`
+	Parallelism        int       `db:"parallelism" json:"-"`
 	Compression        string    `db:"compression" json:"compression"`
-	PreservePartitions bool      `db:"preserve_partitions" json:"preserve_partitions"`
+	PreservePartitions bool      `db:"preserve_partitions" json:"-"`
 	CreatedAt          time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt          time.Time `db:"updated_at" json:"updated_at"`
 }

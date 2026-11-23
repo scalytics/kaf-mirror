@@ -12,12 +12,14 @@
 package database_test
 
 import (
+	"encoding/json"
 	"kaf-mirror/internal/database"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDatabase(t *testing.T) {
@@ -210,20 +212,17 @@ func TestUpdateJobPersistsReplicationSettings(t *testing.T) {
 		TargetClusterName: "b",
 		Status:            "paused",
 		BatchSize:         1000,
-		Parallelism:       4,
 		Compression:       "none",
 	}
 	assert.NoError(t, database.CreateJob(db, job))
 
 	job.BatchSize = 2000
-	job.Parallelism = 8
 	job.Compression = "lz4"
 	assert.NoError(t, database.UpdateJob(db, job))
 
 	got, err := database.GetJob(db, "job-1")
 	assert.NoError(t, err)
 	assert.Equal(t, 2000, got.BatchSize)
-	assert.Equal(t, 8, got.Parallelism)
 	assert.Equal(t, "lz4", got.Compression)
 }
 
@@ -284,4 +283,11 @@ func TestKafkaClusterRedactedAndRestore(t *testing.T) {
 	assert.Equal(t, conn, *incoming.ConnectionString)
 	assert.Equal(t, `{"password":"pw"}`, incoming.SecurityConfig)
 	assert.Equal(t, "localhost:9093", incoming.Brokers)
+}
+
+func TestReplicationJobJSONHasNoParallelismOrPreservePartitions(t *testing.T) {
+	out, err := json.Marshal(database.ReplicationJob{ID: "job-1", Parallelism: 4, PreservePartitions: true})
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "parallelism")
+	assert.NotContains(t, string(out), "preserve_partitions")
 }

@@ -50,40 +50,75 @@ type securityPlan struct {
 }
 
 func ClientOptions(cfg config.ClusterConfig) ([]kgo.Opt, error) {
+	opts, _, err := clientOptions(cfg)
+	return opts, err
+}
+
+func clientOptions(cfg config.ClusterConfig) ([]kgo.Opt, []sasl.Mechanism, error) {
 	brokers := splitBrokers(cfg.Brokers)
 	if len(brokers) == 0 {
-		return nil, errors.New("no brokers configured")
+		return nil, nil, errors.New("no brokers configured")
 	}
 	plan, err := planSecurity(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	opts := []kgo.Opt{kgo.SeedBrokers(brokers...)}
 	if plan.tls {
 		opts = append(opts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
 	}
+	var mechs []sasl.Mechanism
 	if plan.mechanism != "" {
 		mech, err := buildMechanism(plan)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		mechs = append(mechs, mech)
 		opts = append(opts, kgo.SASL(mech))
 	}
 	logger.Debug("Kafka client security: provider=%s, tls=%t, sasl=%s", cfg.Provider, plan.tls, plan.mechanism)
-	return opts, nil
+	return opts, mechs, nil
+}
+
+func newClient(cfg config.ClusterConfig, extra ...kgo.Opt) (*kgo.Client, error) {
+	opts, mechs, err := clientOptions(cfg)
+	if err != nil {
+		return nil, err
+	}
+	client, err := kgo.NewClient(append(opts, extra...)...)
+	if err != nil {
+		closeMechanisms(mechs)
+		return nil, err
+	}
+	return client, nil
+}
+
+func newAdminKgoClient(cfg config.ClusterConfig) (*kgo.Client, error) {
+	return newClient(cfg, kgo.RequestTimeoutOverhead(adminRequestOverhead))
+}
+
+var saslCloseObserver func(name string)
+
+func closeMechanisms(mechs []sasl.Mechanism) {
+	for _, m := range mechs {
+		if closer, ok := m.(sasl.ClosingMechanism); ok {
+			closer.Close()
+			if saslCloseObserver != nil {
+				saslCloseObserver(m.Name())
+			}
+		}
+	}
+}
+
+func SetSASLCloseObserverForTest(fn func(name string)) func() {
+	prev := saslCloseObserver
+	saslCloseObserver = fn
+	return func() { saslCloseObserver = prev }
 }
 
 func ValidateSecurity(cfg config.ClusterConfig) error {
 	_, err := planSecurity(cfg)
 	return err
-}
-
-func adminOptions(cfg config.ClusterConfig) ([]kgo.Opt, error) {
-	opts, err := ClientOptions(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return append(opts, kgo.RequestTimeoutOverhead(adminRequestOverhead)), nil
 }
 
 func splitBrokers(brokers string) []string {

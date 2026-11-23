@@ -88,17 +88,11 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 		}),
 	}
 
-	logger.Debug("Consumer configuration: batch_size=%dKB, parallelism=%d, job=%s, component=%s",
-		replicationCfg.BatchSize, replicationCfg.Parallelism, jobID, "consumer")
-
-	securityOpts, err := ClientOptions(cfg)
-	if err != nil {
-		return nil, err
-	}
-	opts = append(securityOpts, opts...)
+	logger.Debug("Consumer configuration: batch_size=%dKB, job=%s, component=%s",
+		replicationCfg.BatchSize, jobID, "consumer")
 
 	logger.Info("Consumer: Establishing connection to Kafka brokers, job=%s, component=%s", jobID, "consumer")
-	client, err := kgo.NewClient(opts...)
+	client, err := newClient(cfg, opts...)
 	if err != nil {
 		logger.ErrorAI("disaster", "connection", jobID, "Consumer: Failed to create Kafka client: %v", err)
 		return nil, err
@@ -110,7 +104,55 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 	return consumer, nil
 }
 
+type AsyncHandler func(ctx context.Context, record *kgo.Record, attempt int, done func(error))
+
+func SyncHandler(handler func(context.Context, *kgo.Record) error) AsyncHandler {
+	return func(ctx context.Context, record *kgo.Record, _ int, done func(error)) {
+		done(handler(ctx, record))
+	}
+}
+
+const shutdownCommitTimeout = 5 * time.Second
+
+const (
+	recordPending = iota
+	recordAcked
+	recordFailed
+)
+
+type partitionBatch struct {
+	tp       topicPartition
+	ctx      context.Context
+	records  []*kgo.Record
+	next     int
+	status   []int
+	sends    []int
+	failures []int
+	errs     []error
+	failedAt int
+	inflight int
+}
+
+type batchRound struct {
+	mu       sync.Mutex
+	pending  int
+	finished bool
+	done     chan struct{}
+}
+
+func (b *batchRound) release(n int) {
+	b.pending -= n
+	if b.pending == 0 && !b.finished {
+		b.finished = true
+		close(b.done)
+	}
+}
+
 func (c *Consumer) Consume(ctx context.Context, handler func(context.Context, *kgo.Record) error) error {
+	return c.ConsumeAsync(ctx, SyncHandler(handler))
+}
+
+func (c *Consumer) ConsumeAsync(ctx context.Context, handler AsyncHandler) error {
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -125,79 +167,238 @@ func (c *Consumer) Consume(ctx context.Context, handler func(context.Context, *k
 		})
 
 		partCtxs := c.trackPartitions(ctx, fetches)
-		var failed error
+		var batches []*partitionBatch
 		fetches.EachPartition(func(partition kgo.FetchTopicPartition) {
 			c.setHighWaterMark(partition.Topic, partition.Partition, partition.HighWatermark)
-			if failed != nil {
+			if len(partition.Records) == 0 {
 				return
 			}
 			tp := topicPartition{topic: partition.Topic, partition: partition.Partition}
-			failed = c.consumePartition(ctx, partCtxs[tp], partition.Records, handler)
+			batches = append(batches, &partitionBatch{
+				tp:       tp,
+				ctx:      partCtxs[tp],
+				records:  partition.Records,
+				status:   make([]int, len(partition.Records)),
+				sends:    make([]int, len(partition.Records)),
+				failures: make([]int, len(partition.Records)),
+				errs:     make([]error, len(partition.Records)),
+				failedAt: -1,
+			})
 		})
+		err := c.consumeBatches(ctx, batches, handler)
 		c.releasePartitions(partCtxs)
 
 		if ctx.Err() != nil {
 			return nil
 		}
-		if failed != nil {
-			return failed
-		}
-	}
-}
-
-func (c *Consumer) consumePartition(ctx, partCtx context.Context, records []*kgo.Record, handler func(context.Context, *kgo.Record) error) error {
-	for _, record := range records {
-		c.setLastOffset(record.Topic, record.Partition, record.Offset)
-
-		if err := c.handleWithRetry(partCtx, record, handler); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if partCtx.Err() != nil {
-				logger.Warn("Consumer: partition revoked, stopped at topic %s partition %d offset %d without commit, job=%s", record.Topic, record.Partition, record.Offset, c.jobID)
-				return nil
-			}
-			logger.Error("Consumer: handler failed for topic %s partition %d offset %d: %v", record.Topic, record.Partition, record.Offset, err)
-			return fmt.Errorf("produce failed for topic %s partition %d offset %d after %d attempts: %w", record.Topic, record.Partition, record.Offset, max(c.produceAttempts, 1), err)
-		}
-		atomic.AddInt64(&c.recordsProcessed, 1)
-		atomic.AddInt64(&c.bytesProcessed, int64(len(record.Value)+len(record.Key)))
-		if len(record.Value) == 0 {
-			atomic.AddInt64(&c.tombstones, 1)
-		}
-		if err := c.Client.CommitRecords(ctx, record); err != nil {
-			logger.Error("Consumer: failed to commit offset for topic %s partition %d offset %d: %v", record.Topic, record.Partition, record.Offset, err)
-		}
-	}
-	return nil
-}
-
-func (c *Consumer) handleWithRetry(ctx context.Context, record *kgo.Record, handler func(context.Context, *kgo.Record) error) error {
-	backoff := c.produceBackoff
-	for attempt := 1; ; attempt++ {
-		if err := ctx.Err(); err != nil {
+		if err != nil {
 			return err
 		}
-		err := handler(ctx, record)
-		if err == nil {
+	}
+}
+
+func (c *Consumer) consumeBatches(ctx context.Context, batches []*partitionBatch, handler AsyncHandler) error {
+	attempts := max(c.produceAttempts, 1)
+	for {
+		active := c.activeBatches(batches)
+		if len(active) == 0 {
 			return nil
 		}
+		c.produceRound(ctx, active, handler)
+		c.commitAcked(ctx, active)
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return nil
 		}
-		if attempt >= c.produceAttempts {
-			return err
+
+		var failing []*partitionBatch
+		var wait time.Duration
+		for _, b := range active {
+			if b.failedAt < 0 || b.ctx.Err() != nil {
+				continue
+			}
+			record := b.records[b.failedAt]
+			failures := b.failures[b.failedAt]
+			if failures >= attempts {
+				logger.Error("Consumer: handler failed for topic %s partition %d offset %d after %d attempts, job=%s", record.Topic, record.Partition, record.Offset, attempts, c.jobID)
+				return fmt.Errorf("produce failed for topic %s partition %d offset %d after %d attempts: %w", record.Topic, record.Partition, record.Offset, attempts, b.errs[b.failedAt])
+			}
+			backoff := c.produceBackoff << (failures - 1)
+			logger.Warn("Consumer: produce attempt %d of %d failed for topic %s partition %d offset %d, retrying in %s: %v", failures, attempts, record.Topic, record.Partition, record.Offset, backoff, b.errs[b.failedAt])
+			wait = max(wait, backoff)
+			failing = append(failing, b)
 		}
-		logger.Warn("Consumer: produce attempt %d of %d failed for topic %s partition %d offset %d, retrying in %s: %v", attempt, c.produceAttempts, record.Topic, record.Partition, record.Offset, backoff, err)
-		sleep := c.sleep
-		if sleep == nil {
-			sleep = sleepContext
+		if len(failing) == 0 {
+			continue
 		}
-		if err := sleep(ctx, backoff); err != nil {
-			return err
+		if err := c.backoff(ctx, failing, wait); err != nil && ctx.Err() != nil {
+			return nil
 		}
-		backoff *= 2
 	}
+}
+
+func (c *Consumer) activeBatches(batches []*partitionBatch) []*partitionBatch {
+	var active []*partitionBatch
+	for _, b := range batches {
+		if b.next >= len(b.records) {
+			continue
+		}
+		if b.ctx.Err() != nil {
+			if b.failedAt >= 0 {
+				record := b.records[b.failedAt]
+				logger.Warn("Consumer: partition revoked, stopped at topic %s partition %d offset %d without commit, job=%s", record.Topic, record.Partition, record.Offset, c.jobID)
+			}
+			b.next = len(b.records)
+			continue
+		}
+		active = append(active, b)
+	}
+	return active
+}
+
+func (c *Consumer) produceRound(ctx context.Context, batches []*partitionBatch, handler AsyncHandler) {
+	round := &batchRound{pending: 1, done: make(chan struct{})}
+	var stops []func() bool
+	for _, b := range batches {
+		for i := b.next; i < len(b.records); i++ {
+			b.status[i] = recordPending
+		}
+		b.failedAt = -1
+		b.inflight = 0
+		stops = append(stops, context.AfterFunc(b.ctx, func() {
+			round.mu.Lock()
+			defer round.mu.Unlock()
+			if round.finished {
+				return
+			}
+			n := b.inflight
+			b.inflight = 0
+			round.release(n)
+		}))
+	}
+
+	for _, b := range batches {
+		if ctx.Err() != nil {
+			break
+		}
+		for i := b.next; i < len(b.records); i++ {
+			if ctx.Err() != nil || b.ctx.Err() != nil {
+				break
+			}
+			round.mu.Lock()
+			stopped := b.failedAt >= 0 || round.finished || b.ctx.Err() != nil
+			if !stopped {
+				round.pending++
+				b.inflight++
+			}
+			round.mu.Unlock()
+			if stopped {
+				break
+			}
+			record := b.records[i]
+			c.setLastOffset(record.Topic, record.Partition, record.Offset)
+			b.sends[i]++
+			handler(b.ctx, record, b.sends[i], c.recordDone(round, b, i))
+		}
+	}
+
+	round.mu.Lock()
+	round.release(1)
+	round.mu.Unlock()
+	select {
+	case <-round.done:
+	case <-ctx.Done():
+	}
+	round.mu.Lock()
+	round.finished = true
+	round.mu.Unlock()
+	for _, stop := range stops {
+		stop()
+	}
+}
+
+func (c *Consumer) recordDone(round *batchRound, b *partitionBatch, i int) func(error) {
+	var once sync.Once
+	return func(err error) {
+		once.Do(func() {
+			round.mu.Lock()
+			defer round.mu.Unlock()
+			if round.finished || b.ctx.Err() != nil {
+				return
+			}
+			if err == nil {
+				b.status[i] = recordAcked
+			} else {
+				b.status[i] = recordFailed
+				b.failures[i]++
+				b.errs[i] = err
+				if b.failedAt < 0 || i < b.failedAt {
+					b.failedAt = i
+				}
+			}
+			b.inflight--
+			round.release(1)
+		})
+	}
+}
+
+func (c *Consumer) commitAcked(ctx context.Context, batches []*partitionBatch) {
+	var commits []*kgo.Record
+	for _, b := range batches {
+		if c.isRevoked(b.tp) {
+			continue
+		}
+		start := b.next
+		for b.next < len(b.records) && b.status[b.next] == recordAcked {
+			record := b.records[b.next]
+			atomic.AddInt64(&c.recordsProcessed, 1)
+			atomic.AddInt64(&c.bytesProcessed, int64(len(record.Value)+len(record.Key)))
+			if len(record.Value) == 0 {
+				atomic.AddInt64(&c.tombstones, 1)
+			}
+			b.next++
+		}
+		if b.next > start {
+			commits = append(commits, b.records[b.next-1])
+		}
+	}
+	if len(commits) == 0 {
+		return
+	}
+	commitCtx := ctx
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		commitCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), shutdownCommitTimeout)
+		defer cancel()
+	}
+	if err := c.Client.CommitRecords(commitCtx, commits...); err != nil {
+		logger.Error("Consumer: failed to commit %d partition offsets: %v, job=%s", len(commits), err, c.jobID)
+	}
+}
+
+func (c *Consumer) backoff(ctx context.Context, failing []*partitionBatch, wait time.Duration) error {
+	sleepCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var remaining atomic.Int32
+	remaining.Store(int32(len(failing)))
+	for _, b := range failing {
+		stop := context.AfterFunc(b.ctx, func() {
+			if remaining.Add(-1) == 0 {
+				cancel()
+			}
+		})
+		defer stop()
+	}
+	sleep := c.sleep
+	if sleep == nil {
+		sleep = sleepContext
+	}
+	return sleep(sleepCtx, wait)
+}
+
+func (c *Consumer) isRevoked(tp topicPartition) bool {
+	c.partMu.Lock()
+	defer c.partMu.Unlock()
+	return c.revoked[tp]
 }
 
 func sleepContext(ctx context.Context, d time.Duration) error {

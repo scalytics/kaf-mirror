@@ -114,3 +114,37 @@ func TestClusterSaveRejectsBadSecurityConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestClusterSaveValidatesGSSAPIWhenEnabledOmitted(t *testing.T) {
+	ctx := setupTestServer(t)
+	missing := map[string]interface{}{
+		"name":            "krb-no-enabled",
+		"provider":        "plain",
+		"brokers":         "broker-1:9092",
+		"security_config": `{"protocol":"SASL_SSL","sasl_mechanism":"GSSAPI","kerberos":{"service_name":"kafka"}}`,
+	}
+	status, body := postJSON(t, ctx, "POST", "/api/v1/clusters", missing)
+	assert.Equal(t, 400, status, body)
+	assert.Contains(t, body, "kerberos.principal")
+
+	status, body = postJSON(t, ctx, "POST", "/api/v1/clusters/test", map[string]interface{}{
+		"provider": "plain",
+		"brokers":  "broker-1:9092",
+		"security": map[string]interface{}{
+			"protocol":       "SASL_SSL",
+			"sasl_mechanism": "GSSAPI",
+			"kerberos":       map[string]string{"service_name": "kafka"},
+		},
+	})
+	assert.Equal(t, 400, status, body)
+	assert.Contains(t, body, "kerberos.principal")
+
+	complete := map[string]interface{}{
+		"name":            "krb-no-enabled",
+		"provider":        "plain",
+		"brokers":         "broker-1:9092",
+		"security_config": `{"protocol":"SASL_SSL","sasl_mechanism":"GSSAPI","kerberos":{"service_name":"kafka","principal":"kaf-mirror@EXAMPLE.COM","keytab_path":"/app/kerberos/keytab/kafka.keytab","krb5_conf_path":"/app/kerberos/krb5/krb5.conf"}}`,
+	}
+	status, body = postJSON(t, ctx, "POST", "/api/v1/clusters", complete)
+	assert.Equal(t, 201, status, body)
+}

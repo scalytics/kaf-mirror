@@ -37,7 +37,7 @@ func TestStartJobPassesTopicDiscoveryIntervalToJobConfig(t *testing.T) {
 	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "src", Brokers: "localhost:9092", SecurityConfig: "{}"}))
 	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "tgt", Brokers: "localhost:9093", SecurityConfig: "{}"}))
 	jobID := uuid.NewString()
-	require.NoError(t, database.CreateJob(db, &database.ReplicationJob{ID: jobID, Name: "regex-job", SourceClusterName: "src", TargetClusterName: "tgt", Status: "paused", BatchSize: 100, Parallelism: 2, Compression: "none"}))
+	require.NoError(t, database.CreateJob(db, &database.ReplicationJob{ID: jobID, Name: "regex-job", SourceClusterName: "src", TargetClusterName: "tgt", Status: "paused", BatchSize: 100, Compression: "none"}))
 	require.NoError(t, database.UpdateMappingsForJob(db, jobID, []database.TopicMapping{{JobID: jobID, SourceTopicPattern: "app-.*", TargetTopicPattern: "mirror-$0", Enabled: true}}))
 
 	var built *config.Config

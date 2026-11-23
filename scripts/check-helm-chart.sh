@@ -75,4 +75,16 @@ if helm template km "$chart" --set replicaCount=0 >/dev/null 2>&1; then
 fi
 grep -q "replicas: 1$" <<<"$default_out" || fail "default render does not run exactly one replica"
 
+grep -q "terminationGracePeriodSeconds: 45$" <<<"$default_out" || fail "default render has no terminationGracePeriodSeconds of 45"
+grep -q 'shutdown_timeout: "30s"' <<<"$default_out" || fail "default render has no shutdown_timeout of 30s"
+grace_out=$(helm template km "$chart" --set terminationGracePeriodSeconds=90 --set config.server.shutdownTimeoutSeconds=60)
+grep -q "terminationGracePeriodSeconds: 90$" <<<"$grace_out" || fail "terminationGracePeriodSeconds is not read from the values"
+grep -q 'shutdown_timeout: "60s"' <<<"$grace_out" || fail "shutdown_timeout is not read from the values"
+if helm template km "$chart" --set terminationGracePeriodSeconds=30 >/dev/null 2>&1; then
+  fail "render accepts a terminationGracePeriodSeconds that is not longer than the shutdown timeout"
+fi
+if helm template km "$chart" --set config.server.shutdownTimeoutSeconds=0 >/dev/null 2>&1; then
+  fail "render accepts a shutdown timeout of 0"
+fi
+
 echo "helm-check: ok"

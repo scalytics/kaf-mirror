@@ -477,15 +477,13 @@ func (s *Server) handleTestClusterConnection(c *fiber.Ctx) error {
 	clusterConfig := database.ClusterConfigFromRow(req.KafkaCluster)
 	if req.Security != nil {
 		database.MergeSecurity(&clusterConfig.Security, *req.Security)
-		if clusterConfig.Security.APIKey != "" || clusterConfig.Security.Username != "" {
-			clusterConfig.Security.Enabled = true
-		}
 	}
+	database.EnableSecurityIfConfigured(&clusterConfig.Security)
 	if err := kafka.ValidateSecurity(clusterConfig); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), clusterTestTimeout)
+	ctx, cancel := context.WithTimeout(c.UserContext(), clusterTestTimeout)
 	defer cancel()
 	if err := kafka.TestConnection(ctx, clusterConfig); err != nil {
 		return fiber.NewError(fiber.StatusServiceUnavailable, fmt.Sprintf("Failed to connect to cluster: %v", err))
@@ -518,14 +516,12 @@ func (s *Server) handleListJobs(c *fiber.Ctx) error {
 }
 
 type CreateJobRequest struct {
-	Name               string                  `json:"name"`
-	SourceClusterName  string                  `json:"source_cluster_name"`
-	TargetClusterName  string                  `json:"target_cluster_name"`
-	TopicMappings      []database.TopicMapping `json:"topic_mappings"`
-	BatchSize          int                     `json:"batch_size"`
-	Parallelism        int                     `json:"parallelism"`
-	Compression        string                  `json:"compression"`
-	PreservePartitions bool                    `json:"preserve_partitions"`
+	Name              string                  `json:"name"`
+	SourceClusterName string                  `json:"source_cluster_name"`
+	TargetClusterName string                  `json:"target_cluster_name"`
+	TopicMappings     []database.TopicMapping `json:"topic_mappings"`
+	BatchSize         int                     `json:"batch_size"`
+	Compression       string                  `json:"compression"`
 }
 
 type HaltProtectionRequest struct {
@@ -559,15 +555,13 @@ func (s *Server) handleCreateJob(c *fiber.Ctx) error {
 	}
 
 	job := &database.ReplicationJob{
-		ID:                 uuid.NewString(),
-		Name:               req.Name,
-		SourceClusterName:  req.SourceClusterName,
-		TargetClusterName:  req.TargetClusterName,
-		Status:             "paused", // Default status
-		BatchSize:          req.BatchSize,
-		Parallelism:        req.Parallelism,
-		Compression:        req.Compression,
-		PreservePartitions: req.PreservePartitions,
+		ID:                uuid.NewString(),
+		Name:              req.Name,
+		SourceClusterName: req.SourceClusterName,
+		TargetClusterName: req.TargetClusterName,
+		Status:            "paused", // Default status
+		BatchSize:         req.BatchSize,
+		Compression:       req.Compression,
 	}
 
 	if err := database.CreateJob(s.Db, job); err != nil {
@@ -643,13 +637,9 @@ func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
 	if req.BatchSize > 0 {
 		job.BatchSize = req.BatchSize
 	}
-	if req.Parallelism > 0 {
-		job.Parallelism = req.Parallelism
-	}
 	if req.Compression != "" {
 		job.Compression = req.Compression
 	}
-	job.PreservePartitions = req.PreservePartitions
 
 	if err := database.UpdateJob(s.Db, job); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update job")

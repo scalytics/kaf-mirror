@@ -49,7 +49,6 @@ func TestNewProducer_Compression_Gzip(t *testing.T) {
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   1000,
-		Parallelism: 4,
 		Compression: "gzip",
 	}
 
@@ -65,7 +64,6 @@ func TestNewProducer_Compression_Snappy(t *testing.T) {
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   2000,
-		Parallelism: 8,
 		Compression: "snappy",
 	}
 
@@ -81,7 +79,6 @@ func TestNewProducer_Compression_Lz4(t *testing.T) {
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   500,
-		Parallelism: 2,
 		Compression: "lz4",
 	}
 
@@ -97,7 +94,6 @@ func TestNewProducer_Compression_Zstd(t *testing.T) {
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   1500,
-		Parallelism: 6,
 		Compression: "zstd",
 	}
 
@@ -113,7 +109,6 @@ func TestNewProducer_NoCompression(t *testing.T) {
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   1000,
-		Parallelism: 4,
 		Compression: "none",
 	}
 
@@ -136,7 +131,6 @@ func TestNewProducer_SASL_PLAIN(t *testing.T) {
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   1000,
-		Parallelism: 4,
 		Compression: "gzip",
 	}
 
@@ -156,7 +150,6 @@ func TestNewProducer_TLS_SSL(t *testing.T) {
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   1000,
-		Parallelism: 4,
 		Compression: "snappy",
 	}
 
@@ -174,7 +167,6 @@ func TestNewProducer_Kerberos(t *testing.T) {
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   1000,
-		Parallelism: 4,
 		Compression: "lz4",
 	}
 
@@ -194,7 +186,6 @@ func TestNewProducer_InvalidSASL(t *testing.T) {
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   1000,
-		Parallelism: 4,
 		Compression: "gzip",
 	}
 
@@ -215,7 +206,6 @@ func TestNewProducer_MissingKerberosPaths(t *testing.T) {
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   1000,
-		Parallelism: 4,
 		Compression: "gzip",
 	}
 

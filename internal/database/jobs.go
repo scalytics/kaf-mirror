@@ -44,9 +44,9 @@ func CreateJob(db *sqlx.DB, job *ReplicationJob) error {
 		return errors.New("a job with this name already exists")
 	}
 
-	query := `INSERT INTO replication_jobs (id, name, source_cluster_name, target_cluster_name, status, batch_size, parallelism, compression, preserve_partitions, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err = db.Exec(query, job.ID, job.Name, job.SourceClusterName, job.TargetClusterName, job.Status, job.BatchSize, job.Parallelism, job.Compression, job.PreservePartitions, time.Now(), time.Now())
+	query := `INSERT INTO replication_jobs (id, name, source_cluster_name, target_cluster_name, status, batch_size, compression, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err = db.Exec(query, job.ID, job.Name, job.SourceClusterName, job.TargetClusterName, job.Status, job.BatchSize, job.Compression, time.Now(), time.Now())
 	return err
 }
 
@@ -63,9 +63,9 @@ func UpdateJob(db *sqlx.DB, job *ReplicationJob) error {
 	}
 
 	query := `UPDATE replication_jobs 
-              SET name = ?, source_cluster_name = ?, target_cluster_name = ?, status = ?, failed_reason = ?, batch_size = ?, parallelism = ?, compression = ?, preserve_partitions = ?, updated_at = ?
+              SET name = ?, source_cluster_name = ?, target_cluster_name = ?, status = ?, failed_reason = ?, batch_size = ?, compression = ?, updated_at = ?
               WHERE id = ?`
-	_, err = db.Exec(query, job.Name, job.SourceClusterName, job.TargetClusterName, job.Status, job.FailedReason, job.BatchSize, job.Parallelism, job.Compression, job.PreservePartitions, time.Now(), job.ID)
+	_, err = db.Exec(query, job.Name, job.SourceClusterName, job.TargetClusterName, job.Status, job.FailedReason, job.BatchSize, job.Compression, time.Now(), job.ID)
 	return err
 }
 

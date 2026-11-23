@@ -2342,9 +2342,6 @@
                 },
                 "jobID": {
                     "type": "string"
-                },
-                "parallelism": {
-                    "type": "integer"
                 }
             }
         },
@@ -3030,12 +3027,6 @@
                 "name": {
                     "type": "string"
                 },
-                "parallelism": {
-                    "type": "integer"
-                },
-                "preserve_partitions": {
-                    "type": "boolean"
-                },
                 "source_cluster_name": {
                     "type": "string"
                 },
@@ -3211,12 +3202,6 @@
                 },
                 "name": {
                     "type": "string"
-                },
-                "parallelism": {
-                    "type": "integer"
-                },
-                "preserve_partitions": {
-                    "type": "boolean"
                 },
                 "source_cluster_name": {
                     "type": "string"

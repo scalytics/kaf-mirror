@@ -177,14 +177,8 @@ func (jf *JobsFactory) UpdateDetailData(dataManager *core.DataManager, itemID st
 	if batchSize := job["batch_size"]; batchSize != nil {
 		rows = append(rows, fmt.Sprintf("Batch Size: %.0f messages", SafeFloat(batchSize, 0)))
 	}
-	if parallelism := job["parallelism"]; parallelism != nil {
-		rows = append(rows, fmt.Sprintf("Parallelism: %.0f threads", SafeFloat(parallelism, 0)))
-	}
 	if compression := job["compression"]; compression != nil {
 		rows = append(rows, fmt.Sprintf("Compression: %s", SafeString(compression, "N/A")))
-	}
-	if preservePartitions := job["preserve_partitions"]; preservePartitions != nil {
-		rows = append(rows, fmt.Sprintf("Preserve Partitions: %v", preservePartitions))
 	}
 
 	rows = append(rows, "")

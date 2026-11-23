@@ -1,6 +1,7 @@
 server:
   host: "0.0.0.0"
   port: 8080
+  shutdown_timeout: "30s"
   mode: "development"
   tls:
     enabled: false
@@ -44,7 +45,6 @@ clusters:
 replication:
   job_id: "local-dev"
   batch_size: 1000
-  parallelism: 4
   compression: "none"
   topic_discovery_interval: "5m"
 

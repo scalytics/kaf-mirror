@@ -12,6 +12,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"kaf-mirror/internal/ai"
 	"kaf-mirror/internal/config"
@@ -103,4 +104,8 @@ func (s *Server) getWebPath() string {
 // Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown() error {
 	return s.App.Shutdown()
+}
+
+func (s *Server) ShutdownWithContext(ctx context.Context) error {
+	return s.App.ShutdownWithContext(ctx)
 }

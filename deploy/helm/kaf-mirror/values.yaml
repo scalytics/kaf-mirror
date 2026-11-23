@@ -5,6 +5,8 @@ image:
 
 replicaCount: 1
 
+terminationGracePeriodSeconds: 45
+
 service:
   type: ClusterIP
   port: 8088
@@ -15,6 +17,7 @@ config:
     port: 8080
     mode: "production"
     allowInsecure: true
+    shutdownTimeoutSeconds: 30
     tls:
       existingSecret: ""
       certKey: "tls.crt"

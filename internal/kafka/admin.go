@@ -96,12 +96,7 @@ type AdminClient struct {
 }
 
 func NewAdminClient(cfg config.ClusterConfig) (*AdminClient, error) {
-	opts, err := adminOptions(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	client, err := kgo.NewClient(opts...)
+	client, err := newAdminKgoClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create admin client: %w", err)
 	}
@@ -119,12 +114,7 @@ func (a *AdminClient) KgoClientForTest() *kgo.Client {
 
 // TestConnection checks if a connection can be established to the cluster.
 func TestConnection(ctx context.Context, cfg config.ClusterConfig) error {
-	opts, err := adminOptions(cfg)
-	if err != nil {
-		return err
-	}
-
-	client, err := kgo.NewClient(opts...)
+	client, err := newAdminKgoClient(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create client for connection test: %w", err)
 	}
