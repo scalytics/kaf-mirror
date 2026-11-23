@@ -3,6 +3,14 @@
 All notable changes to this project are documented here.
 
 ## [Unreleased]
+### Breaking
+- `admin-cli backup` no longer overwrites an existing file. The command fails and leaves the file alone. Use a new path or delete the old file first (#68).
+- `admin-cli restore` and `import` fail with a non-zero exit status when there is no terminal to confirm. Scripts must pass `--yes`. Before, they printed "cancelled" and exited 0 (#68).
+- `admin-cli tokens reset` does the same: it needs `--yes` without a terminal, and a missing confirmation is a non-zero exit (#68).
+- `mirror-cli users add --password` is removed. The flag was never read. The generated password is written to a mode `0600` temp file and only the path is printed (#74).
+- `mirror-cli whoami` no longer prints the API token. It shows the username and role (#74).
+- `mirror-cli login`, `users reset-password`, `clusters remove`, `jobs delete` and other prompts that used to print "cancelled" and exit 0 when stdin is not a terminal now exit with a non-zero status. The destructive commands take `--yes` for scripts (#73, #74).
+
 ### Fixes
 - Replicated records keep the source timestamp. Before, the target record got the time of the copy (#27).
 - Replicated records keep the source partition. The producer now writes each record to the partition it came from. Before, the producer default partitioner chose the target partition (#28).
@@ -74,11 +82,26 @@ All notable changes to this project are documented here.
 - `mirror-cli jobs add` asks for the batch size in KB and the dashboard shows it in KB. Before, both said messages (#67).
 - One record that the target rejects no longer fails the whole batch of its partition. When more than one record of a partition fails in the same try, for example because the target rejected their produce batch with `MESSAGE_TOO_LARGE`, kaf-mirror sends them again one at a time. The records before the bad record are copied and committed, and `failed_reason` names the offset of the bad record. Before, it named the first record of the batch and none of the batch was copied. The 5 tries stay the same for a record that is too large (#69).
 - The record size analysis is logged at `DEBUG` instead of `INFO` for every 100th record and every record over 2 KB, and is tagged with the job ID instead of the topic. At `INFO`, a job logs one compression hint per topic that has a record larger than 2 KB. The README says that kaf-mirror does not rotate its log file (#71).
+- `admin-cli backup database` and `backup full` take a consistent copy with `VACUUM INTO`, so a backup of a running instance includes the writes that are still in `kaf-mirror.db-wal`. Before, they copied only the main database file and lost recent data, for example a cluster created a minute earlier (#68).
+- Backup files are created with mode `0600` and `backup full` creates its directory with mode `0700`, whatever the umask. Breaking: a backup no longer overwrites an existing file: the command fails and leaves the file alone. Before, backups were `0644` and held password hashes and API tokens (#68).
+- `admin-cli restore database`, `import database` and `import full` check that the source is a readable SQLite database, copy it next to the database with `VACUUM INTO`, remove the old `-wal` and `-shm` files and move the copy in place with mode `0600`. They take an exclusive, non-blocking flock on `kaf-mirror.db.lock` and hold it through the copy, cleanup and rename, so the server cannot start mid-restore. They fail if the server already holds the lock. A leftover `-wal` file after a crash does not block a restore. The lock does not see a process that opens the database without it, so stop kaf-mirror first. Before, they copied the file over the open database and left the old WAL file next to it (#68).
+- The server takes `kaf-mirror.db.lock` before it opens the database and refuses to start, with a clear error, while a restore or another kaf-mirror process holds it. It creates the data directory with mode `0700` and the database, `-wal` and `-shm` files with mode `0600`, whatever the umask, including on an existing 0644 file (#68, #74).
+- Database restore and import are supported on Linux and macOS. They are not supported on Windows (`os.Rename` cannot replace an existing file there). Release binaries of `admin-cli` and `kaf-mirror` stay Linux-only; developers on Macs can `go build` them (#68).
+- `admin-cli restore config` and `import config` set mode `0600` on an existing target file before writing, so a previous `0644` config is not left world-readable (#68).
+- Breaking: `admin-cli restore` and `import` fail with an error when there is no terminal to confirm, and take `--yes` for scripts. Before, they printed "cancelled" and exited with status 0. `tokens reset` now does the same (#68).
+- `mirror-cli --help`, `-h`, `--version` and `-v` work without a terminal. Before, `mirror-cli` started the interactive shell before cobra read the flags, and the shell panicked with `no such device or address` when there was no terminal. `mirror-cli` without a command still starts the shell, and without a terminal it now prints an error and exits with status 1 without calling the server. `mirror-cli dashboard` without a terminal does the same. Other prompts that printed "cancelled" and exited 0 without a terminal now exit with a non-zero status, and `users reset-password`, `clusters remove` and `jobs delete` take `--yes` (#73).
+- `mirror-cli login` reads the password from the first line of stdin when stdin is not a terminal (#73).
+- Breaking: `mirror-cli users add` writes the generated password to a new mode `0600` file in the temp directory and prints the path. Before, it printed `[REDACTED]` and the password was lost. Its `--password` flag, which was never read, is removed. `users reset-password` prints the path of the password file instead of `[REDACTED]` and sets mode `0600` on an existing `--password-file` (#74).
+
 ### Docs
 - New `docs/configuration.md` lists every config key and environment variable kaf-mirror reads, the `prod.yml` overlay, `CONFIG_PATH`, the `KAF_MIRROR_<KEY>` overrides, the date added to the log file name, the cluster API fields and how to turn on AI. A test checks the list against the config structs and the `os.Getenv` calls (#54).
 - The README says where the bootstrap password file is and how to read it, uses the `mirror-cli login` and `admin-cli users add` password prompts instead of `--password`, shows how to read the password file of `admin-cli reset-admin-password` in Docker and Kubernetes, links Swagger at `/docu/swagger/`, creates SASL and Kerberos clusters with the API instead of the config file, explains that the config file clusters are only used by `/api/v1/topics/source` and `/target`, says that duplicates are possible when idempotent writes are off, points Kubernetes users to the Helm chart, and says that `/metrics` serves only the Go runtime metrics (#54).
 - `docs/protection.md` links Swagger at `/docu/swagger/` and says that automatic halt also needs `protection.auto_halt.enabled` (#54).
 ### Security
+- Breaking: `mirror-cli whoami` no longer prints the full API token. It shows the username and role. `clusters edit` no longer prints a Confluent API key in full (#74).
+- `mirror-cli config edit` no longer prints the new value of `ai.token`, `ai.api_secret` and `monitoring.splunk.hec_token` after saving it. Masked values no longer show the first 4 characters (#74).
+- The Gemini provider sends the API key in the `x-goog-api-key` header instead of the `key` URL parameter. Before, a connection error such as `Post "https://...:generateContent?key=...": dial tcp ...` put the key in the server log (#74).
+- `mirror-cli` sets mode `0600` on `~/.kaf-mirror/token` and `0700` on its directory each time it saves a token. Before, a token file that already existed kept its mode, so a new token could be written to a file other users could read (#74).
 - github.com/gofiber/fiber/v2 2.52.12 to 2.52.16 (GHSA-gcfq-8gqf-4876, GHSA-qjv7-627w-8qjv).
 - github.com/gomarkdown/markdown to v0.0.0-20260724235538-61af6e1e6971 (GHSA-cv23-7vc5-jfh7, GHSA-77fj-vx54-gvh7).
 - github.com/klauspost/compress 1.18.0 to 1.20.5 (GHSA-259r-337f-4rfw, GO-2026-6865).

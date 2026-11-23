@@ -157,13 +157,13 @@ func (g *GeminiProvider) GetCompletion(ctx context.Context, prompt string) (stri
 		return "", err
 	}
 
-	url := fmt.Sprintf("%s?key=%s", endpoint, g.APIKey)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", g.APIKey)
 
 	resp, err := httpClient(g.HTTP).Do(req)
 	if err != nil {

@@ -79,12 +79,14 @@ func main() {
 		log.Fatalf("Invalid configuration: %v", err)
 	}
 
-	// Initialize database
-	db, err := database.InitDB(cfg.Database.Path)
+	db, dbLock, err := database.OpenLockedDB(cfg.Database.Path)
 	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+		log.Fatalf("Refusing to start: %v. If a restore or import is running, wait for it to finish. If another kaf-mirror process holds the database, stop it first.", err)
 	}
 	defer db.Close()
+	if dbLock != nil {
+		defer dbLock.Close()
+	}
 
 	// Check if there are any users in the database
 	users, err := database.ListUsers(db)
