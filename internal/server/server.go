@@ -46,12 +46,11 @@ func New(cfg *config.Config, db *sqlx.DB, manager *manager.JobManager, hub *Hub,
 
 	app.Use(middleware.Cors(cfg.Server.CORS.AllowedOrigins))
 
-	var aiConfig config.AIConfig
+	var dbAI *config.AIConfig
 	if dbConfig, err := database.LoadConfig(db); err == nil {
-		aiConfig = dbConfig.AI
-	} else {
-		aiConfig = cfg.AI
+		dbAI = &dbConfig.AI
 	}
+	aiConfig := ai.ResolveConfig(cfg.AI, dbAI)
 
 	s := &Server{
 		App:       app,

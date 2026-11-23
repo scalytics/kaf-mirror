@@ -84,6 +84,16 @@ func (c *Client) Enabled() bool {
 	return c != nil && c.Provider != nil
 }
 
+func ResolveConfig(file config.AIConfig, db *config.AIConfig) config.AIConfig {
+	if strings.TrimSpace(file.Provider) != "" || strings.TrimSpace(file.Token) != "" || strings.TrimSpace(file.Endpoint) != "" {
+		return file
+	}
+	if db != nil {
+		return *db
+	}
+	return file
+}
+
 func Status(cfg config.AIConfig) string {
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
 	switch provider {

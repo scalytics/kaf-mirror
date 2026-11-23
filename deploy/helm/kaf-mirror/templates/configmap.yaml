@@ -50,5 +50,15 @@ data:
       token: ""
       api_secret: ""
     monitoring:
+      enabled: {{ .Values.config.monitoring.enabled }}
+      platform: {{ .Values.config.monitoring.platform | quote }}
+      prometheus:
+        push_gateway: {{ .Values.config.monitoring.prometheus.pushGateway | quote }}
       splunk:
         hec_token: ""
+    protection:
+      enabled: {{ .Values.config.protection.enabled }}
+      auto_halt:
+        enabled: {{ .Values.config.protection.autoHalt.enabled }}
+    egress:
+      allowed_hosts: {{ toJson .Values.config.egress.allowedHosts }}

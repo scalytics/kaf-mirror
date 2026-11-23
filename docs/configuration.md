@@ -9,7 +9,8 @@ This page lists every config key and environment variable that kaf-mirror reads.
 *   Every key can be set from the environment as `KAF_MIRROR_<KEY>`, with the dots of the key written as underscores, for example `KAF_MIRROR_SERVER_HOST` for `server.host` or `KAF_MIRROR_AI_TOKEN` for `ai.token`. kaf-mirror only reads an override for a key that is in the config file, so keep the key in the file with an empty value, for example `token: ""`.
 *   The config is read once at start. Restart kaf-mirror after a change.
 *   Jobs, clusters, topic mappings and users are not in the config file. They are stored in the SQLite database and managed with `mirror-cli`, the web UI or the API.
-*   The `ai` section is read from the database when a config was saved with `PUT /api/v1/config` or `mirror-cli config`. Otherwise it is read from the config file.
+*   The `ai` section is read from the config file and the `KAF_MIRROR_AI_*` environment variables when `ai.provider`, `ai.token` or `ai.endpoint` is set there. Otherwise, if a config was saved with `PUT /api/v1/config` or `mirror-cli config`, the saved `ai` section is used.
+*   `PUT /api/v1/config` and `POST /api/v1/config/import` ignore JSON fields that are not config keys.
 
 ## Config keys
 
@@ -55,7 +56,7 @@ This page lists every config key and environment variable that kaf-mirror reads.
 | `ai.features.anomaly_detection` | `false` | Stored and shown by `mirror-cli`. The server does not use it. |
 | `ai.features.performance_optimization` | `false` | Stored and shown by `mirror-cli`. The server does not use it. |
 | `ai.features.incident_analysis` | `false` | Stored and shown by `mirror-cli`. The server does not use it. |
-| `ai.self_healing.automated_remediation` | `false` | Force-restarts a job when the AI analysis sees zero throughput. Runs only when an AI provider is set. |
+| `ai.self_healing.automated_remediation` | `false` | Force-restarts a job that has had zero throughput for 10 minutes. This is a local rule and does not need an AI provider. |
 | `ai.self_healing.dynamic_throttling` | `false` | Every 5 minutes, changes the `batch_size` of active jobs from their metrics and restarts them. This makes no AI call. |
 | `monitoring.enabled` | `false` | Sends job metrics to `monitoring.platform`. |
 | `monitoring.platform` | empty | `splunk`, `loki` or `prometheus`. |
@@ -122,6 +123,8 @@ An example `security_config` value:
 ## AI analysis
 
 AI analysis is off until `ai.provider` is set. Without a provider kaf-mirror makes no AI requests and has no default endpoint. At start it logs `AI analysis is off: ai.provider is not set`, and the AI endpoints that start an analysis (`POST /api/v1/ai/test`, `/ai/explain/{event}`, `/ai/incidents/{event_id}/analyze`, `/jobs/{id}/ai/analyze` and `/jobs/{id}/ai/historical-analysis`) answer HTTP 503 with `AI is not configured`. An unknown provider, or `custom` without `ai.endpoint`, also leaves AI off and is logged.
+
+For a self-hosted model, such as vLLM or Ollama on your network, set `ai.provider` to `custom` and `ai.endpoint` to that API, for example `http://127.0.0.1:11434/v1` or `http://vllm.ml.svc.cluster.local:8000/v1`. Loopback and private addresses are allowed. Link-local and cloud metadata addresses stay blocked. If you set `egress.allowed_hosts`, include the AI host.
 
 To turn it on, set the provider and the model in the config file and the token from the environment:
 ```yaml

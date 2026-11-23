@@ -15,6 +15,8 @@ grep -q "type: Recreate" <<<"$default_out" || fail "default render has no Recrea
 grep -q "allow_insecure: true" <<<"$default_out" || fail "default render does not allow an insecure listener"
 grep -q "scheme: HTTP$" <<<"$default_out" || fail "default probes do not use HTTP"
 grep -q 'provider: ""' <<<"$default_out" || fail "default render does not leave AI off"
+grep -q 'push_gateway: ""' <<<"$default_out" || fail "default render has no prometheus push_gateway key"
+grep -q 'protection:' <<<"$default_out" || fail "default render has no protection section"
 if grep -qE "qip\.|ops-foundation|source_cluster|target_cluster|job_id|batch_size|max_size| topics:" <<<"$default_out"; then
   fail "default render still has leftover project values"
 fi

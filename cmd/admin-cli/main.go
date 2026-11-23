@@ -116,7 +116,9 @@ and for emergency maintenance. It interacts directly with the database.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			password, _ := cmd.Flags().GetString("password")
 			if password == "" {
-				if err := survey.AskOne(&survey.Password{Message: "Password:"}, &password, survey.WithValidator(survey.Required)); err != nil {
+				var err error
+				password, err = readPassword("Password:")
+				if err != nil {
 					log.Fatalf("Password is required: %v", err)
 				}
 			}

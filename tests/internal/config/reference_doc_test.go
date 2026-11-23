@@ -121,6 +121,37 @@ func TestConfigReferenceListsEveryEnvVarTheCodeReads(t *testing.T) {
 	if !documented["KAF_MIRROR_<KEY>"] || !documented["KAF_MIRROR_HALT"] {
 		t.Fatal("docs/configuration.md does not document the KAF_MIRROR_ overrides and the default halt variable")
 	}
+	code := map[string]bool{}
+	err = filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && (d.Name() == "tests" || d.Name() == ".git" || d.Name() == "web") {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, m := range getenv.FindAllStringSubmatch(string(raw), -1) {
+			code[m[1]] = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range firstColumnNames(docSection(t, "## Environment variables")) {
+		if strings.Contains(name, "<") || name == "KAF_MIRROR_HALT" {
+			continue
+		}
+		if !code[name] {
+			t.Errorf("docs/configuration.md lists %s, which no os.Getenv or os.LookupEnv call reads", name)
+		}
+	}
 }
 
 func diff(a, b []string) []string {

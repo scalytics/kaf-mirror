@@ -166,6 +166,12 @@ helm upgrade --install km deploy/helm/kaf-mirror -f shutdown-values.yaml --wait
 | `config.ai.provider` | `""` | `ai.provider`: `openai`, `claude`, `gemini`, `grok` or `custom`. Empty turns AI off. |
 | `config.ai.endpoint` | `""` | `ai.endpoint`. Required for `custom`. |
 | `config.ai.model` | `""` | `ai.model`. |
+| `config.monitoring.enabled` | `false` | `monitoring.enabled`. |
+| `config.monitoring.platform` | `""` | `monitoring.platform`: `splunk`, `loki` or `prometheus`. |
+| `config.monitoring.prometheus.pushGateway` | `""` | `monitoring.prometheus.push_gateway`. Job metrics are pushed here when the platform is `prometheus`. |
+| `config.protection.enabled` | `false` | `protection.enabled`. See [protection.md](../../../docs/protection.md). |
+| `config.protection.autoHalt.enabled` | `false` | `protection.auto_halt.enabled`. |
+| `config.egress.allowedHosts` | `[]` | `egress.allowed_hosts`. Empty allows any host except metadata addresses. |
 | `kerberos.keytabSecret` | `""` | Secret with the Kerberos keytab. When set, it is mounted at `/app/kerberos/keytab`. |
 | `kerberos.keytabKey` | `kafka.keytab` | Key of the keytab in the Secret, and its file name in the mount. |
 | `kerberos.krb5ConfigMap` | `""` | ConfigMap with `krb5.conf`. When set, it is mounted at `/app/kerberos/krb5`. |
@@ -183,7 +189,7 @@ helm upgrade --install km deploy/helm/kaf-mirror -f shutdown-values.yaml --wait
 | `serviceAccount.name` | `""` | ServiceAccount name. Empty uses the release full name. |
 | `serviceAccount.annotations` | `{}` | ServiceAccount annotations. |
 | `labels` | `{}` | Extra labels on every object. |
-| `metrics.enabled` | `true` | Render a ServiceMonitor when the Prometheus Operator CRD is installed. When TLS is on, it scrapes HTTPS. `/metrics` serves only the Go runtime metrics of the process. Job metrics are not on `/metrics`. They only go to a Prometheus Pushgateway set in `monitoring.prometheus.push_gateway`, which this chart does not set. |
+| `metrics.enabled` | `true` | Render a ServiceMonitor when the Prometheus Operator CRD is installed. When TLS is on, it scrapes HTTPS. `/metrics` serves only the Go runtime metrics of the process. Job metrics are not on `/metrics`. They are pushed to `config.monitoring.prometheus.pushGateway` when `config.monitoring.platform` is `prometheus`. |
 | `metrics.path` | `/metrics` | Metrics path. |
 | `metrics.serviceMonitor.labels` | `{}` | Extra ServiceMonitor labels. |
 | `metrics.serviceMonitor.interval` | `30s` | Scrape interval. |
