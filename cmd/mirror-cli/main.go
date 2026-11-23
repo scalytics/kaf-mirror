@@ -3178,7 +3178,7 @@ func createReplicationJob(token string) {
 
 	var batchSize int
 	promptBatch := &survey.Input{
-		Message: "Batch size (messages per batch):",
+		Message: "Batch size in KB (1 to 102400):",
 		Default: "1000",
 	}
 	var batchStr string

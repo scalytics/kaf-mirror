@@ -1143,7 +1143,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Create a new replication job.",
+                "description": "Create a new replication job. batch_size is in KB. A missing or 0 batch_size uses 1000. A value below 0 or above 102400 KB is rejected with 400.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1170,6 +1170,13 @@ const docTemplate = `{
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/database.ReplicationJob"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -1292,7 +1299,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Update an existing replication job.",
+                "description": "Update an existing replication job. Empty fields keep their stored value. A missing or 0 batch_size keeps the stored value, and a stored 0 becomes 1000. A batch_size below 0 or above 102400 KB is rejected with 400.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1326,6 +1333,13 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/database.ReplicationJob"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }

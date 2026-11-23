@@ -13,10 +13,28 @@ package database
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jmoiron/sqlx"
 )
+
+const (
+	DefaultBatchSizeKB = 1000
+	MaxBatchSizeKB     = 102400
+)
+
+var ErrInvalidBatchSize = fmt.Errorf("batch_size must be between 1 and %d KB, or 0 to use the default of %d KB", MaxBatchSizeKB, DefaultBatchSizeKB)
+
+func ResolveBatchSize(kb int) (int, error) {
+	if kb == 0 {
+		return DefaultBatchSizeKB, nil
+	}
+	if kb < 0 || kb > MaxBatchSizeKB {
+		return 0, ErrInvalidBatchSize
+	}
+	return kb, nil
+}
 
 // ListJobs retrieves all replication jobs from the database.
 func ListJobs(db *sqlx.DB) ([]ReplicationJob, error) {

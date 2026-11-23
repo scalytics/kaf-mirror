@@ -175,7 +175,7 @@ func (jf *JobsFactory) UpdateDetailData(dataManager *core.DataManager, itemID st
 	rows = append(rows, "")
 	rows = append(rows, "=== REPLICATION SETTINGS ===")
 	if batchSize := job["batch_size"]; batchSize != nil {
-		rows = append(rows, fmt.Sprintf("Batch Size: %.0f messages", SafeFloat(batchSize, 0)))
+		rows = append(rows, fmt.Sprintf("Batch Size: %.0f KB", SafeFloat(batchSize, 0)))
 	}
 	if compression := job["compression"]; compression != nil {
 		rows = append(rows, fmt.Sprintf("Compression: %s", SafeString(compression, "N/A")))

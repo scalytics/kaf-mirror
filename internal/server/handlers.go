@@ -531,12 +531,13 @@ type HaltProtectionRequest struct {
 
 // handleCreateJob godoc
 // @Summary Create a new replication job
-// @Description Create a new replication job.
+// @Description Create a new replication job. batch_size is in KB. A missing or 0 batch_size uses 1000. A value below 0 or above 102400 KB is rejected with 400.
 // @Tags jobs
 // @Accept json
 // @Produce json
 // @Param job body server.CreateJobRequest true "Replication Job"
 // @Success 201 {object} database.ReplicationJob
+// @Failure 400 {object} map[string]interface{}
 // @Router /jobs [post]
 // @Security ApiKeyAuth
 func (s *Server) handleCreateJob(c *fiber.Ctx) error {
@@ -547,6 +548,11 @@ func (s *Server) handleCreateJob(c *fiber.Ctx) error {
 
 	if _, err := kafka.NewTopicRules(database.ConfigTopicMappings(req.TopicMappings)); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid topic mapping: "+err.Error())
+	}
+
+	batchSize, err := database.ResolveBatchSize(req.BatchSize)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
 	if target, err := database.GetCluster(s.Db, req.TargetClusterName); err == nil && s.manager.Protection != nil {
@@ -561,7 +567,7 @@ func (s *Server) handleCreateJob(c *fiber.Ctx) error {
 		SourceClusterName: req.SourceClusterName,
 		TargetClusterName: req.TargetClusterName,
 		Status:            "paused", // Default status
-		BatchSize:         req.BatchSize,
+		BatchSize:         batchSize,
 		Compression:       req.Compression,
 	}
 
@@ -607,13 +613,14 @@ func (s *Server) handleGetJob(c *fiber.Ctx) error {
 
 // handleUpdateJob godoc
 // @Summary Update a replication job
-// @Description Update an existing replication job.
+// @Description Update an existing replication job. Empty fields keep their stored value. A missing or 0 batch_size keeps the stored value, and a stored 0 becomes 1000. A batch_size below 0 or above 102400 KB is rejected with 400.
 // @Tags jobs
 // @Accept json
 // @Produce json
 // @Param id path string true "Job ID"
 // @Param job body server.CreateJobRequest true "Replication Job"
 // @Success 200 {object} database.ReplicationJob
+// @Failure 400 {object} map[string]interface{}
 // @Router /jobs/{id} [put]
 // @Security ApiKeyAuth
 func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
@@ -628,15 +635,27 @@ func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	job.Name = req.Name
+	if len(req.TopicMappings) > 0 {
+		if _, err := kafka.NewTopicRules(database.ConfigTopicMappings(req.TopicMappings)); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "Invalid topic mapping: "+err.Error())
+		}
+	}
+	if req.BatchSize != 0 || job.BatchSize <= 0 {
+		batchSize, err := database.ResolveBatchSize(req.BatchSize)
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+		job.BatchSize = batchSize
+	}
+
+	if req.Name != "" {
+		job.Name = req.Name
+	}
 	if req.SourceClusterName != "" {
 		job.SourceClusterName = req.SourceClusterName
 	}
 	if req.TargetClusterName != "" {
 		job.TargetClusterName = req.TargetClusterName
-	}
-	if req.BatchSize > 0 {
-		job.BatchSize = req.BatchSize
 	}
 	if req.Compression != "" {
 		job.Compression = req.Compression
@@ -648,9 +667,6 @@ func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
 
 	// Update mappings as well
 	if len(req.TopicMappings) > 0 {
-		if _, err := kafka.NewTopicRules(database.ConfigTopicMappings(req.TopicMappings)); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "Invalid topic mapping: "+err.Error())
-		}
 		if err := database.UpdateMappingsForJob(s.Db, job.ID, req.TopicMappings); err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Failed to update topic mappings for job")
 		}
