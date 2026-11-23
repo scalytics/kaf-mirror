@@ -755,3 +755,47 @@ func TestCorsConfigUsesAllowedOrigins(t *testing.T) {
 	assert.Equal(t, "*", wildcard.AllowOrigins)
 	assert.False(t, wildcard.AllowCredentials)
 }
+
+func TestMappingsAPIRejectsInvalidRegex(t *testing.T) {
+	ctx := setupTestServer(t)
+	jobID := "test-job-for-invalid-mappings"
+	database.CreateCluster(ctx.Server.Db, &database.KafkaCluster{Name: "a", Brokers: "localhost:9092", SecurityConfig: "{}"})
+	database.CreateCluster(ctx.Server.Db, &database.KafkaCluster{Name: "b", Brokers: "localhost:9093", SecurityConfig: "{}"})
+	assert.NoError(t, database.CreateJob(ctx.Server.Db, &database.ReplicationJob{ID: jobID, Name: "invalid-mapping-test", SourceClusterName: "a", TargetClusterName: "b", Status: "paused"}))
+
+	req := httptest.NewRequest("PUT", "/api/v1/jobs/"+jobID+"/mappings", bytes.NewBufferString(`[{"source_topic_pattern":"app-(","target_topic_pattern":"","enabled":true}]`))
+	req.Header.Set("Content-Type", "application/json")
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 400, resp.StatusCode)
+
+	req = httptest.NewRequest("POST", "/api/v1/jobs", bytes.NewBufferString(`{"name":"bad","source_cluster_name":"a","target_cluster_name":"b","topic_mappings":[{"source_topic_pattern":"app-[","enabled":true}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	addAuthHeader(req, ctx.Token)
+	resp, err = ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 400, resp.StatusCode)
+
+	mappings, err := database.GetMappingsForJob(ctx.Server.Db, jobID)
+	assert.NoError(t, err)
+	assert.Empty(t, mappings)
+	jobs, err := database.ListJobs(ctx.Server.Db)
+	assert.NoError(t, err)
+	assert.Len(t, jobs, 1)
+}
+
+func TestLagAPIFindsSourceClusterOfJob(t *testing.T) {
+	ctx := setupTestServer(t)
+	jobID := "test-job-for-lag"
+	database.CreateCluster(ctx.Server.Db, &database.KafkaCluster{Name: "lag-src", Brokers: "127.0.0.1:1", SecurityConfig: "{}"})
+	database.CreateCluster(ctx.Server.Db, &database.KafkaCluster{Name: "lag-tgt", Brokers: "127.0.0.1:1", SecurityConfig: "{}"})
+	assert.NoError(t, database.CreateJob(ctx.Server.Db, &database.ReplicationJob{ID: jobID, Name: "lag-test", SourceClusterName: "lag-src", TargetClusterName: "lag-tgt", Status: "paused"}))
+	assert.NoError(t, database.UpdateMappingsForJob(ctx.Server.Db, jobID, []database.TopicMapping{{JobID: jobID, SourceTopicPattern: "orders", TargetTopicPattern: "orders", Enabled: false}}))
+
+	req := httptest.NewRequest("GET", "/api/v1/jobs/"+jobID+"/lag", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+}

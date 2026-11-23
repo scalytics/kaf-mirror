@@ -524,6 +524,10 @@ func (s *Server) handleCreateJob(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	if _, err := kafka.NewTopicRules(database.ConfigTopicMappings(req.TopicMappings)); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid topic mapping: "+err.Error())
+	}
+
 	if target, err := database.GetCluster(s.Db, req.TargetClusterName); err == nil && s.manager.Protection != nil {
 		if err := s.manager.Protection.GuardStart(target.Role); err != nil {
 			return fiber.NewError(fiber.StatusConflict, err.Error())
@@ -629,6 +633,9 @@ func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
 
 	// Update mappings as well
 	if len(req.TopicMappings) > 0 {
+		if _, err := kafka.NewTopicRules(database.ConfigTopicMappings(req.TopicMappings)); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "Invalid topic mapping: "+err.Error())
+		}
 		if err := database.UpdateMappingsForJob(s.Db, job.ID, req.TopicMappings); err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Failed to update topic mappings for job")
 		}
@@ -889,6 +896,10 @@ func (s *Server) handleUpdateMappings(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	if _, err := kafka.NewTopicRules(database.ConfigTopicMappings(mappings)); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid topic mapping: "+err.Error())
+	}
+
 	if err := database.UpdateMappingsForJob(s.Db, jobID, mappings); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update mappings")
 	}
@@ -994,38 +1005,40 @@ func (s *Server) handleGetLag(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{})
 	}
 
-	sourceCluster, ok := s.cfg.Clusters[job.SourceClusterName]
-	if !ok {
-		return fiber.NewError(fiber.StatusNotFound, "Source cluster for job not configured")
+	sourceCluster, err := database.GetCluster(s.Db, job.SourceClusterName)
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Source cluster for job not found")
 	}
 
-	adminClient, err := kafka.NewAdminClient(sourceCluster)
+	adminClient, err := kafka.NewAdminClient(database.ClusterConfigFromRow(*sourceCluster))
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create source admin client")
 	}
 	defer adminClient.Close()
 
-	groupID := "kaf-mirror-group-" + job.ID // Use job ID for unique group ID
+	topics, _, err := kafka.ResolveTopics(context.Background(), adminClient, database.ConfigTopicMappings(mappings))
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to resolve topic mappings: "+err.Error())
+	}
+
+	groupID := fmt.Sprintf("kaf-mirror-job-%s", job.ID)
 	lagResults := make(map[string]interface{})
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	for _, mapping := range mappings {
-		if !mapping.Enabled {
-			continue
-		}
+	for _, topic := range topics {
 		wg.Add(1)
-		go func(m database.TopicMapping) {
+		go func(topic string) {
 			defer wg.Done()
-			lag, err := adminClient.GetTopicLag(context.Background(), m.SourceTopicPattern, groupID)
+			lag, err := adminClient.GetTopicLag(context.Background(), groupID, topic)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				lagResults[m.SourceTopicPattern] = fmt.Sprintf("error: %v", err)
+				lagResults[topic] = fmt.Sprintf("error: %v", err)
 			} else {
-				lagResults[m.SourceTopicPattern] = lag
+				lagResults[topic] = lag
 			}
-		}(mapping)
+		}(topic)
 	}
 	wg.Wait()
 
@@ -2359,13 +2372,6 @@ func (s *Server) handleCalculateResumePoints(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get topic mappings")
 	}
 
-	topicMap := make(map[string]string)
-	for _, mapping := range mappings {
-		if mapping.Enabled {
-			topicMap[mapping.SourceTopicPattern] = mapping.TargetTopicPattern
-		}
-	}
-
 	go func() {
 		ctx := context.Background()
 
@@ -2383,6 +2389,12 @@ func (s *Server) handleCalculateResumePoints(c *fiber.Ctx) error {
 			return
 		}
 		defer targetAdmin.Close()
+
+		_, topicMap, err := kafka.ResolveTopics(ctx, sourceAdmin, database.ConfigTopicMappings(mappings))
+		if err != nil {
+			log.Printf("Failed to resolve topic mappings for resume point calculation of job %s: %v", jobID, err)
+			return
+		}
 
 		// Calculate resume points
 		consumerGroup := fmt.Sprintf("kaf-mirror-job-%s", jobID)
@@ -2469,18 +2481,6 @@ func (s *Server) handleValidateMigration(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get topic mappings")
 	}
 
-	topicMap := make(map[string]string)
-	var concrete []string
-	for _, mapping := range mappings {
-		if !mapping.Enabled {
-			continue
-		}
-		topicMap[mapping.SourceTopicPattern] = mapping.TargetTopicPattern
-		if !strings.ContainsAny(mapping.SourceTopicPattern, `.*+?()[]{}^$|`) {
-			concrete = append(concrete, mapping.SourceTopicPattern)
-		}
-	}
-
 	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
 	targetConfig := database.ClusterConfigFromRow(*targetCluster)
 
@@ -2496,6 +2496,11 @@ func (s *Server) handleValidateMigration(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create target admin client")
 	}
 	defer targetAdmin.Close()
+
+	concrete, topicMap, err := kafka.ResolveTopics(ctx, sourceAdmin, database.ConfigTopicMappings(mappings))
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to resolve topic mappings: "+err.Error())
+	}
 
 	consumerGroup := fmt.Sprintf("kaf-mirror-job-%s", jobID)
 	verify, err := kafka.VerifyMirror(ctx, sourceAdmin, targetAdmin, topicMap, consumerGroup, concrete)

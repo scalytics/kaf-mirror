@@ -14,6 +14,7 @@ package kafka
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/pkg/logger"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
@@ -226,6 +228,9 @@ func (a *AdminClient) GetClusterInfo(ctx context.Context) (*ClusterInfo, error) 
 	clusterInfo.ControllerID = -1
 
 	for topic, details := range topicDetails {
+		if details.Err != nil {
+			continue
+		}
 		topicInfo := TopicInfo{
 			Name:          topic,
 			Partitions:    int32(len(details.Partitions)),
@@ -324,24 +329,42 @@ func (a *AdminClient) ValidateTopicCompatibility(ctx context.Context, sourceInfo
 }
 
 func (a *AdminClient) EnsureTopicExists(ctx context.Context, topicName string, partitions int32, replicationFactor int16) error {
+	return ensureTopicExists(ctx, a.client, topicName, partitions, replicationFactor)
+}
+
+type TopicCreator interface {
+	ListTopics(ctx context.Context, topics ...string) (kadm.TopicDetails, error)
+	CreateTopics(ctx context.Context, partitions int32, replicationFactor int16, configs map[string]*string, topics ...string) (kadm.CreateTopicResponses, error)
+}
+
+func topicExists(details kadm.TopicDetails, topicName string) bool {
+	detail, ok := details[topicName]
+	return ok && detail.Err == nil
+}
+
+func ensureTopicExists(ctx context.Context, client TopicCreator, topicName string, partitions int32, replicationFactor int16) error {
 	logger.Info("Ensuring topic %s exists with %d partitions", topicName, partitions)
 
-	existing, err := a.client.ListTopics(ctx, topicName)
+	existing, err := client.ListTopics(ctx, topicName)
 	if err != nil {
 		return fmt.Errorf("failed to check if topic exists: %w", err)
 	}
 
-	if _, exists := existing[topicName]; exists {
+	if topicExists(existing, topicName) {
 		logger.Info("Topic %s already exists", topicName)
 		return nil
 	}
 
-	results, err := a.client.CreateTopics(ctx, partitions, replicationFactor, nil, topicName)
+	results, err := client.CreateTopics(ctx, partitions, replicationFactor, nil, topicName)
 	if err != nil {
 		return fmt.Errorf("failed to create topic %s: %w", topicName, err)
 	}
 
 	for _, result := range results {
+		if errors.Is(result.Err, kerr.TopicAlreadyExists) {
+			logger.Info("Topic %s was created by someone else in the meantime", result.Topic)
+			continue
+		}
 		if result.Err != nil {
 			return fmt.Errorf("failed to create topic %s: %w", result.Topic, result.Err)
 		}
@@ -349,6 +372,10 @@ func (a *AdminClient) EnsureTopicExists(ctx context.Context, topicName string, p
 	}
 
 	return nil
+}
+
+func EnsureTopicExistsForTest(ctx context.Context, client TopicCreator, topicName string, partitions int32, replicationFactor int16) error {
+	return ensureTopicExists(ctx, client, topicName, partitions, replicationFactor)
 }
 
 func (a *AdminClient) GetTopicDetails(ctx context.Context, topicNames ...string) ([]TopicDetails, error) {
@@ -380,7 +407,7 @@ func (a *AdminClient) GetTopicDetails(ctx context.Context, topicNames ...string)
 		}
 
 		baseDetails, ok := listedTopics[topic.Name]
-		if !ok {
+		if !ok || baseDetails.Err != nil || len(baseDetails.Partitions) == 0 {
 			continue
 		}
 
@@ -403,6 +430,9 @@ func (a *AdminClient) ListTopics(ctx context.Context, topics ...string) (map[str
 
 	result := make(map[string]TopicInfo)
 	for topic, details := range topicDetails {
+		if details.Err != nil {
+			continue
+		}
 		topicInfo := TopicInfo{
 			Name:       topic,
 			Partitions: int32(len(details.Partitions)),
@@ -675,7 +705,7 @@ func (a *AdminClient) CheckTopicHealth(ctx context.Context, topics []string) ([]
 
 	for _, topic := range topics {
 		details, ok := topicDetails[topic]
-		if !ok {
+		if !ok || details.Err != nil {
 			health = append(health, TopicHealth{
 				Name:      topic,
 				IsHealthy: false,
