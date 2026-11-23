@@ -15,8 +15,6 @@ import (
 	_ "embed"
 	"fmt"
 	"kaf-mirror/pkg/utils"
-	"os"
-	"path/filepath"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -38,10 +36,8 @@ func sqliteDSN(dbPath string) string {
 // InitDB initializes the SQLite database and creates the schema.
 func InitDB(dbPath string) (*sqlx.DB, error) {
 	dsn := sqliteDSN(dbPath)
-	if dbPath == ":memory:" {
-		// in-memory
-	} else {
-		if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+	if dbPath != ":memory:" {
+		if err := prepareDBFile(dbPath); err != nil {
 			return nil, err
 		}
 	}
@@ -51,6 +47,7 @@ func InitDB(dbPath string) (*sqlx.DB, error) {
 		return nil, err
 	}
 	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		db.Close()
 		return nil, err
 	}
 	if dbPath == ":memory:" {
@@ -60,11 +57,17 @@ func InitDB(dbPath string) (*sqlx.DB, error) {
 
 	_, err = db.Exec(string(Schema))
 	if err != nil {
+		db.Close()
 		return nil, err
 	}
 
 	if err := RunMigrations(db); err != nil {
+		db.Close()
 		return nil, err
+	}
+
+	if dbPath != ":memory:" {
+		tightenDBSidecars(dbPath)
 	}
 
 	return db, nil

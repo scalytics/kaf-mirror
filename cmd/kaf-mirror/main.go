@@ -86,6 +86,12 @@ func main() {
 	}
 	defer db.Close()
 
+	dbLock, err := database.AcquireDBLock(cfg.Database.Path)
+	if err != nil {
+		log.Fatalf("Failed to lock the database: %v", err)
+	}
+	defer dbLock.Close()
+
 	// Check if there are any users in the database
 	users, err := database.ListUsers(db)
 	if err != nil {

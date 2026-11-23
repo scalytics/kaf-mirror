@@ -20,6 +20,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"kaf-mirror/internal/database"
+
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -106,14 +108,39 @@ func checkDatabaseFile(path string) error {
 	return nil
 }
 
-func databaseInUse(dbPath string) bool {
-	_, err := os.Stat(dbPath + "-wal")
-	return err == nil
+func resolveDBPath(dbPath string) (string, error) {
+	info, err := os.Lstat(dbPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return dbPath, nil
+		}
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return dbPath, nil
+	}
+	resolved, err := filepath.EvalSymlinks(dbPath)
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
+func databaseInUse(dbPath string) (bool, error) {
+	return database.IsDBLocked(dbPath)
 }
 
 func restoreDatabase(backupPath, dbPath string) error {
-	if databaseInUse(dbPath) {
-		return fmt.Errorf("%s is open in another process (%s-wal exists); stop kaf-mirror before you restore or import the database", dbPath, dbPath)
+	dbPath, err := resolveDBPath(dbPath)
+	if err != nil {
+		return err
+	}
+	inUse, err := databaseInUse(dbPath)
+	if err != nil {
+		return fmt.Errorf("check whether %s is in use: %w", dbPath, err)
+	}
+	if inUse {
+		return fmt.Errorf("%s: %w", dbPath, database.ErrDatabaseInUse)
 	}
 	if err := checkDatabaseFile(backupPath); err != nil {
 		return err
@@ -125,7 +152,7 @@ func restoreDatabase(backupPath, dbPath string) error {
 	defer src.Close()
 
 	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := database.EnsurePrivateDir(dir); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".restore-*.db")

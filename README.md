@@ -346,11 +346,11 @@ Running `mirror-cli` without a command starts the interactive shell, which needs
 **User Management**
 
 - `./mirror-cli users list`: Lists all users. Requires `users:list` permission.
-- `./mirror-cli users add`: Adds a new user with interactive prompts and a generated password. The password is written to a new mode `0600` file in the temp directory, and only the file path is printed. Requires `users:create` permission. Operators can only create users with the `monitoring` role.
+- `./mirror-cli users add`: Adds a new user with interactive prompts and a generated password. The password is written to a new mode `0600` file in the temp directory, and only the file path is printed. Breaking: the unread `--password` flag is removed. Requires `users:create` permission. Operators can only create users with the `monitoring` role.
 - `./mirror-cli users set-role <username> <role>`: Sets a user's role. Requires `users:assign-roles` permission. Users cannot change their own role.
 - `./mirror-cli users reset-password [username]`: Reset another user's password and generate a new secure password. **Admin only**. Cannot reset own password. The new password is written to a mode `0600` file (temp by default or `--password-file`), and the file path is printed.
 - `./mirror-cli users delete <username>`: Delete a user account. Requires `users:delete` permission.
-- `./mirror-cli whoami`: Displays the username and role of the current user. It does not print the API token.
+- `./mirror-cli whoami`: Displays the username and role of the current user. Breaking: it no longer prints the API token.
 - `./mirror-cli change-password`: Changes the current user's password.
 - `./mirror-cli reset-token`: Resets the current user's API token.
 
@@ -431,7 +431,7 @@ The `admin-cli` provides backup, restore, and import commands for disaster recov
 
 **Backup Operations**
 
-`backup database` and `backup full` take a consistent copy of the SQLite database with `VACUUM INTO`. The copy includes writes that are still in the WAL file (`kaf-mirror.db-wal`), so you can run them while kaf-mirror runs. Every backup file is created with mode `0600`, because the database holds password hashes and API tokens and the config file can hold credentials, and `backup full` creates its directory with mode `0700`. A backup never overwrites an existing file: if the path exists, the command fails and leaves the file alone.
+`backup database` and `backup full` take a consistent copy of the SQLite database with `VACUUM INTO`. The copy includes writes that are still in the WAL file (`kaf-mirror.db-wal`), so you can run them while kaf-mirror runs. Every backup file is created with mode `0600`, because the database holds password hashes and API tokens and the config file can hold credentials, and `backup full` creates its directory with mode `0700`. Breaking: a backup never overwrites an existing file. If the path exists, the command fails and leaves the file alone.
 
 - `./admin-cli backup database <output-path>`: Back up the SQLite database with all jobs, users, clusters and operational data. A path that does not end in `.db` gets `-backup-<timestamp>.db` added.
 - `./admin-cli backup config <output-path>`: Back up the configuration file. A path that does not end in `.yml` gets `-config-backup-<timestamp>.yml` added. Use `--config-path` to name the config file.
@@ -452,12 +452,12 @@ For a backup of the database in the Helm chart, see "Back up the database" in [d
 
 **Restore Operations**
 
-Stop kaf-mirror before you restore or import a database. The restore refuses to run while another process has the database open, which it detects by the `kaf-mirror.db-wal` file. It checks that the backup is a readable SQLite database, writes a copy next to the database, removes the old `-wal` and `-shm` files and then moves the copy in place with mode `0600`.
+Stop kaf-mirror before you restore or import a database. The restore refuses to run while the server holds the exclusive lock on `kaf-mirror.db.lock` next to the database. A leftover `-wal` file after a crash does not block a restore. It checks that the backup is a readable SQLite database, writes a copy next to the database (following a symlink at the database path), removes the old `-wal` and `-shm` files and then moves the copy in place with mode `0600`. The server itself creates the data directory with mode `0700` and the database, `-wal` and `-shm` files with mode `0600`.
 
 - `./admin-cli restore database <backup-path>`: Restore the database from a backup file. **Overwrites the current database.**
 - `./admin-cli restore config <backup-path>`: Restore the configuration from a backup. Use `--config-path` to name the target file.
 
-Restore and import ask for confirmation. Without a terminal, for example in a script, they fail unless you pass `--yes`.
+Restore and import ask for confirmation. Breaking: without a terminal, for example in a script, they fail with a non-zero exit status unless you pass `--yes`. Before they printed "cancelled" and exited 0.
 
 Examples:
 ```bash
@@ -502,7 +502,7 @@ To migrate kaf-mirror between systems:
 
 2. **Target system**: stop kaf-mirror, copy the backup directory over and import it.
    ```bash
-   ./admin-cli import full /tmp/migration-backup/kaf-mirror-backup-20240813-150405
+   ./admin-cli import full /tmp/migration-backup/kaf-mirror-backup-20240813-150405 --yes
    ```
 
 3. **Verification**: start kaf-mirror and check that all clusters, jobs and users were migrated.

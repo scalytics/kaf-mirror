@@ -95,7 +95,13 @@ This command marks a cluster as inactive. It will be archived after 72 hours and
 ### Usage
 
 ```
-mirror-cli clusters remove [name]
+mirror-cli clusters remove [name] [flags]
+```
+
+### Options
+
+```
+  -, --yes   Confirm without a prompt, for scripts and runs without a terminal
 ```
 
 #### mirror-cli clusters restore
@@ -659,7 +665,13 @@ Permanently delete a replication job (admin only)
 ### Usage
 
 ```
-mirror-cli jobs delete [job-id]
+mirror-cli jobs delete [job-id] [flags]
+```
+
+### Options
+
+```
+  -, --yes   Confirm without a prompt, for scripts and runs without a terminal
 ```
 
 #### mirror-cli jobs force-restart
@@ -1034,6 +1046,7 @@ mirror-cli users reset-password [username] [flags]
 
 ```
   -, --password-file string   File for the new password, created with mode 0600. Default: a new file in the temp directory
+  -, --yes   Confirm without a prompt, for scripts and runs without a terminal
 ```
 
 #### mirror-cli users reset-token

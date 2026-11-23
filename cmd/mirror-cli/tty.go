@@ -81,20 +81,60 @@ func writePrivateFile(path, content string) error {
 }
 
 func writePasswordFile(path, password string) (string, error) {
+	created := false
 	if path == "" {
 		f, err := os.CreateTemp("", "kaf-mirror-password-*.txt")
 		if err != nil {
 			return "", err
 		}
 		path = f.Name()
+		created = true
 		if err := f.Close(); err != nil {
+			os.Remove(path)
 			return "", err
 		}
 	}
 	if err := writePrivateFile(path, password+"\n"); err != nil {
+		if created {
+			os.Remove(path)
+		}
 		return "", err
 	}
 	return path, nil
+}
+
+func addYesFlag(cmds ...*cobra.Command) {
+	for _, c := range cmds {
+		c.Flags().Bool("yes", false, "Confirm without a prompt, for scripts and runs without a terminal")
+	}
+}
+
+func confirmAction(cmd *cobra.Command, message string) (bool, error) {
+	if yes, _ := cmd.Flags().GetBool("yes"); yes {
+		return true, nil
+	}
+	if !isTerminal(os.Stdin) {
+		return false, fmt.Errorf("no terminal to confirm %q, pass --yes to confirm", message)
+	}
+	confirm := false
+	if err := survey.AskOne(&survey.Confirm{Message: message}, &confirm); err != nil {
+		return false, err
+	}
+	return confirm, nil
+}
+
+func abortCancelled() {
+	fmt.Println("Operation cancelled.")
+	os.Exit(1)
+}
+
+func abortLogin(err error) {
+	if err != nil {
+		fmt.Printf("Login cancelled: %v\n", err)
+	} else {
+		fmt.Println("Login cancelled.")
+	}
+	os.Exit(1)
 }
 
 var secretConfigKeys = map[string]bool{

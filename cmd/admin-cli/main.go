@@ -26,7 +26,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AlecAivazis/survey/v2"
 	"github.com/jmoiron/sqlx"
 	"github.com/spf13/cobra"
 )
@@ -198,21 +197,19 @@ and for emergency maintenance. It interacts directly with the database.`,
 				log.Fatalf("Failed to find user: %v", err)
 			}
 
-			confirm := false
-			prompt := &survey.Confirm{
-				Message: "You are about to reset ALL tokens for this user. Are you sure?",
+			confirm, err := confirmAction(cmd, "You are about to reset ALL tokens for this user. Are you sure?")
+			if err != nil {
+				log.Fatalf("Operation cancelled: %v", err)
 			}
-			survey.AskOne(prompt, &confirm)
 			if !confirm {
 				fmt.Println("Operation cancelled.")
 				return
 			}
 
-			confirm = false
-			prompt = &survey.Confirm{
-				Message: "Last Reminder: This will invalidate all existing tokens for this user. Are you really sure?",
+			confirm, err = confirmAction(cmd, "Last Reminder: This will invalidate all existing tokens for this user. Are you really sure?")
+			if err != nil {
+				log.Fatalf("Operation cancelled: %v", err)
 			}
-			survey.AskOne(prompt, &confirm)
 			if !confirm {
 				fmt.Println("Operation cancelled.")
 				return
@@ -234,6 +231,7 @@ and for emergency maintenance. It interacts directly with the database.`,
 	}
 	resetTokenCmd.Flags().String("description", "New API Token", "Description for the token")
 	resetTokenCmd.Flags().Duration("duration", 365*24*time.Hour, "Duration for which the token is valid")
+	addYesFlag(resetTokenCmd)
 
 	tokensCmd.AddCommand(generateTokenCmd, resetTokenCmd)
 

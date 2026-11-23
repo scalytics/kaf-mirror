@@ -52,7 +52,7 @@ kubectl exec deploy/km-kaf-mirror -- ./admin-cli --db-path /app/data/kaf-mirror.
 kubectl exec deploy/km-kaf-mirror -- rm /app/data/kaf-mirror-backup.db
 ```
 
-The backup refuses to overwrite an existing file, so delete the old copy in the pod first or pick a new name. `admin-cli restore database` refuses to replace a database that another process has open, so it cannot run in the kaf-mirror pod while the server runs. To restore, scale the deployment to 0 and run `admin-cli restore database` in a separate pod that mounts the same PVC. The chart has no helper for that yet. See "Backup and Data Management" in the main README.
+Breaking: the backup refuses to overwrite an existing file, so delete the old copy in the pod first or pick a new name. `admin-cli restore database` refuses to replace a database while the server holds `kaf-mirror.db.lock`, so it cannot run in the kaf-mirror pod while the server runs. A leftover `-wal` file is not enough to block a restore. To restore, scale the deployment to 0 and run `admin-cli restore database` with `--yes` in a separate pod that mounts the same PVC. The chart has no helper for that yet. See "Backup and Data Management" in the main README.
 
 ## TLS
 

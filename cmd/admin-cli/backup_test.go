@@ -216,6 +216,11 @@ func TestRestoreReplacesDatabaseAndDropsStaleSidecars(t *testing.T) {
 func TestRestoreRefusesDatabaseInUse(t *testing.T) {
 	dbPath, writer := newServerDB(t)
 	insertCluster(t, writer, "live")
+	lock, err := database.AcquireDBLock(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lock.Close() })
 
 	backupDir := t.TempDir()
 	other := filepath.Join(backupDir, "other.db")
@@ -250,5 +255,112 @@ func TestRestoreRejectsNonDatabase(t *testing.T) {
 	}
 	if err := checkDatabaseFile(dbPath); err != nil {
 		t.Fatalf("db damaged by a rejected restore: %v", err)
+	}
+}
+
+func TestRestoreRefusesHeldServerLock(t *testing.T) {
+	dbPath, writer := newServerDB(t)
+	insertCluster(t, writer, "live")
+
+	lock, err := database.AcquireDBLock(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lock.Close() })
+
+	backupDir := t.TempDir()
+	other := filepath.Join(backupDir, "other.db")
+	o, err := database.InitDB(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Close()
+
+	if err := restoreDatabase(other, dbPath); err == nil {
+		t.Fatal("restore while the server lock is held: want error")
+	}
+	if n := countRows(t, dbPath, "live"); n != 1 {
+		t.Fatalf("live db changed, has %d live rows", n)
+	}
+}
+
+func TestRestoreAllowsLeftoverWALWhenUnlocked(t *testing.T) {
+	dbPath, writer := newServerDB(t)
+	insertCluster(t, writer, "stale-wal")
+	writer.Close()
+
+	backupDir := t.TempDir()
+	out := filepath.Join(backupDir, "copy.db")
+	admin, err := sqlx.Connect("sqlite3", fmt.Sprintf("file:%s?mode=ro&_busy_timeout=5000", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backupDatabase(admin, out); err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+	admin.Close()
+
+	if err := os.WriteFile(dbPath+"-wal", []byte("leftover"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := restoreDatabase(out, dbPath); err != nil {
+		t.Fatalf("restore blocked by a leftover -wal file with no lock: %v", err)
+	}
+	if n := countRows(t, dbPath, "stale-wal"); n != 1 {
+		t.Fatalf("restored db has %d stale-wal rows, want 1", n)
+	}
+}
+
+func TestRestoreReplacesThroughSymlink(t *testing.T) {
+	dir := t.TempDir()
+	realPath := filepath.Join(dir, "data", "kaf-mirror.db")
+	if err := os.Mkdir(filepath.Join(dir, "data"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	s, err := database.InitDB(realPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertCluster(t, s, "original")
+	s.Close()
+
+	backupDir := t.TempDir()
+	out := filepath.Join(backupDir, "copy.db")
+	src, err := database.InitDB(filepath.Join(backupDir, "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertCluster(t, src, "from-backup")
+	src.Close()
+	admin, err := sqlx.Connect("sqlite3", fmt.Sprintf("file:%s?mode=ro&_busy_timeout=5000", filepath.Join(backupDir, "src.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backupDatabase(admin, out); err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+	admin.Close()
+
+	linkPath := filepath.Join(dir, "link.db")
+	if err := os.Symlink(realPath, linkPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := restoreDatabase(out, linkPath); err != nil {
+		t.Fatalf("restore through symlink: %v", err)
+	}
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("symlink was replaced: %v", err)
+	}
+	if target != realPath {
+		t.Fatalf("symlink target %q, want %q", target, realPath)
+	}
+	if n := countRows(t, realPath, "from-backup"); n != 1 {
+		t.Fatalf("real db has %d from-backup rows, want 1", n)
+	}
+	if n := countRows(t, realPath, "original"); n != 0 {
+		t.Fatalf("real db kept %d original rows", n)
 	}
 }

@@ -211,8 +211,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			} else {
 				prompt := &survey.Input{Message: "Username:"}
 				if err := survey.AskOne(prompt, &username); err != nil {
-					fmt.Println("Login cancelled.")
-					return
+					abortLogin(nil)
 				}
 			}
 
@@ -221,8 +220,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				var err error
 				password, err = readSecret("Password:")
 				if err != nil {
-					fmt.Printf("Login cancelled: %v\n", err)
-					return
+					abortLogin(err)
 				}
 			}
 
@@ -334,8 +332,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			var username string
 			promptUser := &survey.Input{Message: "Username:"}
 			if err := survey.AskOne(promptUser, &username); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+				abortCancelled()
 			}
 
 			var role string
@@ -344,8 +341,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				Options: []string{"admin", "operator", "monitoring", "compliance"},
 			}
 			if err := survey.AskOne(promptRole, &role); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+				abortCancelled()
 			}
 
 			if user["role"] != "admin" && (role == "admin" || role == "operator") {
@@ -439,8 +435,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 					Options: usernames,
 				}
 				if err := survey.AskOne(prompt, &username); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 			}
 
@@ -458,8 +453,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 					Options: []string{"admin", "operator", "monitoring", "compliance"},
 				}
 				if err := survey.AskOne(prompt, &role); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 			}
 
@@ -608,8 +602,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 					Options: usernames,
 				}
 				if err := survey.AskOne(prompt, &username); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 			}
 
@@ -618,14 +611,10 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				return
 			}
 
-			var confirm bool
-			confirmPrompt := &survey.Confirm{
-				Message: fmt.Sprintf("Are you sure you want to reset the password for user '%s'?", username),
-				Default: false,
-			}
-			if err := survey.AskOne(confirmPrompt, &confirm); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+			confirm, err := confirmAction(cmd, fmt.Sprintf("Are you sure you want to reset the password for user '%s'?", username))
+			if err != nil {
+				fmt.Printf("Password reset cancelled: %v\n", err)
+				os.Exit(1)
 			}
 			if !confirm {
 				fmt.Println("Password reset cancelled.")
@@ -673,6 +662,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		},
 	}
 	resetUserPasswordCmd.Flags().StringVar(&passwordFile, "password-file", "", "File for the new password, created with mode 0600. Default: a new file in the temp directory")
+	addYesFlag(resetUserPasswordCmd)
 
 	usersCmd.AddCommand(listUsersCmd, addUserCmd, setUserRoleCmd, resetTokenCmd, deleteUserCmd, resetUserPasswordCmd)
 
@@ -722,8 +712,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 					Message: "Would you like to add a new cluster?",
 				}
 				if err := survey.AskOne(prompt, &addCluster); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 				if addCluster {
 					addClusterCmd.Run(cmd, args)
@@ -756,8 +745,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			var name, brokers, provider, apiKey, apiSecret, clusterID string
 			promptName := &survey.Input{Message: "Cluster name:"}
 			if err := survey.AskOne(promptName, &name); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+				abortCancelled()
 			}
 
 			promptProvider := &survey.Select{
@@ -765,51 +753,43 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				Options: []string{"plain", "confluent", "redpanda", "azure"},
 			}
 			if err := survey.AskOne(promptProvider, &provider); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+				abortCancelled()
 			}
 
 			if provider == "confluent" {
 				promptClusterID := &survey.Input{Message: "Cluster ID:"}
 				if err := survey.AskOne(promptClusterID, &clusterID); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 				promptBrokers := &survey.Input{Message: "Bootstrap URL:"}
 				if err := survey.AskOne(promptBrokers, &brokers); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 				promptAPIKey := &survey.Input{Message: "API Key:"}
 				if err := survey.AskOne(promptAPIKey, &apiKey); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 				promptAPISecret := &survey.Password{Message: "API Secret:"}
 				if err := survey.AskOne(promptAPISecret, &apiSecret); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 			} else if provider == "azure" {
 				var namespace string
 				promptNamespace := &survey.Input{Message: "Event Hubs Namespace:"}
 				if err := survey.AskOne(promptNamespace, &namespace); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 				brokers = fmt.Sprintf("%s.servicebus.windows.net:9093", namespace)
 
 				promptConnStr := &survey.Password{Message: "Connection String:"}
 				if err := survey.AskOne(promptConnStr, &clusterID); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 			} else {
 				for {
 					promptBrokers := &survey.Input{Message: "Brokers (comma-separated):"}
 					if err := survey.AskOne(promptBrokers, &brokers); err != nil {
-						fmt.Println("Operation cancelled.")
-						return
+						abortCancelled()
 					}
 
 					// Validate broker string format
@@ -818,8 +798,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 						var retry bool
 						promptRetry := &survey.Confirm{Message: "Would you like to re-enter the broker string?"}
 						if err := survey.AskOne(promptRetry, &retry); err != nil || !retry {
-							fmt.Println("Operation cancelled.")
-							return
+							abortCancelled()
 						}
 						continue
 					}
@@ -834,8 +813,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				Default: "other",
 			}
 			if err := survey.AskOne(promptRole, &role); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+				abortCancelled()
 			}
 
 			clusterData := map[string]interface{}{
@@ -876,8 +854,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 						Message: "Would you like to re-enter the details?",
 					}
 					if err := survey.AskOne(prompt, &reEnter); err != nil {
-						fmt.Println("Operation cancelled.")
-						return
+						abortCancelled()
 					}
 					if reEnter {
 						if provider == "confluent" {
@@ -962,8 +939,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				Message: "Would you like to list the topics in the new cluster?",
 			}
 			if err := survey.AskOne(prompt, &listTopics); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+				abortCancelled()
 			}
 
 			if listTopics {
@@ -1025,19 +1001,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 					Options: clusterNames,
 				}
 				if err := survey.AskOne(prompt, &clusterName); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 			}
 
-			var confirm bool
-			confirmPrompt := &survey.Confirm{
-				Message: fmt.Sprintf("Are you sure you want to remove cluster '%s'? This action will mark it for deletion.", clusterName),
-				Default: false,
-			}
-			if err := survey.AskOne(confirmPrompt, &confirm); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+			confirm, err := confirmAction(cmd, fmt.Sprintf("Are you sure you want to remove cluster '%s'? This action will mark it for deletion.", clusterName))
+			if err != nil {
+				fmt.Printf("Cluster removal cancelled: %v\n", err)
+				os.Exit(1)
 			}
 			if !confirm {
 				fmt.Println("Cluster removal cancelled.")
@@ -1156,8 +1127,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 					Options: clusterNames,
 				}
 				if err := survey.AskOne(prompt, &clusterName); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 			}
 
@@ -1216,8 +1186,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 					Options: clusterNames,
 				}
 				if err := survey.AskOne(prompt, &clusterName); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 			}
 
@@ -1316,7 +1285,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			fmt.Printf("Current Brokers: %s\n", safeString(currentCluster["brokers"], "not set"))
 			if provider == "confluent" {
 				fmt.Printf("Current Cluster ID: %s\n", safeString(currentCluster["cluster_id"], "not set"))
-				fmt.Printf("Current API Key: %s\n", safeString(currentCluster["api_key"], "not set"))
+				fmt.Printf("Current API Key: %s\n", maskSensitiveValue(safeString(currentCluster["api_key"], "not set")))
 			} else if provider == "azure" {
 				fmt.Println("Current Connection String: [configured]")
 			}
@@ -1327,34 +1296,29 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			promptName := &survey.Input{Message: "New cluster name:", Default: safeString(currentCluster["name"], "")}
 			if err := survey.AskOne(promptName, &newName); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+				abortCancelled()
 			}
 
 			// Collect ALL parameters first before testing connection
 			if provider == "confluent" {
 				promptBrokers := &survey.Input{Message: "New brokers (comma-separated):", Default: safeString(currentCluster["brokers"], "")}
 				if err := survey.AskOne(promptBrokers, &newBrokers); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 
 				promptClusterID := &survey.Input{Message: "New Cluster ID:", Default: safeString(currentCluster["cluster_id"], "")}
 				if err := survey.AskOne(promptClusterID, &newClusterID); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 
 				promptAPIKey := &survey.Input{Message: "New API Key (empty keeps current):"}
 				if err := survey.AskOne(promptAPIKey, &newAPIKey); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 
 				promptAPISecret := &survey.Password{Message: "New API Secret (empty keeps current):"}
 				if err := survey.AskOne(promptAPISecret, &newAPISecret); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 			} else if provider == "azure" {
 				var namespace string
@@ -1365,24 +1329,21 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 				promptNamespace := &survey.Input{Message: "New Event Hubs Namespace:", Default: namespace}
 				if err := survey.AskOne(promptNamespace, &namespace); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 				newBrokers = fmt.Sprintf("%s.servicebus.windows.net:9093", namespace)
 
 				var connStr string
 				promptConnStr := &survey.Password{Message: "New Connection String:"}
 				if err := survey.AskOne(promptConnStr, &connStr); err != nil {
-					fmt.Println("Operation cancelled.")
-					return
+					abortCancelled()
 				}
 				newConnectionString = &connStr
 			} else {
 				for {
 					promptBrokers := &survey.Input{Message: "New brokers (comma-separated):", Default: safeString(currentCluster["brokers"], "")}
 					if err := survey.AskOne(promptBrokers, &newBrokers); err != nil {
-						fmt.Println("Operation cancelled.")
-						return
+						abortCancelled()
 					}
 
 					// Validate broker string format
@@ -1391,8 +1352,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 						var retry bool
 						promptRetry := &survey.Confirm{Message: "Would you like to re-enter the broker string?"}
 						if err := survey.AskOne(promptRetry, &retry); err != nil || !retry {
-							fmt.Println("Operation cancelled.")
-							return
+							abortCancelled()
 						}
 						continue
 					}
@@ -1465,8 +1425,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				Default: safeString(currentCluster["role"], "other"),
 			}
 			if err := survey.AskOne(promptRole, &role); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+				abortCancelled()
 			}
 
 			updateCluster := map[string]interface{}{
@@ -1519,6 +1478,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		},
 	}
 
+	addYesFlag(removeClusterCmd)
 	clustersCmd.AddCommand(listClustersCmd, addClusterCmd, editClusterCmd, removeClusterCmd, restoreClusterCmd, purgeClustersCmd, testClusterCmd)
 
 	configCmd := createConfigCommand()
@@ -1558,13 +1518,11 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			var oldPassword, newPassword string
 			promptOld := &survey.Password{Message: "Old Password:"}
 			if err := survey.AskOne(promptOld, &oldPassword); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+				abortCancelled()
 			}
 			promptNew := &survey.Password{Message: "New Password (min 12 characters):"}
 			if err := survey.AskOne(promptNew, &newPassword); err != nil {
-				fmt.Println("Operation cancelled.")
-				return
+				abortCancelled()
 			}
 			if len(newPassword) < 12 {
 				fmt.Println("Error: password must be at least 12 characters.")
@@ -3751,12 +3709,11 @@ func createJobsCommand() *cobra.Command {
 				}
 			}
 
-			var confirm bool
-			confirmPrompt := &survey.Confirm{
-				Message: fmt.Sprintf("Are you sure you want to delete job '%s'? This action cannot be undone.", jobID),
-				Default: false,
+			confirm, err := confirmAction(cmd, fmt.Sprintf("Are you sure you want to delete job '%s'? This action cannot be undone.", jobID))
+			if err != nil {
+				fmt.Printf("Job deletion cancelled: %v\n", err)
+				os.Exit(1)
 			}
-			survey.AskOne(confirmPrompt, &confirm)
 			if !confirm {
 				fmt.Println("Job deletion cancelled.")
 				return
@@ -4224,6 +4181,7 @@ func createJobsCommand() *cobra.Command {
 		},
 	}
 
+	addYesFlag(deleteJobCmd)
 	jobsCmd.AddCommand(listJobsCmd, addJobCmd, startJobCmd, stopJobCmd, pauseJobCmd, restartJobCmd, forceRestartJobCmd, deleteJobCmd, statusJobCmd, analyzeJobCmd, healthcheckJobCmd)
 	return jobsCmd
 }
