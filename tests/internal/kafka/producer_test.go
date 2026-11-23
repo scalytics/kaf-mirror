@@ -166,15 +166,11 @@ func TestNewProducer_TLS_SSL(t *testing.T) {
 }
 
 func TestNewProducer_Kerberos(t *testing.T) {
+	keytabPath, krb5Path := writeKerberosFiles(t, "")
 	cfg := config.ClusterConfig{
-		Brokers: "localhost:9092",
-		Security: config.SecurityConfig{
-			Enabled:       true,
-			Protocol:      "SASL_SSL",
-			SASLMechanism: "GSSAPI",
-		},
+		Brokers:  "localhost:9092",
+		Security: gssapiSecurity(keytabPath, krb5Path, "kaf-mirror@EXAMPLE.COM"),
 	}
-	cfg.Security.Kerberos.ServiceName = "kafka"
 
 	replicationCfg := config.ReplicationConfig{
 		BatchSize:   1000,
@@ -208,7 +204,7 @@ func TestNewProducer_InvalidSASL(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported SASL mechanism")
 }
 
-func TestNewProducer_MissingKerberosServiceName(t *testing.T) {
+func TestNewProducer_MissingKerberosPaths(t *testing.T) {
 	cfg := config.ClusterConfig{
 		Brokers: "localhost:9092",
 		Security: config.SecurityConfig{
@@ -226,5 +222,5 @@ func TestNewProducer_MissingKerberosServiceName(t *testing.T) {
 	producer, err := kafka.NewProducer(cfg, replicationCfg, "test-job")
 	assert.Error(t, err)
 	assert.Nil(t, producer)
-	assert.Contains(t, err.Error(), "Kerberos service name is required")
+	assert.Contains(t, err.Error(), "SASL GSSAPI requires kerberos.principal, kerberos.keytab_path, kerberos.krb5_conf_path")
 }

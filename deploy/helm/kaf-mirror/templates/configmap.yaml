@@ -37,12 +37,12 @@ data:
         provider: "plain"
         brokers: {{ .Values.config.sourceBrokers | quote }}
         security:
-          enabled: false
+          {{- toYaml .Values.config.sourceSecurity | nindent 10 }}
       target:
         provider: "plain"
         brokers: {{ .Values.config.targetBrokers | quote }}
         security:
-          enabled: false
+          {{- toYaml .Values.config.targetSecurity | nindent 10 }}
     replication:
       batch_size: 1000
       parallelism: 4

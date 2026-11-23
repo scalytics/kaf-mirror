@@ -146,17 +146,22 @@ type ClusterConfig struct {
 
 // SecurityConfig defines security settings for Kafka connections
 type SecurityConfig struct {
-	Enabled          bool    `mapstructure:"enabled" json:"enabled"`
-	Protocol         string  `mapstructure:"protocol" json:"protocol"`
-	SASLMechanism    string  `mapstructure:"sasl_mechanism" json:"sasl_mechanism"`
-	Username         string  `mapstructure:"username" json:"username"`
-	Password         string  `mapstructure:"password" json:"password"`
-	APIKey           string  `mapstructure:"api_key" json:"api_key"`
-	APISecret        string  `mapstructure:"api_secret" json:"api_secret"`
-	ConnectionString *string `mapstructure:"connection_string" json:"connection_string"`
-	Kerberos         struct {
-		ServiceName string `mapstructure:"service_name" json:"service_name"`
-	} `mapstructure:"kerberos" json:"kerberos"`
+	Enabled          bool           `mapstructure:"enabled" json:"enabled"`
+	Protocol         string         `mapstructure:"protocol" json:"protocol"`
+	SASLMechanism    string         `mapstructure:"sasl_mechanism" json:"sasl_mechanism"`
+	Username         string         `mapstructure:"username" json:"username"`
+	Password         string         `mapstructure:"password" json:"password"`
+	APIKey           string         `mapstructure:"api_key" json:"api_key"`
+	APISecret        string         `mapstructure:"api_secret" json:"api_secret"`
+	ConnectionString *string        `mapstructure:"connection_string" json:"connection_string"`
+	Kerberos         KerberosConfig `mapstructure:"kerberos" json:"kerberos"`
+}
+
+type KerberosConfig struct {
+	ServiceName  string `mapstructure:"service_name" json:"service_name"`
+	Principal    string `mapstructure:"principal" json:"principal"`
+	KeytabPath   string `mapstructure:"keytab_path" json:"keytab_path"`
+	Krb5ConfPath string `mapstructure:"krb5_conf_path" json:"krb5_conf_path"`
 }
 
 // ReplicationConfig defines replication parameters
