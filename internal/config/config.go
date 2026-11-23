@@ -30,7 +30,7 @@ type Config struct {
 	Logging     LoggingConfig            `mapstructure:"logging"`
 	Clusters    map[string]ClusterConfig `mapstructure:"clusters"`
 	Replication ReplicationConfig        `mapstructure:"replication"`
-	Topics      []TopicMapping           `mapstructure:"topic_mappings"`
+	Topics      []TopicMapping           `mapstructure:"-"`
 	AI          AIConfig                 `mapstructure:"ai"`
 	Monitoring  MonitoringConfig         `mapstructure:"monitoring"`
 	Compliance  ComplianceConfig         `mapstructure:"compliance"`
@@ -42,7 +42,7 @@ type ProtectionConfig struct {
 	Enabled           bool           `mapstructure:"enabled"`
 	HaltFile          string         `mapstructure:"halt_file"`
 	HaltEnv           string         `mapstructure:"halt_env"`
-	RefuseWriteToProd bool           `mapstructure:"refuse_write_to_prod"`
+	RefuseWriteToProd bool           `mapstructure:"-"`
 	AutoHalt          AutoHaltConfig `mapstructure:"auto_halt"`
 }
 
@@ -82,7 +82,6 @@ type ServerConfig struct {
 	Host            string `mapstructure:"host"`
 	Port            int    `mapstructure:"port"`
 	Mode            string `mapstructure:"mode"`
-	AdminEmail      string `mapstructure:"admin_email"`
 	WebPath         string `mapstructure:"web_path"`
 	AllowInsecure   bool   `mapstructure:"allow_insecure"`
 	ShutdownTimeout string `mapstructure:"shutdown_timeout"`
@@ -139,12 +138,9 @@ type DatabaseConfig struct {
 }
 
 type LoggingConfig struct {
-	Level      string `mapstructure:"level"`
-	File       string `mapstructure:"file"`
-	MaxSize    int    `mapstructure:"max_size"`
-	MaxBackups int    `mapstructure:"max_backups"`
-	MaxAge     int    `mapstructure:"max_age"`
-	Console    bool   `mapstructure:"console"`
+	Level   string `mapstructure:"level"`
+	File    string `mapstructure:"file"`
+	Console bool   `mapstructure:"console"`
 }
 
 // ClusterConfig defines Kafka cluster connection details
@@ -183,9 +179,9 @@ type KerberosConfig struct {
 
 // ReplicationConfig defines replication parameters
 type ReplicationConfig struct {
-	BatchSize              int    `mapstructure:"batch_size"`
-	Compression            string `mapstructure:"compression"`
-	JobID                  string `mapstructure:"job_id"`
+	BatchSize              int    `mapstructure:"-"`
+	Compression            string `mapstructure:"-"`
+	JobID                  string `mapstructure:"-"`
 	TopicDiscoveryInterval string `mapstructure:"topic_discovery_interval"`
 }
 

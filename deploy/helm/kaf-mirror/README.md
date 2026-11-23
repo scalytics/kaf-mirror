@@ -26,12 +26,20 @@ The default install starts without TLS: `config.server.mode` is `production` and
 
 ## Bootstrap admin password
 
-On first start, kaf-mirror creates `admin@localhost` with a random password and writes it to `/app/data/kaf-mirror-bootstrap-<random>` on the PVC. The log prints the file path, not the password. Read it, deliver it securely, then delete the file:
+On first start, kaf-mirror creates `admin@localhost` with a random password and writes it to `/app/data/kaf-mirror-bootstrap-<random>` on the PVC. kaf-mirror prints the file path on stdout, not the password, so `kubectl logs` shows it. Read it, deliver it securely, then delete the file:
 
 ```bash
 kubectl logs deploy/km-kaf-mirror | grep "Password File"
 kubectl exec deploy/km-kaf-mirror -- sh -c 'cat /app/data/kaf-mirror-bootstrap-*'
 kubectl exec deploy/km-kaf-mirror -- sh -c 'rm /app/data/kaf-mirror-bootstrap-*'
+```
+
+To set a new random password for `admin@localhost`, run `admin-cli` in the pod. It writes the password to `/tmp/kaf-mirror-admin-reset-<random>` in the container and prints that path:
+
+```bash
+kubectl exec deploy/km-kaf-mirror -- ./admin-cli reset-admin-password admin@localhost
+kubectl exec deploy/km-kaf-mirror -- sh -c 'cat /tmp/kaf-mirror-admin-reset-*'
+kubectl exec deploy/km-kaf-mirror -- sh -c 'rm /tmp/kaf-mirror-admin-reset-*'
 ```
 
 ## TLS
@@ -61,8 +69,15 @@ helm upgrade --install km deploy/helm/kaf-mirror -f tls-values.yaml --wait
 | `KAF_MIRROR_MONITORING_SPLUNK_HEC_TOKEN` | `monitoring.splunk.hec_token` |
 
 ```bash
+umask 077
+read -rs AI_TOKEN && printf '%s' "$AI_TOKEN" > ai-token.txt && unset AI_TOKEN
 kubectl create secret generic km-secrets --from-file=ai-token=./ai-token.txt
+rm ai-token.txt
 cat > secret-values.yaml <<'VALUES'
+config:
+  ai:
+    provider: openai
+    model: gpt-4o
 secretEnv:
   - name: KAF_MIRROR_AI_TOKEN
     secretName: km-secrets
@@ -71,7 +86,13 @@ VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f secret-values.yaml --wait
 ```
 
+## AI analysis
+
+AI analysis is off by default. With an empty `config.ai.provider`, kaf-mirror makes no AI requests and the AI endpoints that start an analysis answer HTTP 503. To turn it on, set `config.ai.provider` and `config.ai.model`, and `config.ai.endpoint` for `custom`, and give the token with `secretEnv` as in the example above. See [docs/configuration.md](../../../docs/configuration.md#ai-analysis).
+
 ## Kerberos
+
+Jobs use the clusters you create with `mirror-cli` or the API, not the `source` and `target` clusters of the config file. `config.sourceBrokers`, `config.sourceSecurity`, `config.targetBrokers` and `config.targetSecurity` are only used by `GET /api/v1/topics/source` and `GET /api/v1/topics/target`.
 
 For a cluster with SASL GSSAPI, keep the keytab in a Secret and `krb5.conf` in a ConfigMap. The chart mounts the keytab read-only at `/app/kerberos/keytab/<kerberos.keytabKey>` with mode `0440`, readable by the pod group 101, and `krb5.conf` at `/app/kerberos/krb5/<kerberos.krb5ConfKey>`. The paths are only file paths in the config. No secret goes into the values or onto the command line.
 
@@ -138,10 +159,13 @@ helm upgrade --install km deploy/helm/kaf-mirror -f shutdown-values.yaml --wait
 | `config.server.tls.keyKey` | `tls.key` | Key of the private key in the Secret. |
 | `config.server.corsAllowedOrigins` | `["*"]` | `server.cors.allowed_origins`. |
 | `config.logLevel` | `INFO` | `logging.level`. |
-| `config.sourceBrokers` | `kafka-source:9092` | Brokers of the `source` cluster in the config file. |
-| `config.targetBrokers` | `kafka-target:9092` | Brokers of the `target` cluster in the config file. |
+| `config.sourceBrokers` | `kafka-source:9092` | Brokers of the `source` cluster in the config file. Only used by `GET /api/v1/topics/source`. Jobs use clusters stored in the database. |
+| `config.targetBrokers` | `kafka-target:9092` | Brokers of the `target` cluster in the config file. Only used by `GET /api/v1/topics/target`. |
 | `config.sourceSecurity` | `enabled: false` | `security` block of the `source` cluster in the config file. Do not put passwords here; see Kerberos. |
 | `config.targetSecurity` | `enabled: false` | `security` block of the `target` cluster in the config file. |
+| `config.ai.provider` | `""` | `ai.provider`: `openai`, `claude`, `gemini`, `grok` or `custom`. Empty turns AI off. |
+| `config.ai.endpoint` | `""` | `ai.endpoint`. Required for `custom`. |
+| `config.ai.model` | `""` | `ai.model`. |
 | `kerberos.keytabSecret` | `""` | Secret with the Kerberos keytab. When set, it is mounted at `/app/kerberos/keytab`. |
 | `kerberos.keytabKey` | `kafka.keytab` | Key of the keytab in the Secret, and its file name in the mount. |
 | `kerberos.krb5ConfigMap` | `""` | ConfigMap with `krb5.conf`. When set, it is mounted at `/app/kerberos/krb5`. |
@@ -159,7 +183,7 @@ helm upgrade --install km deploy/helm/kaf-mirror -f shutdown-values.yaml --wait
 | `serviceAccount.name` | `""` | ServiceAccount name. Empty uses the release full name. |
 | `serviceAccount.annotations` | `{}` | ServiceAccount annotations. |
 | `labels` | `{}` | Extra labels on every object. |
-| `metrics.enabled` | `true` | Render a ServiceMonitor when the Prometheus Operator CRD is installed. When TLS is on, it scrapes HTTPS. |
+| `metrics.enabled` | `true` | Render a ServiceMonitor when the Prometheus Operator CRD is installed. When TLS is on, it scrapes HTTPS. `/metrics` serves only the Go runtime metrics of the process. Job metrics are not on `/metrics`. They only go to a Prometheus Pushgateway set in `monitoring.prometheus.push_gateway`, which this chart does not set. |
 | `metrics.path` | `/metrics` | Metrics path. |
 | `metrics.serviceMonitor.labels` | `{}` | Extra ServiceMonitor labels. |
 | `metrics.serviceMonitor.interval` | `30s` | Scrape interval. |

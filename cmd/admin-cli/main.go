@@ -111,12 +111,14 @@ and for emergency maintenance. It interacts directly with the database.`,
 	var addUserCmd = &cobra.Command{
 		Use:   "add [username]",
 		Short: "Add a new user to the database.",
-		Long:  `This command adds a new user directly to the database with the specified username and password.`,
+		Long:  `This command adds a new user directly to the database. It asks for the password without echo when --password is not set.`,
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			password, _ := cmd.Flags().GetString("password")
 			if password == "" {
-				log.Fatal("Password is required")
+				if err := survey.AskOne(&survey.Password{Message: "Password:"}, &password, survey.WithValidator(survey.Required)); err != nil {
+					log.Fatalf("Password is required: %v", err)
+				}
 			}
 			isInitial, _ := cmd.Flags().GetBool("initial")
 			user, err := database.CreateUser(db, args[0], password, isInitial)
@@ -126,7 +128,7 @@ and for emergency maintenance. It interacts directly with the database.`,
 			fmt.Printf("User created successfully: %s (ID: %d)\n", user.Username, user.ID)
 		},
 	}
-	addUserCmd.Flags().String("password", "", "User's password")
+	addUserCmd.Flags().String("password", "", "User's password. Leave it out to be asked for it without echo")
 	addUserCmd.Flags().Bool("initial", false, "Set user as initial admin")
 
 	var listUsersCmd = &cobra.Command{

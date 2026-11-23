@@ -6,7 +6,7 @@ If the source cluster is compromised, kaf-mirror will copy that traffic onto the
 
 ## Why this exists
 
-In a live incident the **source** cluster was ransomed. kaf-mirror kept running and replicated the attack. Data **already** stored by kafscale on S3 was not encrypted — those objects are read-only. New writes from the mirror would still have landed as new (bad) objects.
+In a live incident the **source** cluster was ransomed. kaf-mirror kept running and replicated the attack. Data **already** stored by kafscale on S3 was not encrypted, because those objects are read-only. New writes from the mirror would still have landed as new (bad) objects.
 
 This switch stops **new** replication. It does not decrypt the source, and it does not roll back the replica.
 
@@ -39,7 +39,7 @@ Base path `/api/v1`. Auth: `Authorization: Bearer <token>`.
 
 Cluster create/update JSON includes `role`: `prod`, `dr`, or `other`.
 
-Swagger: `/swagger/index.html` (tag **protection**).
+Swagger: `/docu/swagger/` (tag **protection**).
 
 To arm it at process start, set in config:
 
@@ -103,7 +103,7 @@ mirror-cli jobs start <job-id>
 
 ## Automatic halt
 
-When protection is on, `auto_halt.enabled` is also on (same experiment — there are no per-detector toggles).
+Automatic halt runs only when protection is on and `protection.auto_halt.enabled` is `true`. The bundled `configs/default.yml` sets it to `true`. The Helm chart does not set it, so it is off there. There are no per-detector toggles.
 
 kaf-mirror samples records and will halt if:
 

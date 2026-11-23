@@ -98,6 +98,7 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		Protection:           protection.New(db, cfg.Protection),
 	}
 	jm.shutdownCtx, jm.shutdownCancel = context.WithCancel(context.Background())
+	logger.Info("AI analysis is %s", ai.Status(aiConfig))
 	if cfg.Protection.Enabled {
 		_ = database.SetProtectionEnabled(db, true)
 	}
@@ -902,7 +903,7 @@ func (jm *JobManager) performSmartAnalysis() {
 			go jm.performDynamicThrottling(job.ID, job.Name)
 		}
 
-		if jm.shouldTriggerAIAnalysis(job.ID, job.Name) {
+		if jm.AIClient.Enabled() && jm.shouldTriggerAIAnalysis(job.ID, job.Name) {
 			go jm.analyzeJobTimeSeries(job.ID, job.Name)
 		}
 	}
@@ -1058,6 +1059,9 @@ func (jm *JobManager) detectAnomalies(metrics []database.ReplicationMetric, jobN
 
 // analyzeJobTimeSeries analyzes time-series patterns for a specific job using enhanced log + metrics analysis
 func (jm *JobManager) analyzeJobTimeSeries(jobID, jobName string) {
+	if !jm.AIClient.Enabled() {
+		return
+	}
 	logger.InfoAI("ai", "analysis", jobID, "Starting comprehensive AI analysis for job %s", jobName)
 
 	startTime := time.Now()
@@ -1237,7 +1241,7 @@ Based on this time-series data, what are your key findings and recommendations?`
 // startHistoricalAnalysis runs long-term historical analysis every 24 hours
 func (jm *JobManager) startHistoricalAnalysis() {
 	defer jm.wg.Done()
-	if jm.AIClient == nil {
+	if !jm.AIClient.Enabled() {
 		return
 	}
 
@@ -1271,6 +1275,9 @@ func (jm *JobManager) performHistoricalAnalysis() {
 
 // AnalyzeJobHistory analyzes historical trends for a specific job
 func (jm *JobManager) AnalyzeJobHistory(jobID, jobName string, periodDays int, granularity string) {
+	if !jm.AIClient.Enabled() {
+		return
+	}
 	metrics, err := database.GetAggregatedHistoricalMetrics(jm.Db, jobID, periodDays, granularity)
 	if err != nil {
 		logger.Error("Failed to fetch historical metrics for AI analysis (job %s): %v", jobID, err)
@@ -1366,8 +1373,8 @@ func (jm *JobManager) determineSeverity(metrics []database.ReplicationMetric) st
 
 // AnalyzeJobNow immediately triggers comprehensive AI analysis for a specific job (bypasses rate limiting)
 func (jm *JobManager) AnalyzeJobNow(jobID, jobName string) {
-	if jm.AIClient == nil {
-		logger.Error("Cannot analyze job %s: AI client not configured", jobName)
+	if !jm.AIClient.Enabled() {
+		logger.Warn("Cannot analyze job %s: %v", jobName, ai.ErrNotConfigured)
 		return
 	}
 
@@ -1638,6 +1645,9 @@ func (jm *JobManager) int32SliceToJSON(slice []int32) string {
 func (jm *JobManager) buildJobConfig(sourceCluster, targetCluster *database.KafkaCluster, mappings []database.TopicMapping, job *database.ReplicationJob) (*config.Config, error) {
 	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
 	targetConfig := database.ClusterConfigFromRow(*targetCluster)
+	if jm.Config != nil && jm.Config.Clusters[targetCluster.Name].DisableIdempotentWrites {
+		targetConfig.DisableIdempotentWrites = true
+	}
 
 	jobConfig := &config.Config{
 		Clusters: map[string]config.ClusterConfig{

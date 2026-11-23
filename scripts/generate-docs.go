@@ -249,7 +249,7 @@ func convertMarkdownToHTML(markdownFile, htmlFile string) error {
                         <a class="nav-link" href="/docu/rbac.html">RBAC</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/docu/swagger/?` + fmt.Sprintf("t=%d", os.Getpid()) + `">API (Swagger)</a>
+                        <a class="nav-link" href="/docu/swagger/">API (Swagger)</a>
                     </li>
                 </ul>
             </div>

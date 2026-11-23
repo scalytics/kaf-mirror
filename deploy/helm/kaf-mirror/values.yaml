@@ -30,6 +30,10 @@ config:
     enabled: false
   targetSecurity:
     enabled: false
+  ai:
+    provider: ""
+    endpoint: ""
+    model: ""
 
 kerberos:
   keytabSecret: ""

@@ -136,12 +136,6 @@ definitions:
         type: string
       level:
         type: string
-      maxAge:
-        type: integer
-      maxBackups:
-        type: integer
-      maxSize:
-        type: integer
     type: object
   config.LokiConfig:
     properties:
@@ -221,8 +215,6 @@ definitions:
     type: object
   config.ServerConfig:
     properties:
-      adminEmail:
-        type: string
       allowInsecure:
         type: boolean
       cors:
@@ -858,6 +850,11 @@ paths:
           schema:
             additionalProperties: true
             type: object
+        "503":
+          description: AI is not configured
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Explain an event
@@ -875,6 +872,11 @@ paths:
       responses:
         "202":
           description: Accepted
+        "503":
+          description: AI is not configured
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Analyze an incident
@@ -938,6 +940,11 @@ paths:
       responses:
         "200":
           description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "503":
+          description: AI is not configured
           schema:
             additionalProperties: true
             type: object
@@ -1614,6 +1621,11 @@ paths:
       responses:
         "202":
           description: Accepted
+        "503":
+          description: AI is not configured
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Trigger AI analysis for a job
@@ -1636,6 +1648,11 @@ paths:
       responses:
         "202":
           description: Accepted
+        "503":
+          description: AI is not configured
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Trigger historical AI analysis for a job
@@ -1732,8 +1749,7 @@ paths:
         mapped source topic: the sum over all partitions of the end offset minus the
         committed offset. A partition without a commit, or with a commit below the
         log start, counts from its log start offset, and a partition never counts
-        below 0. A topic whose offsets cannot be read
-        has an error string as its value.'
+        below 0. A topic whose offsets cannot be read has an error string as its value.'
       parameters:
       - description: Job ID
         in: path

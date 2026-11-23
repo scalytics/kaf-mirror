@@ -13,9 +13,6 @@ server:
 logging:
   file: "logs/kaf-mirror.log"
   level: "INFO"
-  max_size: 100
-  max_backups: 5
-  max_age: 30
   console: true
 
 database:
@@ -43,12 +40,4 @@ clusters:
       enabled: false
 
 replication:
-  job_id: "local-dev"
-  batch_size: 1000
-  compression: "none"
   topic_discovery_interval: "5m"
-
-topics:
-  - source: "demo-source"
-    target: "demo-target"
-    enabled: true

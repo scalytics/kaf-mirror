@@ -13,6 +13,7 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/egress"
@@ -55,6 +56,8 @@ func (p *openAIProvider) GetCompletion(ctx context.Context, prompt string) (stri
 	return resp.Choices[0].Message.Content, nil
 }
 
+var ErrNotConfigured = errors.New("AI is not configured: set ai.provider to openai, claude, gemini, grok or custom")
+
 // Client is a wrapper for the AI provider.
 type Client struct {
 	Provider CompletionProvider
@@ -77,9 +80,33 @@ func NewClientWithProvider(cfg config.AIConfig, provider CompletionProvider) *Cl
 	}
 }
 
+func (c *Client) Enabled() bool {
+	return c != nil && c.Provider != nil
+}
+
+func Status(cfg config.AIConfig) string {
+	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	switch provider {
+	case "":
+		return "off: ai.provider is not set"
+	case "openai", "claude", "gemini", "grok":
+		return "on: " + provider
+	case "custom":
+		if strings.TrimSpace(cfg.Endpoint) == "" {
+			return "off: ai.provider custom needs ai.endpoint"
+		}
+		return "on: custom"
+	default:
+		return fmt.Sprintf("off: unknown ai.provider %q", cfg.Provider)
+	}
+}
+
 func buildProvider(cfg config.AIConfig, allowedHosts []string) CompletionProvider {
+	if !strings.HasPrefix(Status(cfg), "on:") {
+		return nil
+	}
 	httpClient := egress.HTTPClient(30*time.Second, allowedHosts)
-	switch strings.ToLower(cfg.Provider) {
+	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case "claude":
 		return &ClaudeProvider{
 			APIKey:   cfg.Token,
@@ -101,8 +128,6 @@ func buildProvider(cfg config.AIConfig, allowedHosts []string) CompletionProvide
 			Model:    cfg.Model,
 			HTTP:     httpClient,
 		}
-	case "custom", "openai", "":
-		fallthrough
 	default:
 		openaiCfg := openai.DefaultConfig(cfg.Token)
 		if cfg.Endpoint != "" {
@@ -152,7 +177,7 @@ Metrics:
 func (c *Client) GetPerformanceRecommendation(ctx context.Context, metrics string) (string, error) {
 	prompt := fmt.Sprintf(`
 You are an expert Kafka performance tuning assistant. Based on the following metrics from a Kafka kaf-mirror job, provide a concrete recommendation for optimization.
-Consider parameters like batch size, parallelism, and compression. Explain your reasoning.
+Consider parameters like batch size and compression. Explain your reasoning.
 
 Metrics:
 %s
@@ -164,7 +189,7 @@ Metrics:
 func (c *Client) GetPerformanceRecommendationWithResponseTime(ctx context.Context, metrics string) (string, int, error) {
 	prompt := fmt.Sprintf(`
 You are an expert Kafka performance tuning assistant. Based on the following metrics from a Kafka kaf-mirror job, provide a concrete recommendation for optimization.
-Consider parameters like batch size, parallelism, and compression. Explain your reasoning.
+Consider parameters like batch size and compression. Explain your reasoning.
 
 Metrics:
 %s
@@ -307,11 +332,17 @@ OPERATION LOGS:
 }
 
 func (c *Client) getCompletion(ctx context.Context, prompt string) (string, error) {
+	if !c.Enabled() {
+		return "", ErrNotConfigured
+	}
 	return c.Provider.GetCompletion(ctx, prompt)
 }
 
 // getCompletionWithResponseTime returns both the completion and the response time in milliseconds
 func (c *Client) getCompletionWithResponseTime(ctx context.Context, prompt string) (string, int, error) {
+	if !c.Enabled() {
+		return "", 0, ErrNotConfigured
+	}
 	startTime := time.Now()
 
 	resp, err := c.Provider.GetCompletion(ctx, prompt)

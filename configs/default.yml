@@ -13,9 +13,6 @@ server:
 logging:
   file: "logs/kaf-mirror.log"
   level: "INFO"   # DEBUG, INFO, WARN, ERROR
-  max_size: 100   # MB
-  max_backups: 5
-  max_age: 30     # days
   console: false  # Set to true for development, false for production
 
 database:
@@ -31,8 +28,6 @@ compliance:
     monthly: false
 
 replication:
-  batch_size: 1000
-  compression: "none"
   topic_discovery_interval: "5m"
 
 egress:
