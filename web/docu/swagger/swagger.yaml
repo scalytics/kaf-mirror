@@ -238,6 +238,8 @@ definitions:
         type: string
       port:
         type: integer
+      shutdownTimeout:
+        type: string
       tls:
         properties:
           certFile:
@@ -306,6 +308,33 @@ definitions:
       recommendation_count:
         type: integer
       total_insights:
+        type: integer
+    type: object
+  database.AggregatedMetric:
+    properties:
+      avg_lag:
+        type: number
+      avg_throughput:
+        type: number
+      bytes_consumed_delta:
+        type: integer
+      bytes_transferred_delta:
+        type: integer
+      error_count_delta:
+        type: integer
+      job_id:
+        type: string
+      messages_consumed_delta:
+        type: integer
+      messages_replicated_delta:
+        type: integer
+      period:
+        type: string
+      timestamp:
+        type: string
+      tombstone_count_delta:
+        type: integer
+      total_errors:
         type: integer
     type: object
   database.ClusterInventory:
@@ -1699,7 +1728,11 @@ paths:
       - inventory
   /jobs/{id}/lag:
     get:
-      description: Get the current consumer lag for a replication job.
+      description: 'Get the lag of the job consumer group kaf-mirror-job-{id} per
+        mapped source topic: the sum over all partitions of the end offset minus the
+        committed offset. A partition without a commit counts from its log start offset,
+        and a partition never counts below 0. A topic whose offsets cannot be read
+        has an error string as its value.'
       parameters:
       - description: Job ID
         in: path
@@ -1775,7 +1808,8 @@ paths:
       - jobs
   /jobs/{id}/metrics/current:
     get:
-      description: Get the latest replication metrics for a job.
+      description: Get the totals of a job since it was created (messages, bytes,
+        errors, tombstones) and the lag of the last sample.
       parameters:
       - description: Job ID
         in: path
@@ -1815,7 +1849,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/database.ReplicationMetric'
+              $ref: '#/definitions/database.AggregatedMetric'
             type: array
       security:
       - ApiKeyAuth: []

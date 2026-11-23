@@ -716,7 +716,7 @@ func (jm *JobManager) StartJob(jobID string) error {
 	}
 
 	logger.Info("Starting job '%s' (%s)", job.Name, jobID)
-	kafMirror.Start(jobID, jm.ProcessMetrics, jm.failureHandler(kafMirror))
+	kafMirror.Start(jobID, jm.metricsHandler(), jm.failureHandler(kafMirror))
 	jm.KafMirrors[jobID] = kafMirror
 
 	job.Status = "active"
@@ -744,10 +744,17 @@ func (jm *JobManager) StartJob(jobID string) error {
 	return nil
 }
 
-// ProcessMetrics is the callback function for the kaf-mirror to send metrics.
-func (jm *JobManager) ProcessMetrics(metric database.ReplicationMetric) {
+func (jm *JobManager) metricsHandler() func(database.ReplicationMetric) {
+	recorder := database.NewMetricsRecorder()
+	return func(metric database.ReplicationMetric) {
+		jm.processMetrics(recorder, metric)
+	}
+}
+
+func (jm *JobManager) processMetrics(recorder *database.MetricsRecorder, metric database.ReplicationMetric) {
 	if jm.Protection != nil {
 		if reason := jm.Protection.Observe(protection.Sample{
+			Job:        metric.JobID,
 			Consumed:   int64(metric.MessagesConsumed),
 			Produced:   int64(metric.MessagesReplicated),
 			Bytes:      int64(metric.BytesTransferred),
@@ -766,7 +773,7 @@ func (jm *JobManager) ProcessMetrics(metric database.ReplicationMetric) {
 		}
 	}
 
-	if err := database.InsertMetrics(jm.Db, &metric); err != nil {
+	if err := recorder.Insert(jm.Db, &metric); err != nil {
 		logger.Error("Failed to insert metric into database: %v", err)
 	}
 }
@@ -1996,7 +2003,7 @@ func (jm *JobManager) startJobWithNewConfig(jobID string, job *database.Replicat
 		return fmt.Errorf("failed to create KafMirror: %v", err)
 	}
 
-	kafMirror.Start(jobID, jm.ProcessMetrics, jm.failureHandler(kafMirror))
+	kafMirror.Start(jobID, jm.metricsHandler(), jm.failureHandler(kafMirror))
 	jm.KafMirrors[jobID] = kafMirror
 
 	job.Status = "active"

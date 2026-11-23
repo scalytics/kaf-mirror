@@ -1350,6 +1350,7 @@
                     • Bytes Transferred Since Start: ${formatBytes(metrics.bytes_transferred || 0)}<br>
                     • Current Lag: ${metrics.current_lag || 0} messages<br>
                     • Error Count: ${metrics.error_count || 0}<br>
+                    • Tombstones: ${metrics.tombstone_count || 0}<br>
                     • Last Updated: ${new Date(metrics.timestamp).toLocaleString()}
                 `;
                 if (statusContainer) {

@@ -453,6 +453,11 @@ func ensureAggregatedMetricsColumns(db *sqlx.DB) error {
 			return err
 		}
 	}
+	if !existing["tombstone_count_delta"] {
+		if _, err := db.Exec("ALTER TABLE aggregated_metrics ADD COLUMN tombstone_count_delta INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

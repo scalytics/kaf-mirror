@@ -127,3 +127,33 @@ func TestNormalizeRole(t *testing.T) {
 	assert.Equal(t, protection.RoleDR, protection.NormalizeRole("replica"))
 	assert.Equal(t, protection.RoleOther, protection.NormalizeRole(""))
 }
+
+func TestAutoHaltComparesSamplesOfOneJobOnly(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	defer db.Close()
+
+	ctrl := protection.New(db, config.ProtectionConfig{
+		AutoHalt: config.AutoHaltConfig{Enabled: true, TombstoneMin: 10, TombstoneRatio: 0.5},
+	})
+	require.NoError(t, ctrl.SetEnabled(true))
+	assert.Equal(t, "", ctrl.Observe(protection.Sample{Job: "a", Consumed: 0, Tombstones: 0}))
+	assert.Equal(t, "", ctrl.Observe(protection.Sample{Job: "b", Consumed: 30, Tombstones: 20}))
+	assert.Equal(t, "", ctrl.Observe(protection.Sample{Job: "a", Consumed: 5, Tombstones: 0}))
+	assert.Equal(t, "", ctrl.Observe(protection.Sample{Job: "b", Consumed: 60, Tombstones: 20}))
+	assert.Contains(t, ctrl.Observe(protection.Sample{Job: "a", Consumed: 25, Tombstones: 15}), "tombstone")
+}
+
+func TestAutoHaltStartsANewWindowWhenAJobRestarts(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	defer db.Close()
+
+	ctrl := protection.New(db, config.ProtectionConfig{
+		AutoHalt: config.AutoHaltConfig{Enabled: true, TombstoneMin: 10, TombstoneRatio: 0.5},
+	})
+	require.NoError(t, ctrl.SetEnabled(true))
+	assert.Equal(t, "", ctrl.Observe(protection.Sample{Job: "a", Consumed: 1000, Tombstones: 0}))
+	assert.Equal(t, "", ctrl.Observe(protection.Sample{Job: "a", Consumed: 40, Tombstones: 30}))
+	assert.Equal(t, "", ctrl.Observe(protection.Sample{Job: "a", Consumed: 1000, Tombstones: 30}))
+}

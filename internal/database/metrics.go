@@ -12,43 +12,33 @@
 package database
 
 import (
+	"database/sql"
+	"errors"
+	"sync"
 	"time"
 
 	"github.com/jmoiron/sqlx"
 )
 
-// InsertMetrics stores a new metrics data point in the database.
-func InsertMetrics(db *sqlx.DB, metric *ReplicationMetric) error {
-	// Get the last metric for this job
-	lastMetric, err := GetLatestMetrics(db, metric.JobID)
-	if err != nil {
-		return err
-	}
+type MetricsRecorder struct {
+	mu   sync.Mutex
+	last ReplicationMetric
+}
 
-	// Calculate deltas
-	messagesDelta := metric.MessagesReplicated - lastMetric.MessagesReplicated
-	bytesDelta := metric.BytesTransferred - lastMetric.BytesTransferred
-	consumedMessagesDelta := metric.MessagesConsumed - lastMetric.MessagesConsumed
-	consumedBytesDelta := metric.BytesConsumed - lastMetric.BytesConsumed
-	errorsDelta := metric.ErrorCount - lastMetric.ErrorCount
+func NewMetricsRecorder() *MetricsRecorder {
+	return &MetricsRecorder{}
+}
 
-	if messagesDelta < 0 {
-		messagesDelta = metric.MessagesReplicated
+func counterDelta[T int | int64](current, last T) T {
+	if current < last {
+		return current
 	}
-	if bytesDelta < 0 {
-		bytesDelta = metric.BytesTransferred
-	}
-	if consumedMessagesDelta < 0 {
-		consumedMessagesDelta = metric.MessagesConsumed
-	}
-	if consumedBytesDelta < 0 {
-		consumedBytesDelta = metric.BytesConsumed
-	}
-	if errorsDelta < 0 {
-		errorsDelta = metric.ErrorCount
-	}
+	return current - last
+}
 
-	// Insert into the aggregated table
+func (r *MetricsRecorder) Insert(db *sqlx.DB, metric *ReplicationMetric) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	query := `INSERT INTO aggregated_metrics (
 			  job_id,
 			  timestamp,
@@ -57,20 +47,33 @@ func InsertMetrics(db *sqlx.DB, metric *ReplicationMetric) error {
 			  messages_consumed_delta,
 			  bytes_consumed_delta,
 			  avg_lag,
-			  error_count_delta
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err = db.Exec(query, metric.JobID, time.Now(), messagesDelta, bytesDelta, consumedMessagesDelta, consumedBytesDelta, metric.CurrentLag, errorsDelta)
-	return err
+			  error_count_delta,
+			  tombstone_count_delta
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := db.Exec(query, metric.JobID, time.Now(),
+		counterDelta(metric.MessagesReplicated, r.last.MessagesReplicated),
+		counterDelta(metric.BytesTransferred, r.last.BytesTransferred),
+		counterDelta(metric.MessagesConsumed, r.last.MessagesConsumed),
+		counterDelta(metric.BytesConsumed, r.last.BytesConsumed),
+		metric.CurrentLag,
+		counterDelta(metric.ErrorCount, r.last.ErrorCount),
+		counterDelta(metric.TombstoneCount, r.last.TombstoneCount))
+	if err != nil {
+		return err
+	}
+	r.last = *metric
+	return nil
 }
 
 // GetLatestMetrics retrieves the latest metrics for a given job.
 func GetLatestMetrics(db *sqlx.DB, jobID string) (*ReplicationMetric, error) {
 	var totals struct {
-		MessagesReplicated int `db:"messages_replicated"`
-		BytesTransferred   int `db:"bytes_transferred"`
-		MessagesConsumed   int `db:"messages_consumed"`
-		BytesConsumed      int `db:"bytes_consumed"`
-		ErrorCount         int `db:"error_count"`
+		MessagesReplicated int   `db:"messages_replicated"`
+		BytesTransferred   int   `db:"bytes_transferred"`
+		MessagesConsumed   int   `db:"messages_consumed"`
+		BytesConsumed      int   `db:"bytes_consumed"`
+		ErrorCount         int   `db:"error_count"`
+		TombstoneCount     int64 `db:"tombstone_count"`
 	}
 	totalsQuery := `
         SELECT
@@ -78,7 +81,8 @@ func GetLatestMetrics(db *sqlx.DB, jobID string) (*ReplicationMetric, error) {
             COALESCE(SUM(bytes_transferred_delta), 0) as bytes_transferred,
             COALESCE(SUM(messages_consumed_delta), 0) as messages_consumed,
             COALESCE(SUM(bytes_consumed_delta), 0) as bytes_consumed,
-            COALESCE(SUM(error_count_delta), 0) as error_count
+            COALESCE(SUM(error_count_delta), 0) as error_count,
+            COALESCE(SUM(tombstone_count_delta), 0) as tombstone_count
         FROM aggregated_metrics
         WHERE job_id = ?
     `
@@ -93,7 +97,9 @@ func GetLatestMetrics(db *sqlx.DB, jobID string) (*ReplicationMetric, error) {
 	}
 	lastMetricQuery := "SELECT avg_lag, timestamp FROM aggregated_metrics WHERE job_id = ? ORDER BY timestamp DESC LIMIT 1"
 	err = db.Get(&lastMetric, lastMetricQuery, jobID)
-	// Ignore error if no rows, lag and timestamp will be zero.
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
 
 	return &ReplicationMetric{
 		JobID:              jobID,
@@ -102,6 +108,7 @@ func GetLatestMetrics(db *sqlx.DB, jobID string) (*ReplicationMetric, error) {
 		MessagesConsumed:   totals.MessagesConsumed,
 		BytesConsumed:      totals.BytesConsumed,
 		ErrorCount:         totals.ErrorCount,
+		TombstoneCount:     totals.TombstoneCount,
 		CurrentLag:         lastMetric.CurrentLag,
 		Timestamp:          lastMetric.Timestamp,
 	}, nil
