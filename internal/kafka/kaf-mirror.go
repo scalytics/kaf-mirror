@@ -70,14 +70,14 @@ func (r *KafMirrorImpl) SetRecordHook(h func(topic string, key, value []byte)) {
 }
 
 // NewKafMirror creates a new replication orchestrator.
-func NewKafMirror(cfg *config.Config) (KafMirror, error) {
+func NewKafMirror(cfg *config.Config, db *sqlx.DB) (KafMirror, error) {
 	topics, topicMap, rules, err := resolveTopicMappings(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	// Validate cluster compatibility and sync state before starting
-	if err := validateAndSyncClusters(cfg, topics, topicMap); err != nil {
+	if err := validateAndSyncClusters(cfg, db, topics, topicMap); err != nil {
 		return nil, fmt.Errorf("cluster validation failed: %w", err)
 	}
 
@@ -453,7 +453,7 @@ func resolveTopicMappings(cfg *config.Config) ([]string, map[string]string, Topi
 }
 
 // validateAndSyncClusters validates cluster compatibility and syncs state before replication
-func validateAndSyncClusters(cfg *config.Config, topics []string, topicMap map[string]string) error {
+func validateAndSyncClusters(cfg *config.Config, db *sqlx.DB, topics []string, topicMap map[string]string) error {
 	logger.Info("Starting cluster validation and state synchronization")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -604,8 +604,9 @@ func validateAndSyncClusters(cfg *config.Config, topics []string, topicMap map[s
 	}
 
 	// Capture inventory snapshot for this job start
-	err = CaptureJobInventory(cfg.Replication.JobID, cfg, sourceInfo, targetInfo, topics, topicMap)
-	if err != nil {
+	if db == nil {
+		logger.Warn("No database for job %s, skipping the startup inventory snapshot", cfg.Replication.JobID)
+	} else if err := CaptureJobInventory(db, sourceAdmin, cfg.Replication.JobID, cfg, sourceInfo, targetInfo, topics, topicMap); err != nil {
 		logger.Warn("Failed to capture job inventory: %v", err)
 	}
 
@@ -778,13 +779,7 @@ func discoveryInterval(cfg *config.Config) time.Duration {
 }
 
 // CaptureJobInventory captures comprehensive inventory data when a job starts
-func CaptureJobInventory(jobID string, cfg *config.Config, sourceInfo, targetInfo *ClusterInfo, topics []string, topicMap map[string]string) error {
-	db, err := database.Open()
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
-	defer db.Close()
-
+func CaptureJobInventory(db *sqlx.DB, sourceAdmin AdminClientAPI, jobID string, cfg *config.Config, sourceInfo, targetInfo *ClusterInfo, topics []string, topicMap map[string]string) error {
 	// Create inventory snapshot
 	snapshotID, err := database.CreateInventorySnapshot(db, jobID, "startup")
 	if err != nil {
@@ -819,11 +814,7 @@ func CaptureJobInventory(jobID string, cfg *config.Config, sourceInfo, targetInf
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sourceAdmin, err := NewAdminClient(cfg.Clusters["source"])
-	if err != nil {
-		logger.Warn("Failed to create admin client for consumer group inventory: %v", err)
-	} else {
-		defer sourceAdmin.Close()
+	if sourceAdmin != nil {
 		err = captureConsumerGroupInventory(db, snapshotID, sourceAdmin, groupID, topics, ctx)
 		if err != nil {
 			logger.Warn("Failed to capture consumer group inventory: %v", err)
@@ -934,7 +925,7 @@ func captureTopicInventories(db *sqlx.DB, clusterInventoryID int, clusterInfo *C
 	return nil
 }
 
-func captureConsumerGroupInventory(db *sqlx.DB, snapshotID int, admin *AdminClient, groupID string, topics []string, ctx context.Context) error {
+func captureConsumerGroupInventory(db *sqlx.DB, snapshotID int, admin AdminClientAPI, groupID string, topics []string, ctx context.Context) error {
 	consumerGroup := database.ConsumerGroupInventory{
 		SnapshotID:   snapshotID,
 		GroupID:      groupID,
@@ -1109,5 +1100,9 @@ func (r *KafMirrorImpl) SetIntervalsForTest(metrics, discovery time.Duration) {
 
 // ValidateAndSyncClustersForTest exposes cluster validation for unit tests.
 func ValidateAndSyncClustersForTest(cfg *config.Config, topics []string, topicMap map[string]string) error {
-	return validateAndSyncClusters(cfg, topics, topicMap)
+	return validateAndSyncClusters(cfg, nil, topics, topicMap)
+}
+
+func ValidateAndSyncClustersWithDBForTest(cfg *config.Config, db *sqlx.DB, topics []string, topicMap map[string]string) error {
+	return validateAndSyncClusters(cfg, db, topics, topicMap)
 }

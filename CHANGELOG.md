@@ -32,6 +32,7 @@ All notable changes to this project are documented here.
 - The consumer and producer of an `azure` cluster use TLS and SASL PLAIN with the connection string. Before, only the admin client did, so jobs on Event Hubs could not connect.
 - `POST /api/v1/jobs/{id}/mirror/resume-points` uses the full stored security config of both clusters. Before, it kept only `api_key` and `api_secret`.
 
+- The inventory snapshot taken at job start is written to the database the server runs with. Before, it opened a second connection by path through a package global, so a job started from tests or embedded code created `data/kaf-mirror.db` in the working directory, and the snapshot failed with `FOREIGN KEY constraint failed` because that database had no such job. The consumer group part of the snapshot reuses the admin client of the start check instead of opening a new connection to the source cluster (#51).
 ### Security
 - github.com/gofiber/fiber/v2 2.52.12 to 2.52.16 (GHSA-gcfq-8gqf-4876, GHSA-qjv7-627w-8qjv).
 - github.com/gomarkdown/markdown to v0.0.0-20260724235538-61af6e1e6971 (GHSA-cv23-7vc5-jfh7, GHSA-77fj-vx54-gvh7).

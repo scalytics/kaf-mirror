@@ -80,7 +80,7 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		Config:               cfg,
 		KafMirrors:           make(map[string]kafka.KafMirror),
 		Hub:                  hub,
-		KafMirrorFactory:     kafka.NewKafMirror,
+		KafMirrorFactory:     func(c *config.Config) (kafka.KafMirror, error) { return kafka.NewKafMirror(c, db) },
 		metricsSink:          sink,
 		AIClient:             ai.NewClient(aiConfig, cfg.Egress.AllowedHosts),
 		close:                make(chan struct{}),

@@ -27,8 +27,6 @@ import (
 //go:embed schema.sql
 var Schema string
 
-var configuredPath = "data/kaf-mirror.db"
-
 func sqliteDSN(dbPath string) string {
 	params := "_fk=1&_busy_timeout=5000"
 	if dbPath == ":memory:" {
@@ -37,18 +35,12 @@ func sqliteDSN(dbPath string) string {
 	return fmt.Sprintf("file:%s?%s&_journal_mode=WAL", dbPath, params)
 }
 
-// Open opens the database using the path last passed to InitDB.
-func Open() (*sqlx.DB, error) {
-	return InitDB(configuredPath)
-}
-
 // InitDB initializes the SQLite database and creates the schema.
 func InitDB(dbPath string) (*sqlx.DB, error) {
 	dsn := sqliteDSN(dbPath)
 	if dbPath == ":memory:" {
 		// in-memory
 	} else {
-		configuredPath = dbPath
 		if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 			return nil, err
 		}
