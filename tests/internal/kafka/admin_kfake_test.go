@@ -176,3 +176,18 @@ func TestGetGroupLagSumsAllTopicsOfTheGroup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), lag)
 }
+
+func TestGetGroupLagDoesNotMutateTheTopicSlice(t *testing.T) {
+	c, adm, cl := startPlainCluster(t)
+	createTopic(t, adm, "a", 1, nil)
+	createTopic(t, adm, "b", 1, nil)
+	produceTo(t, cl, "a", 0, 1)
+	produceTo(t, cl, "b", 0, 1)
+	admin := plainAdmin(t, c)
+	topics := []string{"a", kadm.FetchAllGroupTopics, "b"}
+	original := append([]string(nil), topics...)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, _ = admin.GetGroupLag(ctx, "kaf-mirror-job-slice", topics...)
+	assert.Equal(t, original, topics)
+}

@@ -451,6 +451,7 @@ func (a *AdminClient) GetGroupLag(ctx context.Context, groupID string, topics ..
 	if len(topics) == 0 {
 		return 0, nil
 	}
+	topics = append([]string(nil), topics...)
 	committed, err := a.client.FetchOffsetsForTopics(ctx, groupID, topics...)
 	if errors.Is(err, kerr.GroupIDNotFound) {
 		committed, err = nil, nil

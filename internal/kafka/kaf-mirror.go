@@ -435,7 +435,7 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 
 			if sourceStalled {
 				if !r.incidentStates["source_stalled"] {
-					logger.WarnAI("incident", "start", jobID, "Source stalled: no progress for 60+ seconds while lag is %d", currentLag)
+					logger.WarnAI("incident", "start", jobID, "Source stalled: no progress for about 70 seconds while lag is %d", currentLag)
 					r.incidentStates["source_stalled"] = true
 					r.incidentStarted("source_stalled")
 				}

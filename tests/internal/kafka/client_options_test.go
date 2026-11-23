@@ -13,6 +13,7 @@ package kafka_test
 
 import (
 	"crypto/tls"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -244,8 +245,15 @@ func TestPresetProvidersApplyToEveryClientType(t *testing.T) {
 
 func TestClientConstructionNeverLogsSecrets(t *testing.T) {
 	logFile := filepath.Join(t.TempDir(), "kaf-mirror.log")
-	require.NoError(t, logger.InitializeFromConfig(logFile, "DEBUG", false))
+	out, err := os.Create(logFile)
+	require.NoError(t, err)
+	logger.SetOutput(out)
 	logger.SetLevel(logger.DEBUG)
+	t.Cleanup(func() {
+		logger.SetOutput(io.Discard)
+		logger.SetLevel(logger.INFO)
+		out.Close()
+	})
 
 	conn := "Endpoint=sb://example.servicebus.windows.net/;SharedAccessKey=" + testPassword
 	cfgs := []config.ClusterConfig{
