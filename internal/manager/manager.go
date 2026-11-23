@@ -476,11 +476,6 @@ func (jm *JobManager) RestartJob(jobID string) error {
 		return fmt.Errorf("failed to start job after restart: %v", err)
 	}
 
-	job.Status = "active"
-	if err := database.UpdateJob(jm.Db, job); err != nil {
-		return fmt.Errorf("failed to update job status after restart: %v", err)
-	}
-
 	return nil
 }
 
@@ -627,7 +622,7 @@ func (jm *JobManager) StartJob(jobID string) error {
 	}
 
 	logger.Info("Starting job '%s' (%s)", job.Name, jobID)
-	kafMirror.Start(jobID, jm.ProcessMetrics, jm.handleJobPanic)
+	kafMirror.Start(jobID, jm.ProcessMetrics, jm.failureHandler(kafMirror))
 	jm.KafMirrors[jobID] = kafMirror
 
 	job.Status = "active"
@@ -731,14 +726,21 @@ func (jm *JobManager) PauseJob(jobID string) error {
 	return jm.StopJob(jobID)
 }
 
-func (jm *JobManager) handleJobPanic(jobID string, reason string) {
-	jm.Mu.Lock()
-	kafMirror, ok := jm.KafMirrors[jobID]
-	delete(jm.KafMirrors, jobID)
-	jm.Mu.Unlock()
-	if ok && kafMirror != nil {
-		kafMirror.Stop()
+func (jm *JobManager) failureHandler(kafMirror kafka.KafMirror) func(jobID string, reason string) {
+	return func(jobID string, reason string) {
+		jm.handleJobFailure(jobID, kafMirror, reason)
 	}
+}
+
+func (jm *JobManager) handleJobFailure(jobID string, kafMirror kafka.KafMirror, reason string) {
+	jm.Mu.Lock()
+	defer jm.Mu.Unlock()
+	if current, ok := jm.KafMirrors[jobID]; !ok || current != kafMirror {
+		logger.Warn("Job %s: ignoring failure of an instance that is no longer running: %s", jobID, reason)
+		return
+	}
+	delete(jm.KafMirrors, jobID)
+	kafMirror.Stop()
 
 	job, err := database.GetJob(jm.Db, jobID)
 	if err != nil {
@@ -1907,7 +1909,7 @@ func (jm *JobManager) startJobWithNewConfig(jobID string, job *database.Replicat
 		return fmt.Errorf("failed to create KafMirror: %v", err)
 	}
 
-	kafMirror.Start(jobID, jm.ProcessMetrics, jm.handleJobPanic)
+	kafMirror.Start(jobID, jm.ProcessMetrics, jm.failureHandler(kafMirror))
 	jm.KafMirrors[jobID] = kafMirror
 
 	job.Status = "active"

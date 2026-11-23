@@ -248,20 +248,22 @@ func TestConsumeBackoffDoubles(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	log := &commitLog{}
-	c := newRetryConsumer(fetchOf("orders", partitionRecords{0, []int64{0}}), cancel, log, 5, 20*time.Millisecond)
+	c := newRetryConsumer(fetchOf("orders", partitionRecords{0, []int64{0}}), cancel, log, 5, time.Second)
+	var waits []time.Duration
+	c.SetSleepForTest(func(ctx context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		return nil
+	})
 
-	var calls []time.Time
+	calls := 0
 	err := c.Consume(ctx, func(ctx context.Context, r *kgo.Record) error {
-		calls = append(calls, time.Now())
+		calls++
 		return errors.New("produce failed")
 	})
 
 	require.Error(t, err)
-	require.Len(t, calls, 5)
-	for i, want := range []time.Duration{20, 40, 80, 160} {
-		gap := calls[i+1].Sub(calls[i])
-		assert.GreaterOrEqual(t, gap, want*time.Millisecond, "gap %d", i+1)
-	}
+	assert.Equal(t, 5, calls)
+	assert.Equal(t, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}, waits)
 	assert.Empty(t, log.get())
 }
 
