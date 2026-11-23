@@ -1544,22 +1544,30 @@ func (jm *JobManager) buildJobConfig(sourceCluster, targetCluster *database.Kafk
 			"target": targetConfig,
 		},
 		Replication: config.ReplicationConfig{
-			BatchSize:   job.BatchSize,
-			Parallelism: job.Parallelism,
-			Compression: job.Compression,
+			BatchSize:              job.BatchSize,
+			Parallelism:            job.Parallelism,
+			Compression:            job.Compression,
+			TopicDiscoveryInterval: jm.topicDiscoveryInterval(),
 		},
-		Topics: make([]config.TopicMapping, len(mappings)),
-	}
-
-	for i, m := range mappings {
-		jobConfig.Topics[i] = config.TopicMapping{
-			Source:  m.SourceTopicPattern,
-			Target:  m.TargetTopicPattern,
-			Enabled: m.Enabled,
-		}
+		Topics: database.ConfigTopicMappings(mappings),
 	}
 
 	return jobConfig, nil
+}
+
+func (jm *JobManager) topicDiscoveryInterval() string {
+	if jm.Config == nil {
+		return ""
+	}
+	return jm.Config.Replication.TopicDiscoveryInterval
+}
+
+func resolveJobTopics(ctx context.Context, source kafka.SourceTopicLister, mappings []database.TopicMapping) ([]string, map[string]string, error) {
+	return kafka.ResolveTopics(ctx, source, database.ConfigTopicMappings(mappings))
+}
+
+func ResolveJobTopicsForTest(ctx context.Context, source kafka.SourceTopicLister, mappings []database.TopicMapping) ([]string, map[string]string, error) {
+	return resolveJobTopics(ctx, source, mappings)
 }
 
 func (jm *JobManager) startTopicHealthChecks() {
@@ -1604,17 +1612,6 @@ func (jm *JobManager) checkJobTopicHealth(job *database.ReplicationJob) {
 		return
 	}
 
-	var topics []string
-	for _, m := range mappings {
-		if m.Enabled {
-			topics = append(topics, m.SourceTopicPattern)
-		}
-	}
-
-	if len(topics) == 0 {
-		return
-	}
-
 	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
 
 	adminClient, err := kafka.NewAdminClient(sourceConfig)
@@ -1623,6 +1620,15 @@ func (jm *JobManager) checkJobTopicHealth(job *database.ReplicationJob) {
 		return
 	}
 	defer adminClient.Close()
+
+	topics, _, err := resolveJobTopics(context.Background(), adminClient, mappings)
+	if err != nil {
+		logger.Error("Failed to resolve topic mappings for health check (job %s): %v", job.ID, err)
+		return
+	}
+	if len(topics) == 0 {
+		return
+	}
 
 	health, err := adminClient.CheckTopicHealth(context.Background(), topics)
 	if err != nil {
@@ -1966,20 +1972,14 @@ func (jm *JobManager) validateMirrorState(jobID string, sourceCluster, targetClu
 		return fmt.Errorf("no topic mappings configured for job")
 	}
 
-	topicMap := make(map[string]string)
-	var enabledTopics []string
+	hasEnabled := false
 	for _, mapping := range mappings {
-		if !mapping.Enabled {
-			continue
+		if mapping.Enabled {
+			hasEnabled = true
+			break
 		}
-		topicMap[mapping.SourceTopicPattern] = mapping.TargetTopicPattern
-		if strings.ContainsAny(mapping.SourceTopicPattern, `.*+?()[]{}^$|`) {
-			continue
-		}
-		enabledTopics = append(enabledTopics, mapping.SourceTopicPattern)
 	}
-
-	if len(topicMap) == 0 {
+	if !hasEnabled {
 		return fmt.Errorf("no enabled topic mappings found")
 	}
 
@@ -2000,6 +2000,11 @@ func (jm *JobManager) validateMirrorState(jobID string, sourceCluster, targetClu
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+
+	enabledTopics, topicMap, err := resolveJobTopics(ctx, sourceAdmin, mappings)
+	if err != nil {
+		return fmt.Errorf("failed to resolve topic mappings: %v", err)
+	}
 
 	if len(enabledTopics) > 0 {
 		sourceTopicHealth, err := sourceAdmin.CheckTopicHealth(ctx, enabledTopics)
@@ -2044,17 +2049,6 @@ func (jm *JobManager) GetJobTopicHealth(jobID string) ([]kafka.TopicHealth, erro
 		return nil, fmt.Errorf("failed to get mappings for job %s: %v", jobID, err)
 	}
 
-	var topics []string
-	for _, m := range mappings {
-		if m.Enabled {
-			topics = append(topics, m.SourceTopicPattern)
-		}
-	}
-
-	if len(topics) == 0 {
-		return []kafka.TopicHealth{}, nil
-	}
-
 	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
 
 	adminClient, err := kafka.NewAdminClient(sourceConfig)
@@ -2062,6 +2056,14 @@ func (jm *JobManager) GetJobTopicHealth(jobID string) ([]kafka.TopicHealth, erro
 		return nil, fmt.Errorf("failed to create admin client for health check (job %s): %v", job.ID, err)
 	}
 	defer adminClient.Close()
+
+	topics, _, err := resolveJobTopics(context.Background(), adminClient, mappings)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve topic mappings for job %s: %v", job.ID, err)
+	}
+	if len(topics) == 0 {
+		return []kafka.TopicHealth{}, nil
+	}
 
 	health, err := adminClient.CheckTopicHealth(context.Background(), topics)
 	if err != nil {
@@ -2127,18 +2129,6 @@ func (jm *JobManager) updateMirrorState(jobID string) {
 		return
 	}
 
-	topicMap := make(map[string]string)
-	for _, mapping := range mappings {
-		if mapping.Enabled {
-			topicMap[mapping.SourceTopicPattern] = mapping.TargetTopicPattern
-		}
-	}
-
-	if len(topicMap) == 0 {
-		logger.Warn("No enabled topics found for job %s, skipping mirror state update", jobID)
-		return
-	}
-
 	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
 	targetConfig := database.ClusterConfigFromRow(*targetCluster)
 
@@ -2158,6 +2148,16 @@ func (jm *JobManager) updateMirrorState(jobID string) {
 
 	ctx := context.Background()
 	now := time.Now()
+
+	_, topicMap, err := resolveJobTopics(ctx, sourceAdmin, mappings)
+	if err != nil {
+		logger.Error("Failed to resolve topic mappings for job %s for mirror state update: %v", jobID, err)
+		return
+	}
+	if len(topicMap) == 0 {
+		logger.Warn("No enabled topics found for job %s, skipping mirror state update", jobID)
+		return
+	}
 
 	// Perform comprehensive cross-cluster analysis similar to validate-mirror
 	offsetComparison, err := targetAdmin.CompareClusterOffsets(ctx, sourceAdmin, topicMap)

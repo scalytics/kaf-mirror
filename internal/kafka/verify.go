@@ -14,7 +14,6 @@ package kafka
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -59,7 +58,7 @@ func VerifyMirror(ctx context.Context, source, target *AdminClient, topicMap map
 	}
 
 	for src, dst := range topicMap {
-		tv := TopicVerify{Source: src, Target: dst, Regex: strings.ContainsAny(src, `.*+?()[]{}^$|`)}
+		tv := TopicVerify{Source: src, Target: dst, Regex: IsTopicRegex(src)}
 		if tv.Regex {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("mapping %s is a pattern; skipped name-level health", src))
 			result.Topics = append(result.Topics, tv)
@@ -85,7 +84,7 @@ func VerifyMirror(ctx context.Context, source, target *AdminClient, topicMap map
 
 	if len(concreteSources) == 0 {
 		for src := range topicMap {
-			if !strings.ContainsAny(src, `.*+?()[]{}^$|`) {
+			if !IsTopicRegex(src) {
 				concreteSources = append(concreteSources, src)
 			}
 		}

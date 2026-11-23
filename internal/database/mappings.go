@@ -11,7 +11,23 @@
 
 package database
 
-import "github.com/jmoiron/sqlx"
+import (
+	"kaf-mirror/internal/config"
+
+	"github.com/jmoiron/sqlx"
+)
+
+func ConfigTopicMappings(mappings []TopicMapping) []config.TopicMapping {
+	out := make([]config.TopicMapping, len(mappings))
+	for i, m := range mappings {
+		out[i] = config.TopicMapping{
+			Source:  m.SourceTopicPattern,
+			Target:  m.TargetTopicPattern,
+			Enabled: m.Enabled,
+		}
+	}
+	return out
+}
 
 // GetMappingsForJob retrieves all topic mappings for a given job ID.
 func GetMappingsForJob(db *sqlx.DB, jobID string) ([]TopicMapping, error) {

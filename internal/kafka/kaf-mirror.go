@@ -19,7 +19,7 @@ import (
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
 	"kaf-mirror/pkg/logger"
-	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -48,7 +48,7 @@ type KafMirrorImpl struct {
 	targetCfg         config.ClusterConfig
 	mappings          []config.TopicMapping
 	topicMap          map[string]string
-	regexMaps         []regexMapping
+	rules             TopicRules
 	mapMu             sync.RWMutex
 	wg                sync.WaitGroup
 	reports           sync.WaitGroup
@@ -69,14 +69,9 @@ func (r *KafMirrorImpl) SetRecordHook(h func(topic string, key, value []byte)) {
 	r.recordHook = h
 }
 
-type regexMapping struct {
-	regex  *regexp.Regexp
-	target string
-}
-
 // NewKafMirror creates a new replication orchestrator.
 func NewKafMirror(cfg *config.Config) (KafMirror, error) {
-	topics, topicMap, regexMaps, err := resolveTopicMappings(cfg)
+	topics, topicMap, rules, err := resolveTopicMappings(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +101,7 @@ func NewKafMirror(cfg *config.Config) (KafMirror, error) {
 		targetCfg:         cfg.Clusters["target"],
 		mappings:          cfg.Topics,
 		topicMap:          topicMap,
-		regexMaps:         regexMaps,
+		rules:             rules,
 		discoveryInterval: discoveryInterval(cfg),
 		incidentStates:    make(map[string]bool),
 	}, nil
@@ -159,7 +154,7 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 		logger.Info("[Job %s] Metrics collection goroutine ended", jobID)
 	}()
 
-	if len(r.regexMaps) > 0 && r.discoveryInterval > 0 {
+	if r.rules.HasRegex() && r.discoveryInterval > 0 {
 		r.wg.Add(1)
 		go func() {
 			defer r.wg.Done()
@@ -204,12 +199,14 @@ func (r *KafMirrorImpl) HandleRecordForTest(record *kgo.Record) error {
 }
 
 func (r *KafMirrorImpl) AddRegexMapForTest(pattern, target string) error {
-	re, err := regexp.Compile(pattern)
+	rule, err := NewTopicRule(pattern, target)
 	if err != nil {
 		return err
 	}
-	r.regexMaps = append(r.regexMaps, regexMapping{regex: re, target: target})
-	return nil
+	if !rule.IsRegex() {
+		return fmt.Errorf("pattern %q is not a regex", pattern)
+	}
+	return r.rules.add(rule)
 }
 
 func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) error {
@@ -217,12 +214,7 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) er
 	targetTopic, ok := r.topicMap[string(record.Topic)]
 	r.mapMu.RUnlock()
 	if !ok {
-		for _, rm := range r.regexMaps {
-			if rm.regex.MatchString(string(record.Topic)) {
-				targetTopic = rm.regex.ReplaceAllString(string(record.Topic), rm.target)
-				break
-			}
-		}
+		targetTopic, _, _ = r.rules.RegexTargetFor(string(record.Topic))
 	}
 
 	if targetTopic == "" {
@@ -434,92 +426,30 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 	}
 }
 
-func resolveTopicMappings(cfg *config.Config) ([]string, map[string]string, []regexMapping, error) {
-	topics := make([]string, 0)
-	topicMap := make(map[string]string)
-	regexMaps := make([]regexMapping, 0)
-
-	for _, m := range cfg.Topics {
-		if !m.Enabled {
-			continue
-		}
-		targetPattern := m.Target
-		if targetPattern == "" {
-			targetPattern = m.Source
-		}
-		if isRegex(m.Source) {
-			re, err := regexp.Compile(m.Source)
-			if err != nil {
-				return nil, nil, nil, fmt.Errorf("invalid regex pattern %q: %w", m.Source, err)
-			}
-			if targetPattern == "" {
-				targetPattern = "$0"
-			}
-			regexMaps = append(regexMaps, regexMapping{regex: re, target: targetPattern})
-			continue
-		}
-		topics = append(topics, m.Source)
-		topicMap[m.Source] = targetPattern
+func resolveTopicMappings(cfg *config.Config) ([]string, map[string]string, TopicRules, error) {
+	rules, err := NewTopicRules(cfg.Topics)
+	if err != nil {
+		return nil, nil, TopicRules{}, err
 	}
-
-	if len(regexMaps) == 0 {
-		return topics, topicMap, regexMaps, nil
+	if !rules.HasRegex() {
+		topics, topicMap, err := rules.Resolve(nil)
+		return topics, topicMap, rules, err
 	}
 
 	admin, err := adminClientFactory(cfg.Clusters["source"])
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create source admin client: %w", err)
+		return nil, nil, TopicRules{}, fmt.Errorf("failed to create source admin client: %w", err)
 	}
 	defer admin.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sourceInfo, err := admin.GetClusterInfo(ctx)
+	topics, topicMap, err := ResolveTopics(ctx, admin, cfg.Topics)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to list source topics for regex mapping: %w", err)
+		return nil, nil, TopicRules{}, err
 	}
-
-	targetToSource := make(map[string]string)
-	for sourceTopic, targetTopic := range topicMap {
-		targetToSource[targetTopic] = sourceTopic
-	}
-
-	topicsSeen := make(map[string]bool)
-	for _, topic := range topics {
-		topicsSeen[topic] = true
-	}
-
-	for _, rm := range regexMaps {
-		matched := false
-		for topicName := range sourceInfo.Topics {
-			if !rm.regex.MatchString(topicName) {
-				continue
-			}
-			matched = true
-			targetTopic := rm.regex.ReplaceAllString(topicName, rm.target)
-			if targetTopic == "" {
-				return nil, nil, nil, fmt.Errorf("regex mapping for %s produced empty target topic", topicName)
-			}
-			if existingTarget, ok := topicMap[topicName]; ok && existingTarget != targetTopic {
-				return nil, nil, nil, fmt.Errorf("topic %s matches multiple targets: %s and %s", topicName, existingTarget, targetTopic)
-			}
-			if existingSource, ok := targetToSource[targetTopic]; ok && existingSource != topicName {
-				return nil, nil, nil, fmt.Errorf("target topic %s is mapped from multiple sources: %s and %s", targetTopic, existingSource, topicName)
-			}
-			topicMap[topicName] = targetTopic
-			targetToSource[targetTopic] = topicName
-			if !topicsSeen[topicName] {
-				topics = append(topics, topicName)
-				topicsSeen[topicName] = true
-			}
-		}
-		if !matched {
-			logger.Warn("Regex mapping %s did not match any source topics", rm.regex.String())
-		}
-	}
-
-	return topics, topicMap, regexMaps, nil
+	return topics, topicMap, rules, nil
 }
 
 // validateAndSyncClusters validates cluster compatibility and syncs state before replication
@@ -756,43 +686,48 @@ func (r *KafMirrorImpl) discoverAndSyncTopics(ctx context.Context) error {
 		return fmt.Errorf("failed to get target cluster info: %w", err)
 	}
 
-	for _, rm := range r.regexMaps {
-		for sourceTopic, sourceTopicInfo := range sourceInfo.Topics {
-			if !rm.regex.MatchString(sourceTopic) {
-				continue
-			}
-			r.mapMu.RLock()
-			_, exists := r.topicMap[sourceTopic]
-			r.mapMu.RUnlock()
-			if exists {
-				continue
-			}
+	sourceTopics := make([]string, 0, len(sourceInfo.Topics))
+	for name := range sourceInfo.Topics {
+		sourceTopics = append(sourceTopics, name)
+	}
+	sort.Strings(sourceTopics)
 
-			targetTopic := rm.regex.ReplaceAllString(sourceTopic, rm.target)
-			if targetTopic == "" {
-				return &discoveryMappingError{fmt.Errorf("regex mapping for %s produced empty target topic", sourceTopic)}
-			}
-			r.mapMu.RLock()
-			for existingSource, existingTarget := range r.topicMap {
-				if existingTarget == targetTopic && existingSource != sourceTopic {
-					r.mapMu.RUnlock()
-					return &discoveryMappingError{fmt.Errorf("target topic %s is mapped from multiple sources: %s and %s", targetTopic, existingSource, sourceTopic)}
-				}
-			}
-			r.mapMu.RUnlock()
-
-			replicationFactor := clampReplicationFactor(sourceTopicInfo.ReplicationFactor, targetInfo.BrokerCount, sourceTopic)
-			if err := ensureTopicWithRetry(ctx, targetAdmin, targetTopic, sourceTopicInfo.Partitions, replicationFactor); err != nil {
-				return fmt.Errorf("failed to ensure target topic %s exists after retries: %w", targetTopic, err)
-			}
-
-			r.mapMu.Lock()
-			r.topicMap[sourceTopic] = targetTopic
-			r.mapMu.Unlock()
-
-			r.Consumer.AddTopics(sourceTopic)
-			logger.Info("[Job %s] Discovered new topic mapping %s -> %s", r.jobID, sourceTopic, targetTopic)
+	for _, sourceTopic := range sourceTopics {
+		sourceTopicInfo := sourceInfo.Topics[sourceTopic]
+		r.mapMu.RLock()
+		_, exists := r.topicMap[sourceTopic]
+		r.mapMu.RUnlock()
+		if exists {
+			continue
 		}
+
+		targetTopic, ok, err := r.rules.RegexTargetFor(sourceTopic)
+		if err != nil {
+			return &discoveryMappingError{err}
+		}
+		if !ok {
+			continue
+		}
+		r.mapMu.RLock()
+		for existingSource, existingTarget := range r.topicMap {
+			if existingTarget == targetTopic && existingSource != sourceTopic {
+				r.mapMu.RUnlock()
+				return &discoveryMappingError{fmt.Errorf("target topic %s is mapped from multiple sources: %s and %s", targetTopic, existingSource, sourceTopic)}
+			}
+		}
+		r.mapMu.RUnlock()
+
+		replicationFactor := clampReplicationFactor(sourceTopicInfo.ReplicationFactor, targetInfo.BrokerCount, sourceTopic)
+		if err := ensureTopicWithRetry(ctx, targetAdmin, targetTopic, sourceTopicInfo.Partitions, replicationFactor); err != nil {
+			return fmt.Errorf("failed to ensure target topic %s exists after retries: %w", targetTopic, err)
+		}
+
+		r.mapMu.Lock()
+		r.topicMap[sourceTopic] = targetTopic
+		r.mapMu.Unlock()
+
+		r.Consumer.AddTopics(sourceTopic)
+		logger.Info("[Job %s] Discovered new topic mapping %s -> %s", r.jobID, sourceTopic, targetTopic)
 	}
 
 	return nil
@@ -1124,12 +1059,6 @@ func detectTopicCompression(topicInfo *TopicInfo) string {
 		}
 	}
 	return "NONE"
-}
-
-// isRegex checks if a string is likely a regular expression.
-func isRegex(s string) bool {
-	// A simple check, can be improved.
-	return regexp.MustCompile(`[\.\*\+\?\{\}\(\)\[\]\^\$]`).MatchString(s)
 }
 
 type AdminClientAPI interface {
