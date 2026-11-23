@@ -469,9 +469,9 @@ func (d *Dashboard) getComplianceOverview() string {
 			text += "...\n"
 			break
 		}
-		action := widgets.SafeString(log["action"], "Unknown")
-		user := widgets.SafeString(log["user"], "System")
-		text += fmt.Sprintf("• %s by %s\n", widgets.TruncateString(action, 15), widgets.TruncateString(user, 12))
+		action, resource := widgets.AuditEventParts(log)
+		user := widgets.SafeString(log["initiator"], "system")
+		text += fmt.Sprintf("• %s %s by %s\n", widgets.TruncateString(action, 20), widgets.TruncateString(resource, 20), widgets.TruncateString(user, 12))
 	}
 
 	if len(logs) > 3 {

@@ -955,7 +955,8 @@ paths:
       - ai
   /auth/me:
     get:
-      description: Get the current user's profile.
+      description: Get the current user's profile, role and the permission names of
+        that role.
       produces:
       - application/json
       responses:
@@ -1078,7 +1079,8 @@ paths:
       - clusters
   /clusters/{name}/restore:
     post:
-      description: Restore an inactive Kafka cluster to active status.
+      description: Restore an inactive Kafka cluster. Its status becomes unknown,
+        and a connection check sets it to active or unreachable.
       parameters:
       - description: Cluster Name
         in: path
@@ -1098,8 +1100,9 @@ paths:
       - clusters
   /clusters/{name}/status:
     get:
-      description: Get the status of a Kafka cluster by performing a live connection
-        test.
+      description: Run a live connection test against the cluster, bounded by 10 seconds,
+        and store the result as the cluster status (active or unreachable). Inactive
+        and archived clusters keep their status.
       parameters:
       - description: Cluster Name
         in: path
@@ -1111,6 +1114,16 @@ paths:
       responses:
         "200":
           description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "503":
+          description: Service Unavailable
           schema:
             additionalProperties: true
             type: object

@@ -226,6 +226,29 @@ func SetClusterStatus(db *sqlx.DB, name, status string) error {
 	return err
 }
 
+const (
+	ClusterStatusActive      = "active"
+	ClusterStatusUnreachable = "unreachable"
+	ClusterStatusUnknown     = "unknown"
+	ClusterStatusInactive    = "inactive"
+	ClusterStatusArchived    = "archived"
+)
+
+func ClusterStatusIsRetired(status string) bool {
+	return status == ClusterStatusInactive || status == ClusterStatusArchived
+}
+
+func RecordClusterHealth(db *sqlx.DB, name string, reachable bool) error {
+	status := ClusterStatusUnreachable
+	if reachable {
+		status = ClusterStatusActive
+	}
+	query := `UPDATE kafka_clusters SET status = ?, updated_at = CURRENT_TIMESTAMP
+              WHERE name = ? AND COALESCE(status, '') NOT IN (?, ?, ?)`
+	_, err := db.Exec(query, status, name, ClusterStatusInactive, ClusterStatusArchived, status)
+	return err
+}
+
 // PurgeArchivedClusters permanently deletes all archived Kafka clusters.
 func PurgeArchivedClusters(db *sqlx.DB) error {
 	_, err := db.Exec("DELETE FROM kafka_clusters WHERE status = 'archived'")

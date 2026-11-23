@@ -191,7 +191,7 @@ func (s *Server) handleListClusters(c *fiber.Ctx) error {
 	for i, cluster := range clusters {
 		out[i] = cluster.Redacted()
 	}
-	return c.JSON(out)
+	return jsonList(c, out)
 }
 
 // handleCreateCluster godoc
@@ -217,6 +217,11 @@ func (s *Server) handleCreateCluster(c *fiber.Ctx) error {
 	if err := database.CreateCluster(s.Db, &cluster); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create cluster")
 	}
+	if created, err := database.GetCluster(s.Db, cluster.Name); err == nil {
+		cluster.Status = created.Status
+		cluster.UpdatedAt = created.UpdatedAt
+	}
+	s.refreshClusterStatus(cluster.Name)
 
 	return c.Status(fiber.StatusCreated).JSON(cluster.Redacted())
 }
@@ -271,6 +276,9 @@ func (s *Server) handleUpdateCluster(c *fiber.Ctx) error {
 	if err := database.UpdateCluster(s.Db, &cluster); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update cluster")
 	}
+	cluster.Status = existing.Status
+	cluster.UpdatedAt = existing.UpdatedAt
+	s.refreshClusterStatus(cluster.Name)
 
 	return c.JSON(cluster.Redacted())
 }
@@ -306,7 +314,7 @@ func (s *Server) handleDeleteCluster(c *fiber.Ctx) error {
 
 // handleRestoreCluster godoc
 // @Summary Restore an inactive Kafka cluster
-// @Description Restore an inactive Kafka cluster to active status.
+// @Description Restore an inactive Kafka cluster. Its status becomes unknown, and a connection check sets it to active or unreachable.
 // @Tags clusters
 // @Param name path string true "Cluster Name"
 // @Success 200 {object} map[string]interface{}
@@ -323,9 +331,10 @@ func (s *Server) handleRestoreCluster(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Cluster is not inactive, cannot restore")
 	}
 
-	if err := database.SetClusterStatus(s.Db, clusterName, "active"); err != nil {
+	if err := database.SetClusterStatus(s.Db, clusterName, database.ClusterStatusUnknown); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to restore cluster")
 	}
+	s.refreshClusterStatus(clusterName)
 
 	return c.JSON(fiber.Map{"status": "success", "message": "Cluster restored successfully"})
 }
@@ -378,7 +387,7 @@ func (s *Server) handleListClusterTopics(c *fiber.Ctx) error {
 		topicNames = append(topicNames, name)
 	}
 
-	return c.JSON(topicNames)
+	return jsonList(c, topicNames)
 }
 
 // handleGetTopicDetails godoc
@@ -417,38 +426,32 @@ func (s *Server) handleGetTopicDetails(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to get topic details: %v", err))
 	}
 
-	return c.JSON(topicDetails)
+	return jsonList(c, topicDetails)
 }
 
 // handleGetClusterStatus godoc
 // @Summary Get the status of a Kafka cluster
-// @Description Get the status of a Kafka cluster by performing a live connection test.
+// @Description Run a live connection test against the cluster, bounded by 10 seconds, and store the result as the cluster status (active or unreachable). Inactive and archived clusters keep their status.
 // @Tags clusters
 // @Produce json
 // @Param name path string true "Cluster Name"
 // @Success 200 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Failure 503 {object} map[string]interface{}
 // @Router /clusters/{name}/status [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetClusterStatus(c *fiber.Ctx) error {
 	clusterName := c.Params("name")
-	cluster, err := database.GetCluster(s.Db, clusterName)
-	if err != nil {
+	if _, err := database.GetCluster(s.Db, clusterName); err != nil {
 		return fiber.NewError(fiber.StatusNotFound, "Cluster not found")
 	}
 
-	clusterConfig := database.ClusterConfigFromRow(*cluster)
-
-	adminClient, err := kafka.NewAdminClient(clusterConfig)
+	status, err := s.manager.CheckClusterStatus(c.UserContext(), clusterName)
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to create admin client: %v", err))
-	}
-	defer adminClient.Close()
-
-	if _, err := adminClient.ListTopics(context.Background()); err != nil {
 		return fiber.NewError(fiber.StatusServiceUnavailable, fmt.Sprintf("Failed to connect to cluster: %v", err))
 	}
 
-	return c.JSON(fiber.Map{"status": "active", "message": "Cluster is reachable"})
+	return c.JSON(fiber.Map{"status": status, "message": "Cluster is reachable"})
 }
 
 // handleTestClusterConnection godoc
@@ -513,7 +516,7 @@ func (s *Server) handleListJobs(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to list jobs")
 	}
-	return c.JSON(jobs)
+	return jsonList(c, jobs)
 }
 
 type CreateJobRequest struct {
@@ -817,7 +820,7 @@ func (s *Server) handleGetJobTopicHealth(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(health)
+	return jsonList(c, health)
 }
 
 // handleRestartAllJobs godoc
@@ -861,7 +864,7 @@ func (s *Server) handleListSourceTopics(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to list source topics")
 	}
 
-	return c.JSON(topics)
+	return jsonMap(c, topics)
 }
 
 // handleListTargetTopics godoc
@@ -888,7 +891,7 @@ func (s *Server) handleListTargetTopics(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to list target topics")
 	}
 
-	return c.JSON(topics)
+	return jsonMap(c, topics)
 }
 
 // handleGetMappings godoc
@@ -906,7 +909,7 @@ func (s *Server) handleGetMappings(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Could not get mappings for job %s", jobID))
 	}
-	return c.JSON(mappings)
+	return jsonList(c, mappings)
 }
 
 // handleUpdateMappings godoc
@@ -992,7 +995,7 @@ func (s *Server) handleGetHistoricalMetrics(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get historical metrics")
 	}
-	return c.JSON(metrics)
+	return jsonList(c, metrics)
 }
 
 // handleGetOperationalEvents godoc
@@ -1008,7 +1011,7 @@ func (s *Server) handleGetOperationalEvents(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to list operational events")
 	}
-	return c.JSON(events)
+	return jsonList(c, events)
 }
 
 // handleGetLag godoc
@@ -1076,7 +1079,7 @@ func (s *Server) handleGetLag(c *fiber.Ctx) error {
 	}
 	wg.Wait()
 
-	return c.JSON(lagResults)
+	return jsonMap(c, lagResults)
 }
 
 // --- AI Handlers ---
@@ -1095,7 +1098,7 @@ func (s *Server) handleGetAIInsights(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to list AI insights")
 	}
-	return c.JSON(insights)
+	return jsonList(c, insights)
 }
 
 // handleGetAIMetrics godoc
@@ -1211,7 +1214,7 @@ func (s *Server) handleGetJobAIInsights(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to list AI insights for job")
 	}
-	return c.JSON(insights)
+	return jsonList(c, insights)
 }
 
 // handleTriggerHistoricalAnalysis godoc
@@ -1262,7 +1265,7 @@ func (s *Server) handleGetAnomalies(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to list anomalies")
 	}
-	return c.JSON(insights)
+	return jsonList(c, insights)
 }
 
 // handleGetRecommendations godoc
@@ -1279,7 +1282,7 @@ func (s *Server) handleGetRecommendations(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to list recommendations")
 	}
-	return c.JSON(insights)
+	return jsonList(c, insights)
 }
 
 // handleExplainEvent godoc
@@ -1455,7 +1458,7 @@ func (s *Server) handleListUsers(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(usersWithRoles)
+	return jsonList(c, usersWithRoles)
 }
 
 type createUserRequest struct {
@@ -1826,7 +1829,7 @@ func (s *Server) handleResumeProtection(c *fiber.Ctx) error {
 
 // handleGetMe godoc
 // @Summary Get the current user's profile
-// @Description Get the current user's profile.
+// @Description Get the current user's profile, role and the permission names of that role.
 // @Tags auth
 // @Produce json
 // @Success 200 {object} map[string]interface{}
@@ -1838,13 +1841,18 @@ func (s *Server) handleGetMe(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get user role")
 	}
+	permissions, err := database.GetUserPermissions(s.Db, user.ID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get user permissions")
+	}
 
 	return c.JSON(fiber.Map{
-		"id":         user.ID,
-		"username":   user.Username,
-		"is_initial": user.IsInitial,
-		"created_at": user.CreatedAt,
-		"role":       role,
+		"id":          user.ID,
+		"username":    user.Username,
+		"is_initial":  user.IsInitial,
+		"created_at":  user.CreatedAt,
+		"role":        role,
+		"permissions": permissions,
 	})
 }
 
@@ -1889,7 +1897,7 @@ func (s *Server) handleListComplianceReports(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to list compliance reports")
 	}
-	return c.JSON(reports)
+	return jsonList(c, reports)
 }
 
 // handleGetComplianceReport godoc
@@ -1997,7 +2005,7 @@ func (s *Server) handleGetJobInventorySnapshots(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get inventory snapshots")
 	}
-	return c.JSON(snapshots)
+	return jsonList(c, snapshots)
 }
 
 // handleGetInventorySnapshot godoc
@@ -2135,14 +2143,14 @@ func (s *Server) handleGetTopicInventory(c *fiber.Ctx) error {
 				inventoryData.SourceTopics[i].CompressionType = "NONE"
 			}
 		}
-		return c.JSON(inventoryData.SourceTopics)
+		return jsonList(c, inventoryData.SourceTopics)
 	} else {
 		for i := range inventoryData.TargetTopics {
 			if inventoryData.TargetTopics[i].CompressionType == "" {
 				inventoryData.TargetTopics[i].CompressionType = "NONE"
 			}
 		}
-		return c.JSON(inventoryData.TargetTopics)
+		return jsonList(c, inventoryData.TargetTopics)
 	}
 }
 
@@ -2166,7 +2174,7 @@ func (s *Server) handleGetConsumerGroupInventory(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Inventory snapshot not found")
 	}
 
-	return c.JSON(inventoryData.ConsumerGroups)
+	return jsonList(c, inventoryData.ConsumerGroups)
 }
 
 // handleGetConnectionInventory godoc
@@ -2189,7 +2197,7 @@ func (s *Server) handleGetConnectionInventory(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Inventory snapshot not found")
 	}
 
-	return c.JSON(inventoryData.Connections)
+	return jsonList(c, inventoryData.Connections)
 }
 
 // --- Mirror State Handlers ---
@@ -2270,7 +2278,7 @@ func (s *Server) handleGetMirrorState(c *fiber.Ctx) error {
 		}
 
 		// Return arrays for historical data
-		return c.JSON(stateData)
+		return c.JSON(withEmptyStateLists(stateData))
 	}
 }
 
@@ -2343,7 +2351,7 @@ func (s *Server) handleGetMirrorProgress(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get mirror progress")
 	}
 
-	return c.JSON(progress)
+	return jsonList(c, progress)
 }
 
 // handleGetResumePoints godoc
@@ -2366,7 +2374,7 @@ func (s *Server) handleGetResumePoints(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get resume points")
 	}
 
-	return c.JSON(resumePoints)
+	return jsonList(c, resumePoints)
 }
 
 // handleCalculateResumePoints godoc
@@ -2478,7 +2486,7 @@ func (s *Server) handleGetMirrorGaps(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get mirror gaps")
 	}
 
-	return c.JSON(gaps)
+	return jsonList(c, gaps)
 }
 
 // handleValidateMigration godoc

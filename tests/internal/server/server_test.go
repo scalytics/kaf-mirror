@@ -32,8 +32,9 @@ import (
 )
 
 type TestContext struct {
-	Server *server.Server
-	Token  string
+	Server  *server.Server
+	Manager *manager.JobManager
+	Token   string
 }
 
 func setupTestServer(t *testing.T) *TestContext {
@@ -69,8 +70,9 @@ func setupTestServer(t *testing.T) *TestContext {
 	srv := server.New(cfg, db, jobManager, hub, "test")
 
 	return &TestContext{
-		Server: srv,
-		Token:  token,
+		Server:  srv,
+		Manager: jobManager,
+		Token:   token,
 	}
 }
 

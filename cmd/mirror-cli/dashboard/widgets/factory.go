@@ -14,6 +14,7 @@ package widgets
 import (
 	"fmt"
 	"kaf-mirror/cmd/mirror-cli/dashboard/core"
+	"strings"
 
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
@@ -217,9 +218,43 @@ func FormatStatus(status string) string {
 		return "✓ " + status
 	case "inactive", "stopped", "paused":
 		return "⏸ " + status
-	case "error", "failed", "unhealthy":
+	case "error", "failed", "unhealthy", "unreachable":
 		return "✗ " + status
 	default:
 		return status
+	}
+}
+
+func AuditEventParts(log map[string]interface{}) (string, string) {
+	eventType := SafeString(log["event_type"], "")
+	if eventType == "" {
+		return "unknown", "N/A"
+	}
+	method, path, found := strings.Cut(eventType, " ")
+	if !found || !strings.HasPrefix(path, "/") {
+		return eventType, "N/A"
+	}
+	path = strings.TrimPrefix(path, "/api/v1")
+	path = strings.Trim(path, "/")
+	if path == "" {
+		path = "/"
+	}
+	return method, path
+}
+
+func ClusterHealthLabel(status string) string {
+	switch status {
+	case "active":
+		return "✓ Reachable"
+	case "unreachable":
+		return "✗ Unreachable"
+	case "inactive":
+		return "⏸ Inactive"
+	case "archived":
+		return "⏸ Archived"
+	case "unknown", "":
+		return "? Not checked yet"
+	default:
+		return "? " + status
 	}
 }

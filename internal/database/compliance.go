@@ -143,7 +143,7 @@ func getAccessAuditData(db *sqlx.DB, startDate, endDate time.Time) (map[string]i
 		SELECT COUNT(*) FROM operational_events 
 		WHERE event_type = 'auth_login' 
 		AND timestamp BETWEEN ? AND ?
-	`, startDate, endDate)
+	`, eventTime(startDate), eventTime(endDate))
 	if err != nil {
 		loginAttempts = 0
 	}
@@ -154,7 +154,7 @@ func getAccessAuditData(db *sqlx.DB, startDate, endDate time.Time) (map[string]i
 		SELECT COUNT(*) FROM operational_events 
 		WHERE event_type = 'auth_failed' 
 		AND timestamp BETWEEN ? AND ?
-	`, startDate, endDate)
+	`, eventTime(startDate), eventTime(endDate))
 	if err != nil {
 		failedLogins = 0
 	}
@@ -164,7 +164,7 @@ func getAccessAuditData(db *sqlx.DB, startDate, endDate time.Time) (map[string]i
 		SELECT DISTINCT initiator FROM operational_events 
 		WHERE timestamp BETWEEN ? AND ?
 		AND initiator != 'system'
-	`, startDate, endDate)
+	`, eventTime(startDate), eventTime(endDate))
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +250,7 @@ func getSecurityEvents(db *sqlx.DB, startDate, endDate time.Time) (map[string]in
 		SELECT COUNT(*) FROM operational_events 
 		WHERE event_type = 'permission_denied' 
 		AND timestamp BETWEEN ? AND ?
-	`, startDate, endDate)
+	`, eventTime(startDate), eventTime(endDate))
 	if err != nil {
 		permissionDenied = 0
 	}
@@ -258,10 +258,10 @@ func getSecurityEvents(db *sqlx.DB, startDate, endDate time.Time) (map[string]in
 	// Configuration changes
 	var configChanges int
 	err = db.Get(&configChanges, `
-		SELECT COUNT(*) FROM operational_events 
-		WHERE event_type = 'config_change' 
+		SELECT COUNT(*) FROM operational_events
+		WHERE `+auditTrailFilter+`
 		AND timestamp BETWEEN ? AND ?
-	`, startDate, endDate)
+	`, eventTime(startDate), eventTime(endDate))
 	if err != nil {
 		configChanges = 0
 	}
@@ -273,17 +273,23 @@ func getSecurityEvents(db *sqlx.DB, startDate, endDate time.Time) (map[string]in
 	return data, nil
 }
 
+const auditTrailFilter = `(event_type = 'config_change' OR event_type LIKE 'POST %' OR event_type LIKE 'PUT %' OR event_type LIKE 'PATCH %' OR event_type LIKE 'DELETE %')`
+
+func eventTime(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
+}
+
 // getConfigurationChanges retrieves configuration change history
 func getConfigurationChanges(db *sqlx.DB, startDate, endDate time.Time) ([]map[string]interface{}, error) {
 	var changes []map[string]interface{}
 
 	rows, err := db.Query(`
-		SELECT timestamp, initiator, details 
-		FROM operational_events 
-		WHERE event_type = 'config_change' 
+		SELECT timestamp, initiator, event_type, COALESCE(details, '')
+		FROM operational_events
+		WHERE `+auditTrailFilter+`
 		AND timestamp BETWEEN ? AND ?
-		ORDER BY timestamp DESC
-	`, startDate, endDate)
+		ORDER BY timestamp DESC, id DESC
+	`, eventTime(startDate), eventTime(endDate))
 	if err != nil {
 		return changes, nil // Return empty slice on error
 	}
@@ -291,14 +297,15 @@ func getConfigurationChanges(db *sqlx.DB, startDate, endDate time.Time) ([]map[s
 
 	for rows.Next() {
 		var timestamp time.Time
-		var initiator, details string
-		if err := rows.Scan(&timestamp, &initiator, &details); err != nil {
+		var initiator, eventType, details string
+		if err := rows.Scan(&timestamp, &initiator, &eventType, &details); err != nil {
 			continue
 		}
 		changes = append(changes, map[string]interface{}{
-			"timestamp": timestamp,
-			"initiator": initiator,
-			"details":   details,
+			"timestamp":  timestamp,
+			"initiator":  initiator,
+			"event_type": eventType,
+			"details":    details,
 		})
 	}
 
@@ -481,12 +488,17 @@ func GenerateComplianceCSV(report *ComplianceReport) ([]byte, error) {
 
 	// Audit Trail
 	if events, ok := report.ReportData["configuration_changes"].([]map[string]interface{}); ok {
-		writer.Write([]string{"AUDIT TRAIL (Configuration Changes)"})
-		writer.Write([]string{"Timestamp", "Initiator", "Details"})
+		writer.Write([]string{"AUDIT TRAIL (Changes)"})
+		writer.Write([]string{"Timestamp", "Initiator", "Action", "Details"})
 		for _, event := range events {
+			timestamp := fmt.Sprintf("%v", event["timestamp"])
+			if t, ok := event["timestamp"].(time.Time); ok {
+				timestamp = t.UTC().Format(time.RFC3339)
+			}
 			writer.Write([]string{
-				fmt.Sprintf("%v", event["timestamp"]),
+				timestamp,
 				fmt.Sprintf("%v", event["initiator"]),
+				fmt.Sprintf("%v", event["event_type"]),
 				fmt.Sprintf("%v", event["details"]),
 			})
 		}

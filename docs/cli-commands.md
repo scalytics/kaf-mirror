@@ -108,7 +108,7 @@ mirror-cli clusters remove [name] [flags]
 
 **Restore an inactive cluster.**
 
-This command restores an inactive cluster to active status.
+This command restores an inactive cluster. Its status is unknown until the next connection check sets it to active or unreachable.
 
 ### Usage
 

@@ -241,7 +241,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get the current user's profile.",
+                "description": "Get the current user's profile, role and the permission names of that role.",
                 "produces": [
                     "application/json"
                 ],
@@ -509,7 +509,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Restore an inactive Kafka cluster to active status.",
+                "description": "Restore an inactive Kafka cluster. Its status becomes unknown, and a connection check sets it to active or unreachable.",
                 "tags": [
                     "clusters"
                 ],
@@ -541,7 +541,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get the status of a Kafka cluster by performing a live connection test.",
+                "description": "Run a live connection test against the cluster, bounded by 10 seconds, and store the result as the cluster status (active or unreachable). Inactive and archived clusters keep their status.",
                 "produces": [
                     "application/json"
                 ],
@@ -561,6 +561,20 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

@@ -986,14 +986,9 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 					fmt.Println("No clusters found to remove.")
 					return
 				}
-				var clusterNames []string
-				for _, cluster := range clusters {
-					if cluster["status"].(string) == "active" {
-						clusterNames = append(clusterNames, cluster["name"].(string))
-					}
-				}
+				clusterNames := removableClusterNames(clusters)
 				if len(clusterNames) == 0 {
-					fmt.Println("No active clusters found to remove.")
+					fmt.Println("No clusters found to remove. Inactive and archived clusters are already removed.")
 					return
 				}
 				prompt := &survey.Select{
@@ -1079,7 +1074,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 	var restoreClusterCmd = &cobra.Command{
 		Use:   "restore [name]",
 		Short: "Restore an inactive cluster.",
-		Long:  `This command restores an inactive cluster to active status.`,
+		Long:  `This command restores an inactive cluster. Its status is unknown until the next connection check sets it to active or unreachable.`,
 		Args:  cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
