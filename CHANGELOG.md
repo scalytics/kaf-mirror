@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+### Security
+- github.com/gofiber/fiber/v2 2.52.12 to 2.52.16 (GHSA-gcfq-8gqf-4876, GHSA-qjv7-627w-8qjv).
+- github.com/gomarkdown/markdown to v0.0.0-20260724235538-61af6e1e6971 (GHSA-cv23-7vc5-jfh7, GHSA-77fj-vx54-gvh7).
+- github.com/klauspost/compress 1.18.0 to 1.20.5 (GHSA-259r-337f-4rfw, GO-2026-6865).
+
 ## [1.3.1] - 2026-10-22
 ### Security
 - Built with Go 1.26.10, which fixes CVE-2026-111943 in crypto/x509. Release binaries, the Docker image and CI all use Go 1.26.10.
