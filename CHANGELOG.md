@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+### Fixes
+- Replicated records keep the source timestamp. Before, the target record got the time of the copy (#27).
+- Replicated records keep the source partition. The producer now writes each record to the partition it came from. Before, the producer default partitioner chose the target partition (#28).
+- If the target topic has fewer partitions than the source while a job runs, records from the missing partitions fall back to key hash placement and kaf-mirror logs one warning per partition. See "What a Copied Record Keeps" in the README.
+
 ## [1.3.1] - 2026-10-22
 ### Security
 - Built with Go 1.26.10, which fixes CVE-2026-111943 in crypto/x509. Release binaries, the Docker image and CI all use Go 1.26.10.

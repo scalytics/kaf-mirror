@@ -187,7 +187,6 @@ func TestHandleRecord_PreservesPartitionWhenCompatible(t *testing.T) {
 	km := kafka.NewKafMirrorImplForTest(
 		&kafka.Producer{Client: mockClient},
 		map[string]string{"orders": "orders_copy"},
-		map[string]int32{"orders_copy": 3},
 	)
 
 	km.HandleRecordForTest(&kgo.Record{
@@ -213,7 +212,6 @@ func TestHandleRecord_RegexSubstitutesTarget(t *testing.T) {
 	km := kafka.NewKafMirrorImplForTest(
 		&kafka.Producer{Client: mockClient},
 		map[string]string{},
-		nil,
 	)
 	assert.NoError(t, km.AddRegexMapForTest(`events-(.*)`, `copy-$1`))
 
@@ -224,31 +222,6 @@ func TestHandleRecord_RegexSubstitutesTarget(t *testing.T) {
 
 	assert.NotNil(t, producedRecord)
 	assert.Equal(t, "copy-orders", producedRecord.Topic)
-}
-
-func TestHandleRecord_LeavesPartitionUnsetWhenUnknown(t *testing.T) {
-	var producedRecord *kgo.Record
-	mockClient := &mocks.MockKgoClient{
-		ProduceFunc: func(ctx context.Context, r *kgo.Record, f func(*kgo.Record, error)) {
-			producedRecord = r
-			f(r, nil)
-		},
-	}
-
-	km := kafka.NewKafMirrorImplForTest(
-		&kafka.Producer{Client: mockClient},
-		map[string]string{"orders": "orders_copy"},
-		nil,
-	)
-
-	km.HandleRecordForTest(&kgo.Record{
-		Topic:     "orders",
-		Partition: 2,
-		Value:     []byte("payload"),
-	})
-
-	assert.NotNil(t, producedRecord)
-	assert.Equal(t, int32(0), producedRecord.Partition)
 }
 
 func TestValidateAndSyncClusters_EnsuresTargetTopics(t *testing.T) {
@@ -272,7 +245,7 @@ func TestValidateAndSyncClusters_EnsuresTargetTopics(t *testing.T) {
 		Replication: config.ReplicationConfig{JobID: "test-job"},
 	}
 
-	_, err := kafka.ValidateAndSyncClustersForTest(cfg, []string{"source-a"}, map[string]string{"source-a": "target-a"})
+	err := kafka.ValidateAndSyncClustersForTest(cfg, []string{"source-a"}, map[string]string{"source-a": "target-a"})
 	assert.NoError(t, err)
 	assert.Equal(t, []string{"target-a"}, admin.ensureCalls)
 }

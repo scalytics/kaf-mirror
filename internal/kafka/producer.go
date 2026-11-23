@@ -52,6 +52,7 @@ func NewProducer(cfg config.ClusterConfig, replicationCfg config.ReplicationConf
 		kgo.SeedBrokers(strings.Split(cfg.Brokers, ",")...),
 		kgo.ProducerBatchMaxBytes(int32(replicationCfg.BatchSize * 1024)),
 		kgo.ProducerBatchCompression(getCompressionCodec(replicationCfg.Compression)),
+		kgo.RecordPartitioner(NewSourcePartitioner()),
 	}
 	// OPS-004: idempotent writes require the target broker to implement
 	// INIT_PRODUCER_ID (API key 22). Some brokers (e.g. KafScale today) do not.
