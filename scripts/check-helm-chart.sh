@@ -39,4 +39,12 @@ tls_mon_out=$(helm template km "$chart" --api-versions monitoring.coreos.com/v1 
 grep -q "kind: ServiceMonitor" <<<"$tls_mon_out" || fail "ServiceMonitor is not rendered with TLS"
 grep -q "scheme: https" <<<"$tls_mon_out" || fail "tls ServiceMonitor does not scrape HTTPS"
 
+if helm template km "$chart" --set replicaCount=2 >/dev/null 2>&1; then
+  fail "render accepts replicaCount other than 1"
+fi
+if helm template km "$chart" --set replicaCount=0 >/dev/null 2>&1; then
+  fail "render accepts replicaCount 0"
+fi
+grep -q "replicas: 1$" <<<"$default_out" || fail "default render does not run exactly one replica"
+
 echo "helm-check: ok"

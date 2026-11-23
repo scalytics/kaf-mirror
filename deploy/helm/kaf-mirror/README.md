@@ -73,7 +73,7 @@ helm upgrade --install km deploy/helm/kaf-mirror -f secret-values.yaml --wait
 
 ## Upgrades and SQLite
 
-The Deployment uses the `Recreate` strategy. SQLite on a ReadWriteOnce volume must not be opened by two pods, so an upgrade stops the old pod before the new one starts. Expect a short gap in replication during an upgrade. Keep `replicaCount` at 1.
+The Deployment uses the `Recreate` strategy. SQLite on a ReadWriteOnce volume must not be opened by two pods, so an upgrade stops the old pod before the new one starts. Expect a short gap in replication during an upgrade. The chart runs exactly one pod, and rendering fails if `replicaCount` is set to anything other than 1.
 
 ## Values
 
@@ -82,7 +82,7 @@ The Deployment uses the `Recreate` strategy. SQLite on a ReadWriteOnce volume mu
 | `image.repository` | `ghcr.io/scalytics/kaf-mirror` | Image repository. |
 | `image.tag` | `v1.3.1` | Image tag. It follows `appVersion`. Until a newer tag is published, set this to an image built from this repository, as in the Install section. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
-| `replicaCount` | `1` | Number of pods. Keep it at 1, SQLite is not shared. |
+| `replicaCount` | `1` | Must be 1. SQLite is not shared, so any other value fails the render. |
 | `service.type` | `ClusterIP` | Service type. |
 | `service.port` | `8088` | Service port. It forwards to the container port `http`. |
 | `config.server.host` | `0.0.0.0` | Listen address, set as `server.host` and as `KAF_MIRROR_SERVER_HOST`. |
