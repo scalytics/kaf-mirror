@@ -123,8 +123,8 @@ type configData struct {
 		} `yaml:"cors"`
 	} `yaml:"server"`
 	Replication struct {
-		BatchSize              int    `yaml:"batch_size"`
-		Compression            string `yaml:"compression"`
+		BatchSize              int    `yaml:"batch_size,omitempty"`
+		Compression            string `yaml:"compression,omitempty"`
 		TopicDiscoveryInterval string `yaml:"topic_discovery_interval"`
 	} `yaml:"replication"`
 	Clusters map[string]struct {
@@ -2400,17 +2400,8 @@ func configureCompliance(configData *configData) {
 }
 
 func configureReplication(configData *configData) {
+	fmt.Println("batch_size and compression are job settings, not config file keys. Set them when you create or update a job, for example with mirror-cli jobs add or PUT /api/v1/jobs/{id}.")
 	qs := []*survey.Question{
-		{
-			Name:     "replication.batch_size",
-			Prompt:   &survey.Input{Message: "Enter replication batch size:", Default: "1000"},
-			Validate: survey.Required,
-		},
-		{
-			Name:     "replication.compression",
-			Prompt:   &survey.Select{Message: "Select replication compression:", Options: []string{"none", "gzip", "snappy", "lz4", "zstd"}},
-			Validate: survey.Required,
-		},
 		{
 			Name:     "replication.topic_discovery_interval",
 			Prompt:   &survey.Input{Message: "Enter topic discovery interval (0 to disable):", Default: "5m"},
@@ -5496,26 +5487,17 @@ func createReplicationEditCommands() *cobra.Command {
 	replicationCmd := &cobra.Command{
 		Use:   "replication",
 		Short: "Configure replication settings",
-		Long:  "Configure batch size, compression, and topic discovery interval",
+		Long:  "Configure topic discovery interval. batch_size and compression are job settings, not config file keys.",
 	}
 
 	// config edit replication batch-size [size]
 	batchSizeCmd := &cobra.Command{
 		Use:   "batch-size [size]",
-		Short: "Set replication batch size (KB)",
+		Short: "batch_size is a job setting, not a config file key",
+		Long:  "kaf-mirror does not read replication.batch_size from the config file. Set the job batch_size, in KB, with mirror-cli jobs add or PUT /api/v1/jobs/{id}.",
 		Args:  cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			var size string
-			if len(args) > 0 {
-				size = args[0]
-			} else {
-				prompt := &survey.Input{
-					Message: "Enter batch size (messages):",
-					Default: "1000",
-				}
-				survey.AskOne(prompt, &size)
-			}
-			updateConfigParameter("replication.batch_size", size)
+			fmt.Println("batch_size is a job setting, not a config file key. kaf-mirror does not read replication.batch_size from the config file. Set it when you create or update a job, for example with mirror-cli jobs add or PUT /api/v1/jobs/{id}.")
 		},
 	}
 
@@ -6192,7 +6174,6 @@ func updateConfigParameter(path, value string) {
 func shouldConvertToInt(path string) bool {
 	integerFields := []string{
 		"server.port",
-		"replication.batch_size",
 		"monitoring.retention_days",
 	}
 

@@ -46,6 +46,10 @@ func TestThrottlingKeepsBatchSizeInTheValidRange(t *testing.T) {
 		{9000, "increase", 10000},
 		{1, "increase", 501},
 		{1000, "increase", 1500},
+		{1000, "optimize", 1300},
+		{4800, "optimize", 5000},
+		{5000, "optimize", 5000},
+		{10000, "optimize", 10000},
 	}
 	for _, c := range cases {
 		got := jm.calculateOptimalBatchSize(c.current, 100, 10, c.direction)
@@ -62,5 +66,11 @@ func TestThrottlingKeepsBatchSizeInTheValidRange(t *testing.T) {
 	}
 	if current != 10000 {
 		t.Fatalf("repeated increases reached %d, want 10000", current)
+	}
+	if got := jm.calculateOptimalBatchSize(200, 10, 10, "optimize"); got != 100 {
+		t.Fatalf("optimize from 200 at low throughput gave %d, want 100", got)
+	}
+	if got := jm.calculateOptimalBatchSize(102400, 10, 10, "optimize"); got != 102400 {
+		t.Fatalf("optimize lowered a user batch_size of 102400 to %d", got)
 	}
 }

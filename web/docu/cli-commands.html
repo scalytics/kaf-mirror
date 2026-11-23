@@ -570,7 +570,7 @@
 <br>
 <p><strong>Configure replication settings</strong></p>
 <br>
-<p>Configure batch size, compression, and topic discovery interval</p>
+<p>Configure topic discovery interval. batch_size and compression are job settings, not config file keys.</p>
 <br>
 <h3 id="usage">Usage</h3>
 <br>
@@ -579,13 +579,15 @@
 <br>
 <h3 id="available-subcommands">Available Subcommands</h3>
 <br>
-<li><strong>batch-size</strong> - Set replication batch size (KB)</li>
+<li><strong>batch-size</strong> - batch_size is a job setting, not a config file key</li>
 <li><strong>compression</strong> - Set compression algorithm</li>
 <li><strong>discovery-interval</strong> - Set topic discovery interval</li>
 <br>
 <h6 id="mirror-cli-config-edit-replication-batch-size">mirror-cli config edit replication batch-size</h6>
 <br>
-<p><strong>Set replication batch size (KB)</strong></p>
+<p><strong>batch_size is a job setting, not a config file key</strong></p>
+<br>
+<p>kaf-mirror does not read replication.batch_size from the config file. Set the job batch_size, in KB, with mirror-cli jobs add or PUT /api/v1/jobs/{id}.</p>
 <br>
 <h3 id="usage">Usage</h3>
 <br>
