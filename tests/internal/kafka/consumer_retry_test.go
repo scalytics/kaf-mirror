@@ -286,3 +286,80 @@ func TestConsumeLostPartitionStopsRetryWithoutCommit(t *testing.T) {
 	assert.Equal(t, 0, calls["1/0"])
 	assert.Equal(t, []string{"0/0"}, log.get())
 }
+
+func newRevokeOnPollConsumer(fetches kgo.Fetches, cancel context.CancelFunc, log *commitLog, revoke map[string][]int32) *kafka.Consumer {
+	polls := 0
+	c := kafka.NewConsumerForTest(nil, nil)
+	c.Client = &mocks.MockKgoClient{
+		PollFetchesFunc: func(ctx context.Context) kgo.Fetches {
+			polls++
+			if polls == 1 {
+				c.RevokePartitions(revoke)
+				return fetches
+			}
+			cancel()
+			return kgo.Fetches{}
+		},
+		CommitRecordsFunc: func(ctx context.Context, rs ...*kgo.Record) error {
+			return log.add(rs...)
+		},
+	}
+	c.SetProduceRetryForTest(5, 0)
+	return c
+}
+
+func TestConsumeSkipsPartitionRevokedBetweenPollAndTracking(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := &commitLog{}
+	c := newRevokeOnPollConsumer(fetchOf("orders", partitionRecords{0, []int64{0, 1}}, partitionRecords{1, []int64{0}}), cancel, log, map[string][]int32{"orders": {0}})
+
+	calls := map[string]int{}
+	err := c.Consume(ctx, func(ctx context.Context, r *kgo.Record) error {
+		calls[key(r)]++
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, calls["0/0"])
+	assert.Equal(t, 0, calls["0/1"])
+	assert.Equal(t, 1, calls["1/0"])
+	assert.Equal(t, []string{"1/0"}, log.get())
+}
+
+func TestConsumeHandlesPartitionAssignedAgainAfterRevoke(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := &commitLog{}
+	c := newRetryConsumer(fetchOf("orders", partitionRecords{0, []int64{0}}), cancel, log, 5, 0)
+	c.RevokePartitions(map[string][]int32{"orders": {0}})
+	c.AssignPartitions(map[string][]int32{"orders": {0}})
+
+	calls := map[string]int{}
+	err := c.Consume(ctx, func(ctx context.Context, r *kgo.Record) error {
+		calls[key(r)]++
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls["0/0"])
+	assert.Equal(t, []string{"0/0"}, log.get())
+}
+
+func TestConsumeSkipsPartitionLostBeforePoll(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := &commitLog{}
+	c := newRetryConsumer(fetchOf("orders", partitionRecords{0, []int64{0}}, partitionRecords{1, []int64{0}}), cancel, log, 5, 0)
+	c.RevokePartitions(map[string][]int32{"orders": {0, 1}})
+
+	calls := 0
+	err := c.Consume(ctx, func(ctx context.Context, r *kgo.Record) error {
+		calls++
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, calls)
+	assert.Empty(t, log.get())
+}

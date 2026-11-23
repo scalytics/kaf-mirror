@@ -58,6 +58,7 @@ type Consumer struct {
 	produceBackoff   time.Duration
 	partMu           sync.Mutex
 	partCancels      map[topicPartition]context.CancelFunc
+	revoked          map[topicPartition]bool
 }
 
 func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config.ReplicationConfig, jobID string, topics ...string) (*Consumer, error) {
@@ -80,6 +81,7 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 		kgo.DisableAutoCommit(),
 		kgo.OnPartitionsAssigned(func(ctx context.Context, c *kgo.Client, assigned map[string][]int32) {
 			logger.Info("Consumer partitions assigned: %v, job=%s, component=%s", assigned, jobID, "consumer")
+			consumer.AssignPartitions(assigned)
 		}),
 		kgo.OnPartitionsRevoked(func(ctx context.Context, c *kgo.Client, revoked map[string][]int32) {
 			logger.Info("Consumer partitions revoked: %v, job=%s, component=%s", revoked, jobID, "consumer")
@@ -300,6 +302,9 @@ func (c *Consumer) trackPartitions(ctx context.Context, fetches kgo.Fetches) map
 		partCtx, cancel := context.WithCancel(ctx)
 		ctxs[tp] = partCtx
 		c.partCancels[tp] = cancel
+		if c.revoked[tp] {
+			cancel()
+		}
 	})
 	return ctxs
 }
@@ -318,11 +323,26 @@ func (c *Consumer) releasePartitions(ctxs map[topicPartition]context.Context) {
 func (c *Consumer) RevokePartitions(revoked map[string][]int32) {
 	c.partMu.Lock()
 	defer c.partMu.Unlock()
+	if c.revoked == nil {
+		c.revoked = make(map[topicPartition]bool)
+	}
 	for topic, partitions := range revoked {
 		for _, partition := range partitions {
-			if cancel, ok := c.partCancels[topicPartition{topic: topic, partition: partition}]; ok {
+			tp := topicPartition{topic: topic, partition: partition}
+			c.revoked[tp] = true
+			if cancel, ok := c.partCancels[tp]; ok {
 				cancel()
 			}
+		}
+	}
+}
+
+func (c *Consumer) AssignPartitions(assigned map[string][]int32) {
+	c.partMu.Lock()
+	defer c.partMu.Unlock()
+	for topic, partitions := range assigned {
+		for _, partition := range partitions {
+			delete(c.revoked, topicPartition{topic: topic, partition: partition})
 		}
 	}
 }
