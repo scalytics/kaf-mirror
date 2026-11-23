@@ -424,6 +424,9 @@ func processInlineMarkdown(text string) string {
 	codeRe := regexp.MustCompile("`([^`]+)`")
 	text = codeRe.ReplaceAllString(text, "<code>$1</code>")
 
+	linkRe := regexp.MustCompile(`\[([^\]]+)\]\((https://[^)\s"<>]+)\)`)
+	text = linkRe.ReplaceAllString(text, `<a href="$2">$1</a>`)
+
 	return text
 }
 

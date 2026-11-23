@@ -1642,7 +1642,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 	protectionCmd := &cobra.Command{
 		Use:   "protection",
 		Short: "Replication halt (experimental, admin)",
-		Long:  "Kill-switch for kaf-mirror. Off until an admin runs `mirror-cli protection enable` (must be logged in). See docs/protection.md.",
+		Long:  "Kill-switch for kaf-mirror. Off until an admin runs `mirror-cli protection enable` (must be logged in). See [docs/protection.md](https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md).",
 	}
 	protectionCmd.AddCommand(&cobra.Command{
 		Use:   "status",

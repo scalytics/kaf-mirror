@@ -928,12 +928,12 @@ func (jm *JobManager) shouldTriggerAIAnalysis(jobID, jobName string) bool {
 
 	// Get recent metrics to check for anomalies
 	metricsQuery := `
-		SELECT 
+		SELECT
 			messages_replicated_delta AS messages_replicated,
 			avg_lag AS current_lag,
 			error_count_delta AS error_count,
 			timestamp
-		FROM aggregated_metrics 
+		FROM aggregated_metrics
 		WHERE job_id = ? AND timestamp > datetime('now', '-10 minutes')
 		ORDER BY timestamp DESC LIMIT 10
 	`
