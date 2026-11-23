@@ -39,6 +39,34 @@ tls_mon_out=$(helm template km "$chart" --api-versions monitoring.coreos.com/v1 
 grep -q "kind: ServiceMonitor" <<<"$tls_mon_out" || fail "ServiceMonitor is not rendered with TLS"
 grep -q "scheme: https" <<<"$tls_mon_out" || fail "tls ServiceMonitor does not scrape HTTPS"
 
+krb_values=$(mktemp)
+trap 'rm -f "$krb_values"' EXIT
+cat >"$krb_values" <<'VALUES'
+kerberos:
+  keytabSecret: km-keytab
+  krb5ConfigMap: km-krb5
+config:
+  sourceSecurity:
+    enabled: true
+    protocol: SASL_SSL
+    sasl_mechanism: GSSAPI
+    kerberos:
+      service_name: kafka
+      principal: kaf-mirror@EXAMPLE.COM
+      keytab_path: /app/kerberos/keytab/kafka.keytab
+      krb5_conf_path: /app/kerberos/krb5/krb5.conf
+VALUES
+krb_out=$(helm template km "$chart" -f "$krb_values")
+grep -q "secretName: km-keytab" <<<"$krb_out" || fail "kerberos render does not mount the keytab Secret"
+grep -q "mountPath: /app/kerberos/keytab" <<<"$krb_out" || fail "kerberos render has no keytab mount"
+grep -q "name: km-krb5" <<<"$krb_out" || fail "kerberos render does not mount the krb5.conf ConfigMap"
+grep -q "mountPath: /app/kerberos/krb5" <<<"$krb_out" || fail "kerberos render has no krb5.conf mount"
+grep -q "keytab_path: /app/kerberos/keytab/kafka.keytab" <<<"$krb_out" || fail "kerberos render has no keytab_path in the config"
+grep -q "sasl_mechanism: GSSAPI" <<<"$krb_out" || fail "kerberos render has no GSSAPI source security"
+if grep -q "kerberos-keytab" <<<"$default_out"; then
+  fail "default render mounts a keytab"
+fi
+
 if helm template km "$chart" --set replicaCount=2 >/dev/null 2>&1; then
   fail "render accepts replicaCount other than 1"
 fi

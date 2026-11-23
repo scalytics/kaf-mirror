@@ -522,25 +522,89 @@ All values are listed in [deploy/helm/kaf-mirror/README.md](deploy/helm/kaf-mirr
 
 ## Security
 
-### Kerberos Authentication
+### Kafka Cluster Authentication
 
-This application supports Kerberos authentication for connecting to Kafka clusters. To enable Kerberos, you will need to configure the following in your `configs/default.yml` file for both the source and target clusters:
+The consumer, the producer, the admin client, `POST /api/v1/clusters/test`, the topic list and detail views, the cluster status check and the inventory snapshot all build their Kafka client options with one function, `kafka.ClientOptions`. A cluster that connects in the test also connects when a job runs.
+
+*   **TLS:** on when `security.protocol` is `SSL` or `SASL_SSL`, and always for the `confluent` and `azure` providers. The client checks the broker certificate against the system trust store and needs TLS 1.2 or newer.
+*   **Generic SASL:** used when `security.enabled` is `true` and `security.sasl_mechanism` is set. `PLAIN`, `SCRAM-SHA-256` and `SCRAM-SHA-512` need `username` and `password`. `GSSAPI` needs the Kerberos settings below. Any other mechanism is an error.
+*   **Provider presets:** `confluent` uses SASL PLAIN with `api_key` and `api_secret`. `azure` uses SASL PLAIN with the user `$ConnectionString` and `connection_string`. `redpanda` with `username` and `password` and no `sasl_mechanism` uses TLS and SCRAM-SHA-256. With an explicit `sasl_mechanism`, a `redpanda` cluster uses the generic settings.
+*   **Validation:** creating or updating a cluster and `POST /api/v1/clusters/test` answer HTTP 400 when `security_config` is not a JSON object, a mechanism is unknown, a password is missing or a GSSAPI path is missing.
+*   **Logs:** kaf-mirror logs the provider, whether TLS is on and the mechanism name. It never logs a password, API secret or connection string.
+
+A cluster with SCRAM-SHA-512 in the config file:
+```yaml
+clusters:
+  source:
+    provider: "plain"
+    brokers: "broker1:9093,broker2:9093"
+    security:
+      enabled: true
+      protocol: "SASL_SSL"
+      sasl_mechanism: "SCRAM-SHA-512"
+      username: "kaf-mirror"
+      password: ""
+```
+Keep `password: ""` in the file and set the value from the environment, for example from a Kubernetes Secret with `secretEnv` and the variable `KAF_MIRROR_CLUSTERS_SOURCE_SECURITY_PASSWORD`. kaf-mirror only reads an environment override for a key that is in the config file.
+
+Test a SASL cluster before you save it. The body takes the same fields as `POST /api/v1/clusters`, plus an optional `security` object. Write the body to a file that only you can read, so the password is not on the command line:
+```bash
+umask 077
+"${EDITOR:-vi}" scram-test.json
+curl -s -X POST "$KM/clusters/test" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @scram-test.json
+```
+with this content in `scram-test.json`:
+```json
+{"provider":"plain","brokers":"broker1:9093","security":{"enabled":true,"protocol":"SASL_SSL","sasl_mechanism":"SCRAM-SHA-512","username":"kaf-mirror","password":"<password>"}}
+```
+
+### Kerberos (GSSAPI)
+
+kaf-mirror logs in with a keytab through franz-go and gokrb5. It needs three file paths and no inline secret:
+
+| Key | Description |
+|---|---|
+| `security.kerberos.principal` | Client principal, for example `kaf-mirror@EXAMPLE.COM`. Without `@REALM`, `default_realm` from `krb5.conf` is used. |
+| `security.kerberos.keytab_path` | Path to the keytab file inside the container. |
+| `security.kerberos.krb5_conf_path` | Path to `krb5.conf` inside the container. |
+| `security.kerberos.service_name` | Kerberos service name of the brokers. Default `kafka`. |
+
+The keytab and `krb5.conf` are read when a client is created. A missing or unreadable file fails the client with the path in the error.
 
 ```yaml
-source_cluster:
-  brokers: "broker1:9092,broker2:9092"
-  security:
-    enabled: true
-    sasl_mechanism: "GSSAPI"
-    kerberos:
-      service_name: "kafka"
-      jaas_config: |
-        com.sun.security.auth.module.Krb5LoginModule required
-        useKeyTab=true
-        storeKey=true
-        keyTab="/path/to/your/keytab.keytab"
-        principal="your-principal@YOUR-REALM.COM";
+clusters:
+  source:
+    provider: "plain"
+    brokers: "broker1.example.com:9093"
+    security:
+      enabled: true
+      protocol: "SASL_SSL"
+      sasl_mechanism: "GSSAPI"
+      kerberos:
+        service_name: "kafka"
+        principal: "kaf-mirror@EXAMPLE.COM"
+        keytab_path: "/app/kerberos/keytab/kafka.keytab"
+        krb5_conf_path: "/app/kerberos/krb5/krb5.conf"
 ```
+
+The same settings for a cluster created with the API:
+```bash
+curl -s -X POST "$KM/clusters" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"src","provider":"plain","brokers":"broker1.example.com:9093","security_config":"{\"enabled\":true,\"protocol\":\"SASL_SSL\",\"sasl_mechanism\":\"GSSAPI\",\"kerberos\":{\"service_name\":\"kafka\",\"principal\":\"kaf-mirror@EXAMPLE.COM\",\"keytab_path\":\"/app/kerberos/keytab/kafka.keytab\",\"krb5_conf_path\":\"/app/kerberos/krb5/krb5.conf\"}}"}'
+```
+
+In Docker, mount the keytab and `krb5.conf` read-only. The container runs as UID 100 and GID 101, so give that group read access to the keytab:
+```bash
+chgrp 101 kafka.keytab && chmod 0440 kafka.keytab
+docker run -d --name kaf-mirror -p 8080:8080 \
+  -v kaf-mirror-data:/app/data \
+  -v kaf-mirror-logs:/app/logs \
+  -v "$PWD/kafka.keytab:/app/kerberos/keytab/kafka.keytab:ro" \
+  -v "$PWD/krb5.conf:/app/kerberos/krb5/krb5.conf:ro" \
+  kaf-mirror:local
+```
+
+In Kubernetes with the Helm chart, keep the keytab in a Secret and `krb5.conf` in a ConfigMap, and set `kerberos.keytabSecret` and `kerberos.krb5ConfigMap`. The chart mounts them at `/app/kerberos/keytab` and `/app/kerberos/krb5`. See "Kerberos" in [deploy/helm/kaf-mirror/README.md](deploy/helm/kaf-mirror/README.md).
 
 ## API Documentation
 
@@ -607,7 +671,7 @@ No separate disk buffer. Kafka's retention *is* the buffer. This simplifies oper
 | franz-go engine | High-perf, idempotent producer (section 2.2) |
 | Topic governance | Mapping rules, naming conventions (section 2.1) |
 | Lag monitoring | Backpressure as signal (section 3.2) |
-| Multi-cluster auth | Kerberos, TLS, SASL (section 2.5) |
+| Multi-cluster auth | TLS, SASL PLAIN, SCRAM and Kerberos (see "Kafka Cluster Authentication") |
 | Audit trails | Compliance and ownership (section 1.5) |
 | AI insights | Anomaly detection before incidents |
 

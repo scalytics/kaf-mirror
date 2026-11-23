@@ -348,13 +348,27 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/config.ClusterConfig"
+                            "$ref": "#/definitions/database.KafkaCluster"
                         }
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -2889,6 +2903,23 @@ const docTemplate = `{
                 }
             }
         },
+        "config.KerberosConfig": {
+            "type": "object",
+            "properties": {
+                "keytab_path": {
+                    "type": "string"
+                },
+                "krb5_conf_path": {
+                    "type": "string"
+                },
+                "principal": {
+                    "type": "string"
+                },
+                "service_name": {
+                    "type": "string"
+                }
+            }
+        },
         "config.LoggingConfig": {
             "type": "object",
             "properties": {
@@ -3005,12 +3036,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "kerberos": {
-                    "type": "object",
-                    "properties": {
-                        "service_name": {
-                            "type": "string"
-                        }
-                    }
+                    "$ref": "#/definitions/config.KerberosConfig"
                 },
                 "password": {
                     "type": "string"

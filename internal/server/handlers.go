@@ -210,6 +210,9 @@ func (s *Server) handleCreateCluster(c *fiber.Ctx) error {
 	}
 
 	cluster.Role = protection.NormalizeRole(cluster.Role)
+	if err := validateClusterRow(cluster); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
 	if err := database.CreateCluster(s.Db, &cluster); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create cluster")
 	}
@@ -261,6 +264,9 @@ func (s *Server) handleUpdateCluster(c *fiber.Ctx) error {
 		cluster.Role = existing.Role
 	}
 	cluster.Role = protection.NormalizeRole(cluster.Role)
+	if err := validateClusterRow(cluster); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
 	if err := database.UpdateCluster(s.Db, &cluster); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update cluster")
 	}
@@ -450,31 +456,49 @@ func (s *Server) handleGetClusterStatus(c *fiber.Ctx) error {
 // @Tags clusters
 // @Accept json
 // @Produce json
-// @Param cluster body config.ClusterConfig true "Kafka Cluster"
+// @Param cluster body database.KafkaCluster true "Kafka Cluster"
 // @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]interface{}
+// @Failure 503 {object} map[string]interface{}
 // @Router /clusters/test [post]
 // @Security ApiKeyAuth
 func (s *Server) handleTestClusterConnection(c *fiber.Ctx) error {
 	var req struct {
-		config.ClusterConfig
-		Security struct {
-			APIKey    string `json:"api_key"`
-			APISecret string `json:"api_secret"`
-		} `json:"security"`
+		database.KafkaCluster
+		Security *config.SecurityConfig `json:"security"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
+	if err := database.ParseSecurityConfig(req.SecurityConfig); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
 
-	clusterConfig := req.ClusterConfig
-	clusterConfig.Security.APIKey = req.Security.APIKey
-	clusterConfig.Security.APISecret = req.Security.APISecret
+	clusterConfig := database.ClusterConfigFromRow(req.KafkaCluster)
+	if req.Security != nil {
+		database.MergeSecurity(&clusterConfig.Security, *req.Security)
+		if clusterConfig.Security.APIKey != "" || clusterConfig.Security.Username != "" {
+			clusterConfig.Security.Enabled = true
+		}
+	}
+	if err := kafka.ValidateSecurity(clusterConfig); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
 
-	if err := kafka.TestConnection(context.Background(), clusterConfig); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), clusterTestTimeout)
+	defer cancel()
+	if err := kafka.TestConnection(ctx, clusterConfig); err != nil {
 		return fiber.NewError(fiber.StatusServiceUnavailable, fmt.Sprintf("Failed to connect to cluster: %v", err))
 	}
 
 	return c.JSON(fiber.Map{"status": "success", "message": "Connection successful"})
+}
+
+func validateClusterRow(cluster database.KafkaCluster) error {
+	if err := database.ParseSecurityConfig(cluster.SecurityConfig); err != nil {
+		return err
+	}
+	return kafka.ValidateSecurity(database.ClusterConfigFromRow(cluster))
 }
 
 // handleListJobs godoc
@@ -1653,6 +1677,8 @@ func GenerateRandomPassword(length int) (string, error) {
 
 const minPasswordLength = 12
 
+const clusterTestTimeout = 15 * time.Second
+
 func validatePassword(password string) error {
 	if len(password) < minPasswordLength {
 		return fmt.Errorf("password must be at least %d characters", minPasswordLength)
@@ -2347,24 +2373,8 @@ func (s *Server) handleCalculateResumePoints(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Target cluster not found")
 	}
 
-	// Create cluster configs
-	sourceConfig := config.ClusterConfig{
-		Provider: sourceCluster.Provider,
-		Brokers:  sourceCluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    sourceCluster.APIKey,
-			APISecret: sourceCluster.APISecret,
-		},
-	}
-
-	targetConfig := config.ClusterConfig{
-		Provider: targetCluster.Provider,
-		Brokers:  targetCluster.Brokers,
-		Security: config.SecurityConfig{
-			APIKey:    targetCluster.APIKey,
-			APISecret: targetCluster.APISecret,
-		},
-	}
+	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
+	targetConfig := database.ClusterConfigFromRow(*targetCluster)
 
 	// Get topic mappings
 	mappings, err := database.GetMappingsForJob(s.Db, jobID)

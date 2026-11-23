@@ -71,6 +71,34 @@ VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f secret-values.yaml --wait
 ```
 
+## Kerberos
+
+For a cluster with SASL GSSAPI, keep the keytab in a Secret and `krb5.conf` in a ConfigMap. The chart mounts the keytab read-only at `/app/kerberos/keytab/<kerberos.keytabKey>` with mode `0440`, readable by the pod group 101, and `krb5.conf` at `/app/kerberos/krb5/<kerberos.krb5ConfKey>`. The paths are only file paths in the config. No secret goes into the values or onto the command line.
+
+```bash
+kubectl create secret generic km-keytab --from-file=kafka.keytab=./kafka.keytab
+kubectl create configmap km-krb5 --from-file=krb5.conf=./krb5.conf
+cat > kerberos-values.yaml <<'VALUES'
+kerberos:
+  keytabSecret: km-keytab
+  krb5ConfigMap: km-krb5
+config:
+  sourceBrokers: "broker1.example.com:9093"
+  sourceSecurity:
+    enabled: true
+    protocol: SASL_SSL
+    sasl_mechanism: GSSAPI
+    kerberos:
+      service_name: kafka
+      principal: kaf-mirror@EXAMPLE.COM
+      keytab_path: /app/kerberos/keytab/kafka.keytab
+      krb5_conf_path: /app/kerberos/krb5/krb5.conf
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f kerberos-values.yaml --wait
+```
+
+`config.sourceSecurity` and `config.targetSecurity` are written as `security` of the `source` and `target` clusters in the config file. For clusters you create with the API, use the same paths in `security_config`. For SASL PLAIN or SCRAM, keep `password: ""` in `config.sourceSecurity` and set `KAF_MIRROR_CLUSTERS_SOURCE_SECURITY_PASSWORD` with `secretEnv`, so the password stays in a Secret.
+
 ## Upgrades and SQLite
 
 The Deployment uses the `Recreate` strategy. SQLite on a ReadWriteOnce volume must not be opened by two pods, so an upgrade stops the old pod before the new one starts. Expect a short gap in replication during an upgrade. The chart runs exactly one pod, and rendering fails if `replicaCount` is set to anything other than 1.
@@ -96,6 +124,12 @@ The Deployment uses the `Recreate` strategy. SQLite on a ReadWriteOnce volume mu
 | `config.logLevel` | `INFO` | `logging.level`. |
 | `config.sourceBrokers` | `kafka-source:9092` | Brokers of the `source` cluster in the config file. |
 | `config.targetBrokers` | `kafka-target:9092` | Brokers of the `target` cluster in the config file. |
+| `config.sourceSecurity` | `enabled: false` | `security` block of the `source` cluster in the config file. Do not put passwords here; see Kerberos. |
+| `config.targetSecurity` | `enabled: false` | `security` block of the `target` cluster in the config file. |
+| `kerberos.keytabSecret` | `""` | Secret with the Kerberos keytab. When set, it is mounted at `/app/kerberos/keytab`. |
+| `kerberos.keytabKey` | `kafka.keytab` | Key of the keytab in the Secret, and its file name in the mount. |
+| `kerberos.krb5ConfigMap` | `""` | ConfigMap with `krb5.conf`. When set, it is mounted at `/app/kerberos/krb5`. |
+| `kerberos.krb5ConfKey` | `krb5.conf` | Key of `krb5.conf` in the ConfigMap, and its file name in the mount. |
 | `secretEnv` | `[]` | List of `name`, `secretName` and `key`. Each entry sets an environment variable from a Secret key. |
 | `persistence.enabled` | `true` | Keep `/app/data` on a PVC. With `false`, data is lost when the pod is replaced. |
 | `persistence.storageClass` | `""` | StorageClass of the PVC. Empty uses the cluster default. |
@@ -118,4 +152,4 @@ The Deployment uses the `Recreate` strategy. SQLite on a ReadWriteOnce volume mu
 | `tolerations` | `[]` | Pod tolerations. |
 | `affinity` | `{}` | Pod affinity. |
 
-`make helm-check` lints the chart and renders the default, TLS, Secret and ServiceMonitor cases. `go test ./tests/deploy/` fails when a key in `values.yaml` is not read by any template.
+`make helm-check` lints the chart and renders the default, TLS, Secret, ServiceMonitor and Kerberos cases. `go test ./tests/deploy/` fails when a key in `values.yaml` is not read by any template.

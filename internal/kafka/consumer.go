@@ -13,19 +13,14 @@ package kafka
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/pkg/logger"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/sasl/kerberos"
-	"github.com/twmb/franz-go/pkg/sasl/plain"
-	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
 
 type ConsumerMetrics struct {
@@ -75,7 +70,6 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 	}
 
 	opts := []kgo.Opt{
-		kgo.SeedBrokers(strings.Split(cfg.Brokers, ",")...),
 		kgo.ConsumerGroup(groupID),
 		kgo.ConsumeTopics(topics...),
 		kgo.FetchMaxBytes(int32(replicationCfg.BatchSize * 1024)),
@@ -97,93 +91,11 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 	logger.Debug("Consumer configuration: batch_size=%dKB, parallelism=%d, job=%s, component=%s",
 		replicationCfg.BatchSize, replicationCfg.Parallelism, jobID, "consumer")
 
-	if strings.Contains(strings.ToUpper(cfg.Security.Protocol), "SSL") {
-		logger.Info("Consumer: Enabling TLS connection")
-		tlsConfig := &tls.Config{
-			InsecureSkipVerify: false,
-		}
-		opts = append(opts, kgo.Dialer((&tls.Dialer{Config: tlsConfig}).DialContext))
+	securityOpts, err := ClientOptions(cfg)
+	if err != nil {
+		return nil, err
 	}
-
-	// Generic SASL authentication for traditional Kafka clusters
-	if cfg.Security.Enabled && cfg.Security.SASLMechanism != "" {
-		logger.Info("Consumer: Configuring SASL authentication: mechanism=%s", cfg.Security.SASLMechanism)
-		switch strings.ToUpper(cfg.Security.SASLMechanism) {
-		case "GSSAPI":
-			if cfg.Security.Kerberos.ServiceName == "" {
-				return nil, fmt.Errorf("Kerberos service name is required for GSSAPI")
-			}
-			logger.Debug("Consumer: Using Kerberos authentication with service=%s", cfg.Security.Kerberos.ServiceName)
-			kerberosAuth := kerberos.Auth{
-				Service: cfg.Security.Kerberos.ServiceName,
-			}
-			opts = append(opts, kgo.SASL(kerberosAuth.AsMechanism()))
-		case "PLAIN":
-			if cfg.Security.Username == "" || cfg.Security.Password == "" {
-				return nil, fmt.Errorf("username and password are required for PLAIN authentication")
-			}
-			logger.Debug("Consumer: Using PLAIN authentication with username=%s", cfg.Security.Username)
-			opts = append(opts, kgo.SASL(plain.Auth{
-				User: cfg.Security.Username,
-				Pass: cfg.Security.Password,
-			}.AsMechanism()))
-		case "SCRAM-SHA-256", "SCRAM-SHA-512":
-			if cfg.Security.Username == "" || cfg.Security.Password == "" {
-				return nil, fmt.Errorf("username and password are required for SCRAM authentication")
-			}
-			logger.Debug("Consumer: Using SCRAM authentication: mechanism=%s, username=%s",
-				cfg.Security.SASLMechanism, cfg.Security.Username)
-			auth := scram.Auth{
-				User: cfg.Security.Username,
-				Pass: cfg.Security.Password,
-			}
-			if strings.ToUpper(cfg.Security.SASLMechanism) == "SCRAM-SHA-512" {
-				opts = append(opts, kgo.SASL(auth.AsSha512Mechanism()))
-			} else {
-				opts = append(opts, kgo.SASL(auth.AsSha256Mechanism()))
-			}
-		default:
-			return nil, fmt.Errorf("unsupported SASL mechanism: %s", cfg.Security.SASLMechanism)
-		}
-	}
-
-	switch cfg.Provider {
-	case "confluent":
-		if cfg.Security.APIKey == "" || cfg.Security.APISecret == "" {
-			return nil, fmt.Errorf("confluent provider requires API key and secret")
-		}
-		logger.Info("Consumer: Configuring Confluent Cloud connection with API key authentication")
-		// Confluent Cloud always requires TLS and SASL PLAIN
-		tlsConfig := &tls.Config{}
-		opts = append(opts, kgo.DialTLSConfig(tlsConfig))
-		opts = append(opts, kgo.SASL(plain.Auth{
-			User: cfg.Security.APIKey,
-			Pass: cfg.Security.APISecret,
-		}.AsMechanism()))
-
-	case "redpanda":
-		logger.Info("Consumer: Configuring RedPanda connection")
-		// RedPanda Cloud typically uses TLS + SASL SCRAM
-		if cfg.Security.Username != "" && cfg.Security.Password != "" {
-			tlsConfig := &tls.Config{}
-			opts = append(opts, kgo.DialTLSConfig(tlsConfig))
-			opts = append(opts, kgo.SASL(scram.Auth{
-				User: cfg.Security.Username,
-				Pass: cfg.Security.Password,
-			}.AsSha256Mechanism()))
-		}
-
-	case "plain":
-		logger.Info("Consumer: Using plain Kafka configuration")
-		// Plain Kafka uses the existing security configuration logic above
-		// No additional provider-specific setup needed
-
-	default:
-		// For unknown providers, log a warning but continue with generic setup
-		if cfg.Provider != "" {
-			logger.Warn("Consumer: Unknown provider '%s', using generic configuration", cfg.Provider)
-		}
-	}
+	opts = append(securityOpts, opts...)
 
 	logger.Info("Consumer: Establishing connection to Kafka brokers, job=%s, component=%s", jobID, "consumer")
 	client, err := kgo.NewClient(opts...)

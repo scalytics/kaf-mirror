@@ -78,35 +78,52 @@ func ClusterConfigFromRow(cluster KafkaCluster) config.ClusterConfig {
 	if cluster.SecurityConfig != "" && cluster.SecurityConfig != "{}" && cluster.SecurityConfig != config.SecretPlaceholder {
 		var sec config.SecurityConfig
 		if err := json.Unmarshal([]byte(cluster.SecurityConfig), &sec); err == nil {
-			out.Security.Enabled = sec.Enabled || out.Security.Enabled
-			if sec.Protocol != "" {
-				out.Security.Protocol = sec.Protocol
-			}
-			if sec.SASLMechanism != "" {
-				out.Security.SASLMechanism = sec.SASLMechanism
-			}
-			if sec.Username != "" {
-				out.Security.Username = sec.Username
-			}
-			if sec.Password != "" {
-				out.Security.Password = sec.Password
-			}
-			if sec.APIKey != "" {
-				out.Security.APIKey = sec.APIKey
-			}
-			if sec.APISecret != "" {
-				out.Security.APISecret = sec.APISecret
-			}
-			if sec.ConnectionString != nil {
-				out.Security.ConnectionString = sec.ConnectionString
-			}
-			out.Security.Kerberos = sec.Kerberos
+			MergeSecurity(&out.Security, sec)
 		}
 	}
 	if out.Security.APIKey != "" || out.Security.Username != "" || out.Security.Password != "" {
 		out.Security.Enabled = true
 	}
 	return out
+}
+
+func MergeSecurity(dst *config.SecurityConfig, sec config.SecurityConfig) {
+	dst.Enabled = sec.Enabled || dst.Enabled
+	if sec.Protocol != "" {
+		dst.Protocol = sec.Protocol
+	}
+	if sec.SASLMechanism != "" {
+		dst.SASLMechanism = sec.SASLMechanism
+	}
+	if sec.Username != "" {
+		dst.Username = sec.Username
+	}
+	if sec.Password != "" {
+		dst.Password = sec.Password
+	}
+	if sec.APIKey != "" {
+		dst.APIKey = sec.APIKey
+	}
+	if sec.APISecret != "" {
+		dst.APISecret = sec.APISecret
+	}
+	if sec.ConnectionString != nil {
+		dst.ConnectionString = sec.ConnectionString
+	}
+	if sec.Kerberos != (config.KerberosConfig{}) {
+		dst.Kerberos = sec.Kerberos
+	}
+}
+
+func ParseSecurityConfig(raw string) error {
+	if raw == "" || raw == "{}" || raw == config.SecretPlaceholder {
+		return nil
+	}
+	var sec config.SecurityConfig
+	if err := json.Unmarshal([]byte(raw), &sec); err != nil {
+		return errors.New("security_config must be a JSON object")
+	}
+	return nil
 }
 
 // ListClusters retrieves all Kafka clusters from the database.

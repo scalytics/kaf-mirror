@@ -13,19 +13,16 @@ package kafka
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/pkg/logger"
-	"strings"
+
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/sasl/plain"
-	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
 
 type ClusterInfo struct {
@@ -94,41 +91,14 @@ type PartitionOffsetComparison struct {
 
 type AdminClient struct {
 	client *kadm.Client
+	raw    *kgo.Client
 	cfg    config.ClusterConfig
 }
 
 func NewAdminClient(cfg config.ClusterConfig) (*AdminClient, error) {
-	opts, err := GetKgoOpts(cfg)
+	opts, err := adminOptions(cfg)
 	if err != nil {
 		return nil, err
-	}
-
-	useTLS := strings.Contains(strings.ToUpper(cfg.Security.Protocol), "SSL")
-	if cfg.Provider == "confluent" {
-		useTLS = true
-	}
-
-	if useTLS {
-		opts = append(opts, kgo.DialTLSConfig(&tls.Config{}))
-	}
-
-	switch cfg.Provider {
-	case "confluent":
-		if cfg.Security.APIKey == "" || cfg.Security.APISecret == "" {
-			return nil, fmt.Errorf("confluent provider requires API key and secret")
-		}
-		opts = append(opts, kgo.SASL(plain.Auth{
-			User: cfg.Security.APIKey,
-			Pass: cfg.Security.APISecret,
-		}.AsMechanism()))
-
-	case "redpanda":
-		if cfg.Security.Username != "" && cfg.Security.Password != "" {
-			opts = append(opts, kgo.SASL(scram.Auth{
-				User: cfg.Security.Username,
-				Pass: cfg.Security.Password,
-			}.AsSha256Mechanism()))
-		}
 	}
 
 	client, err := kgo.NewClient(opts...)
@@ -136,60 +106,20 @@ func NewAdminClient(cfg config.ClusterConfig) (*AdminClient, error) {
 		return nil, fmt.Errorf("failed to create admin client: %w", err)
 	}
 
-	adminClient := kadm.NewClient(client)
 	return &AdminClient{
-		client: adminClient,
+		client: kadm.NewClient(client),
+		raw:    client,
 		cfg:    cfg,
 	}, nil
 }
 
-func GetKgoOpts(cfg config.ClusterConfig) ([]kgo.Opt, error) {
-	opts := []kgo.Opt{
-		kgo.SeedBrokers(strings.Split(cfg.Brokers, ",")...),
-		kgo.RequestTimeoutOverhead(30 * time.Second),
-	}
-
-	useTLS := strings.Contains(strings.ToUpper(cfg.Security.Protocol), "SSL")
-	if cfg.Provider == "confluent" {
-		useTLS = true
-	}
-
-	if useTLS {
-		opts = append(opts, kgo.DialTLSConfig(&tls.Config{}))
-	}
-
-	switch cfg.Provider {
-	case "confluent":
-		if cfg.Security.APIKey == "" || cfg.Security.APISecret == "" {
-			return nil, fmt.Errorf("confluent provider requires API key and secret")
-		}
-		opts = append(opts, kgo.SASL(plain.Auth{
-			User: cfg.Security.APIKey,
-			Pass: cfg.Security.APISecret,
-		}.AsMechanism()))
-
-	case "redpanda":
-		if cfg.Security.Username != "" && cfg.Security.Password != "" {
-			opts = append(opts, kgo.SASL(scram.Auth{
-				User: cfg.Security.Username,
-				Pass: cfg.Security.Password,
-			}.AsSha256Mechanism()))
-		}
-	case "azure":
-		if cfg.Security.ConnectionString == nil || *cfg.Security.ConnectionString == "" {
-			return nil, fmt.Errorf("azure provider requires a connection string")
-		}
-		opts = append(opts, kgo.SASL(plain.Auth{
-			User: "$ConnectionString",
-			Pass: *cfg.Security.ConnectionString,
-		}.AsMechanism()))
-	}
-	return opts, nil
+func (a *AdminClient) KgoClientForTest() *kgo.Client {
+	return a.raw
 }
 
 // TestConnection checks if a connection can be established to the cluster.
 func TestConnection(ctx context.Context, cfg config.ClusterConfig) error {
-	opts, err := GetKgoOpts(cfg)
+	opts, err := adminOptions(cfg)
 	if err != nil {
 		return err
 	}

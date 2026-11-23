@@ -76,6 +76,16 @@ spec:
               mountPath: /app/tls
               readOnly: true
             {{- end }}
+            {{- if .Values.kerberos.keytabSecret }}
+            - name: kerberos-keytab
+              mountPath: /app/kerberos/keytab
+              readOnly: true
+            {{- end }}
+            {{- if .Values.kerberos.krb5ConfigMap }}
+            - name: kerberos-krb5
+              mountPath: /app/kerberos/krb5
+              readOnly: true
+            {{- end }}
       volumes:
         - name: config
           configMap:
@@ -100,6 +110,23 @@ spec:
                 path: {{ .Values.config.server.tls.certKey }}
               - key: {{ .Values.config.server.tls.keyKey }}
                 path: {{ .Values.config.server.tls.keyKey }}
+        {{- end }}
+        {{- if .Values.kerberos.keytabSecret }}
+        - name: kerberos-keytab
+          secret:
+            secretName: {{ .Values.kerberos.keytabSecret }}
+            defaultMode: 288
+            items:
+              - key: {{ .Values.kerberos.keytabKey }}
+                path: {{ .Values.kerberos.keytabKey }}
+        {{- end }}
+        {{- if .Values.kerberos.krb5ConfigMap }}
+        - name: kerberos-krb5
+          configMap:
+            name: {{ .Values.kerberos.krb5ConfigMap }}
+            items:
+              - key: {{ .Values.kerberos.krb5ConfKey }}
+                path: {{ .Values.kerberos.krb5ConfKey }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

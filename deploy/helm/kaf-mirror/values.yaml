@@ -23,6 +23,16 @@ config:
   logLevel: "INFO"
   sourceBrokers: "kafka-source:9092"
   targetBrokers: "kafka-target:9092"
+  sourceSecurity:
+    enabled: false
+  targetSecurity:
+    enabled: false
+
+kerberos:
+  keytabSecret: ""
+  keytabKey: "kafka.keytab"
+  krb5ConfigMap: ""
+  krb5ConfKey: "krb5.conf"
 
 secretEnv: []
 

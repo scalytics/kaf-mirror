@@ -117,6 +117,17 @@ definitions:
           type: string
         type: array
     type: object
+  config.KerberosConfig:
+    properties:
+      keytab_path:
+        type: string
+      krb5_conf_path:
+        type: string
+      principal:
+        type: string
+      service_name:
+        type: string
+    type: object
   config.LoggingConfig:
     properties:
       console:
@@ -193,10 +204,7 @@ definitions:
       enabled:
         type: boolean
       kerberos:
-        properties:
-          service_name:
-            type: string
-        type: object
+        $ref: '#/definitions/config.KerberosConfig'
       password:
         type: string
       protocol:
@@ -1159,12 +1167,22 @@ paths:
         name: cluster
         required: true
         schema:
-          $ref: '#/definitions/config.ClusterConfig'
+          $ref: '#/definitions/database.KafkaCluster'
       produces:
       - application/json
       responses:
         "200":
           description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "503":
+          description: Service Unavailable
           schema:
             additionalProperties: true
             type: object
