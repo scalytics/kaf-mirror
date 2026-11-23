@@ -71,14 +71,8 @@ func NewProducer(cfg config.ClusterConfig, replicationCfg config.ReplicationConf
 		logger.Info("Producer: Using idempotent writes (franz-go default)")
 	}
 
-	securityOpts, err := ClientOptions(cfg)
-	if err != nil {
-		return nil, err
-	}
-	opts = append(securityOpts, opts...)
-
 	logger.Info("Producer: Establishing connection to Kafka brokers, job=%s, component=%s", jobID, "producer")
-	client, err := kgo.NewClient(opts...)
+	client, err := newClient(cfg, opts...)
 	if err != nil {
 		logger.ErrorAI("disaster", "connection", jobID, "Producer: Failed to create Kafka client: %v", err)
 		return nil, err

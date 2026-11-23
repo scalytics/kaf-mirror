@@ -27,6 +27,7 @@ All notable changes to this project are documented here.
 - Creating or updating a cluster answers HTTP 400 when `security_config` is not a JSON object, the SASL mechanism is unknown, a username or password is missing, or a GSSAPI cluster lacks the principal, keytab path or `krb5.conf` path (#36).
 - Creating, updating or testing a GSSAPI cluster validates the Kerberos settings when `enabled` is omitted. Before, security was turned on only for an API key, a username or a password, so a GSSAPI config without `enabled: true` was saved and the connection test ran without SASL (#36).
 - `POST /api/v1/clusters/test` uses the request context for its 15-second timeout, so a cancelled request does not keep the test running.
+- When the Kafka client cannot be created after its SASL GSSAPI login was set up, for example because a broker address has no valid port, the consumer, producer, admin client and connection test now close the Kerberos client. Before, it was left open.
 - A `confluent` cluster, or a `redpanda` cluster with a username, whose `protocol` is `SASL_SSL` no longer fails to create its consumer and producer with `cannot set both Dialer and DialTLSConfig`.
 - The consumer and producer of an `azure` cluster use TLS and SASL PLAIN with the connection string. Before, only the admin client did, so jobs on Event Hubs could not connect.
 - `POST /api/v1/jobs/{id}/mirror/resume-points` uses the full stored security config of both clusters. Before, it kept only `api_key` and `api_secret`.

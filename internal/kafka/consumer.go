@@ -91,14 +91,8 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 	logger.Debug("Consumer configuration: batch_size=%dKB, parallelism=%d, job=%s, component=%s",
 		replicationCfg.BatchSize, replicationCfg.Parallelism, jobID, "consumer")
 
-	securityOpts, err := ClientOptions(cfg)
-	if err != nil {
-		return nil, err
-	}
-	opts = append(securityOpts, opts...)
-
 	logger.Info("Consumer: Establishing connection to Kafka brokers, job=%s, component=%s", jobID, "consumer")
-	client, err := kgo.NewClient(opts...)
+	client, err := newClient(cfg, opts...)
 	if err != nil {
 		logger.ErrorAI("disaster", "connection", jobID, "Consumer: Failed to create Kafka client: %v", err)
 		return nil, err
