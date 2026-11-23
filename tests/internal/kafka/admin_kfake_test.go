@@ -142,3 +142,37 @@ func TestTopicLagTreatsAMissingCommitAsLogStart(t *testing.T) {
 	below := kadm.OffsetResponses{"t": {0: {Offset: kadm.Offset{Topic: "t", Partition: 0, At: 1}}}}
 	assert.Equal(t, int64(3+4), kafka.TopicLag("t", below, starts, ends))
 }
+
+func TestGetGroupLagSumsAllTopicsOfTheGroup(t *testing.T) {
+	c, adm, cl := startPlainCluster(t)
+	createTopic(t, adm, "a", 2, nil)
+	createTopic(t, adm, "b", 1, nil)
+	produceTo(t, cl, "a", 0, 6)
+	produceTo(t, cl, "a", 1, 2)
+	produceTo(t, cl, "b", 0, 5)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	group := "kaf-mirror-job-group-lag"
+	offsets := kadm.Offsets{}
+	offsets.AddOffset("a", 0, 4, -1)
+	offsets.AddOffset("b", 0, 1, -1)
+	committed, err := adm.CommitOffsets(ctx, group, offsets)
+	require.NoError(t, err)
+	require.NoError(t, committed.Error())
+
+	admin := plainAdmin(t, c)
+	lag, err := admin.GetGroupLag(ctx, group, "a", "b")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2+2+4), lag)
+
+	lagA, err := admin.GetTopicLag(ctx, group, "a")
+	require.NoError(t, err)
+	lagB, err := admin.GetTopicLag(ctx, group, "b")
+	require.NoError(t, err)
+	assert.Equal(t, lag, lagA+lagB)
+
+	lag, err = admin.GetGroupLag(ctx, group)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), lag)
+}

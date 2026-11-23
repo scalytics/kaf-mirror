@@ -444,28 +444,39 @@ func (a *AdminClient) ListTopics(ctx context.Context, topics ...string) (map[str
 }
 
 func (a *AdminClient) GetTopicLag(ctx context.Context, groupID, topic string) (int64, error) {
-	committed, err := a.client.FetchOffsetsForTopics(ctx, groupID, topic)
+	return a.GetGroupLag(ctx, groupID, topic)
+}
+
+func (a *AdminClient) GetGroupLag(ctx context.Context, groupID string, topics ...string) (int64, error) {
+	if len(topics) == 0 {
+		return 0, nil
+	}
+	committed, err := a.client.FetchOffsetsForTopics(ctx, groupID, topics...)
 	if errors.Is(err, kerr.GroupIDNotFound) {
 		committed, err = nil, nil
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch committed offsets: %w", err)
 	}
-	ends, err := a.client.ListEndOffsets(ctx, topic)
+	ends, err := a.client.ListEndOffsets(ctx, topics...)
 	if err == nil {
 		err = ends.Error()
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to list end offsets: %w", err)
 	}
-	starts, err := a.client.ListStartOffsets(ctx, topic)
+	starts, err := a.client.ListStartOffsets(ctx, topics...)
 	if err == nil {
 		err = starts.Error()
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to list start offsets: %w", err)
 	}
-	return TopicLag(topic, committed, starts, ends), nil
+	var total int64
+	for _, topic := range topics {
+		total += TopicLag(topic, committed, starts, ends)
+	}
+	return total, nil
 }
 
 func TopicLag(topic string, committed kadm.OffsetResponses, starts, ends kadm.ListedOffsets) int64 {

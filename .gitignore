@@ -74,3 +74,6 @@ coverage.txt
 
 # Deployment artifacts
 scripts/archive-tags.sh
+
+# Release build output
+/dist/

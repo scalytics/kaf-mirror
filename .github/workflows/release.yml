@@ -18,32 +18,18 @@ jobs:
       packages: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: '1.26.11'
 
       - name: Install cross-compiler for Linux
         run: sudo apt-get update && sudo apt-get install -y gcc-x86-64-linux-gnu
 
-      - name: Build for Linux
-        run: |
-          VERSION=${{ github.ref_name }}
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=x86_64-linux-gnu-gcc go build -v -ldflags="-s -w -X main.Version=$VERSION" -o kaf-mirror-linux-amd64 cmd/kaf-mirror/main.go
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=x86_64-linux-gnu-gcc go build -v -ldflags="-s -w" -o admin-cli-linux-amd64 cmd/admin-cli/main.go
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=x86_64-linux-gnu-gcc go build -v -ldflags="-s -w -X main.Version=$VERSION" -o mirror-cli-linux-amd64 cmd/mirror-cli/main.go
-
-      - name: Build for Windows
-        run: |
-          VERSION=${{ github.ref_name }}
-          GOOS=windows GOARCH=amd64 go build -v -ldflags="-s -w -X main.Version=$VERSION" -o mirror-cli-windows-amd64.exe cmd/mirror-cli/main.go
-
-      - name: Build for macOS
-        run: |
-          VERSION=${{ github.ref_name }}
-          GOOS=darwin GOARCH=amd64 go build -v -ldflags="-s -w -X main.Version=$VERSION" -o mirror-cli-darwin-amd64 cmd/mirror-cli/main.go
+      - name: Build release binaries
+        run: make release-binaries VERSION=${{ github.ref_name }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -70,11 +56,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            kaf-mirror-linux-amd64
-            admin-cli-linux-amd64
-            mirror-cli-linux-amd64
-            mirror-cli-windows-amd64.exe
-            mirror-cli-darwin-amd64
+            dist/kaf-mirror-linux-amd64
+            dist/admin-cli-linux-amd64
+            dist/mirror-cli-linux-amd64
+            dist/mirror-cli-windows-amd64.exe
+            dist/mirror-cli-darwin-amd64
           draft: false
           prerelease: false
           fail_on_unmatched_files: true

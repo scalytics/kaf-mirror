@@ -63,7 +63,11 @@ type KafMirrorImpl struct {
 	incidentMutex  sync.RWMutex
 	incidentHook   func(name string)
 	recordHook     func(topic string, key, value []byte)
+	lagAdmin       *AdminClient
+	groupLag       func(ctx context.Context, topics []string) (int64, error)
 }
+
+const groupLagTimeout = 5 * time.Second
 
 func (r *KafMirrorImpl) incidentStarted(name string) {
 	if r.incidentHook != nil {
@@ -100,6 +104,13 @@ func NewKafMirror(cfg *config.Config, db *sqlx.DB) (KafMirror, error) {
 		return nil, err
 	}
 
+	lagAdmin, err := NewAdminClient(cfg.Clusters["source"])
+	if err != nil {
+		consumer.Close()
+		producer.Close()
+		return nil, fmt.Errorf("failed to create source admin client for lag: %w", err)
+	}
+
 	return &KafMirrorImpl{
 		Consumer:          consumer,
 		Producer:          producer,
@@ -110,6 +121,10 @@ func NewKafMirror(cfg *config.Config, db *sqlx.DB) (KafMirror, error) {
 		rules:             rules,
 		discoveryInterval: discoveryInterval(cfg),
 		incidentStates:    make(map[string]bool),
+		lagAdmin:          lagAdmin,
+		groupLag: func(ctx context.Context, topics []string) (int64, error) {
+			return lagAdmin.GetGroupLag(ctx, consumerGroup, topics...)
+		},
 	}, nil
 }
 
@@ -187,6 +202,9 @@ func (r *KafMirrorImpl) Stop() {
 	r.wg.Wait()
 	r.Consumer.Close()
 	r.Producer.Close()
+	if r.lagAdmin != nil {
+		r.lagAdmin.Close()
+	}
 }
 
 // GetConsumer returns the underlying consumer.
@@ -307,6 +325,31 @@ func (s *stallProgress) stalled(consumed, replicated, lag int64) bool {
 	return s.idleTicks > 6
 }
 
+func (r *KafMirrorImpl) sourceTopics() []string {
+	r.mapMu.RLock()
+	defer r.mapMu.RUnlock()
+	topics := make([]string, 0, len(r.topicMap))
+	for topic := range r.topicMap {
+		topics = append(topics, topic)
+	}
+	sort.Strings(topics)
+	return topics
+}
+
+func (r *KafMirrorImpl) currentLag(ctx context.Context, fetchLag int64) int64 {
+	if r.groupLag == nil {
+		return fetchLag
+	}
+	ctx, cancel := context.WithTimeout(ctx, groupLagTimeout)
+	defer cancel()
+	lag, err := r.groupLag(ctx, r.sourceTopics())
+	if err != nil {
+		logger.Debug("[Job %s] Group lag unavailable, using fetch lag %d: %v", r.jobID, fetchLag, err)
+		return fetchLag
+	}
+	return lag
+}
+
 func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callback func(database.ReplicationMetric), onPanic func(jobID string, reason string)) {
 	interval := r.metricsInterval
 	if interval <= 0 {
@@ -334,7 +377,7 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 			totalConsumed := consumerMetrics.RecordsProcessed
 			totalConsumedBytes := consumerMetrics.BytesProcessed
 			totalErrors := producerMetrics.ErrorCount
-			currentLag := consumerMetrics.ConsumerLag
+			currentLag := r.currentLag(ctx, consumerMetrics.ConsumerLag)
 
 			// Detect performance disasters and incidents
 			logCounter++
@@ -1126,6 +1169,10 @@ func (r *KafMirrorImpl) WaitForFailureReportsForTest() {
 
 func (r *KafMirrorImpl) SetIncidentHookForTest(h func(name string)) {
 	r.incidentHook = h
+}
+
+func (r *KafMirrorImpl) SetGroupLagForTest(lag func(ctx context.Context, topics []string) (int64, error)) {
+	r.groupLag = lag
 }
 
 func (r *KafMirrorImpl) SetIntervalsForTest(metrics, discovery time.Duration) {
