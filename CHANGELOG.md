@@ -7,6 +7,7 @@ All notable changes to this project are documented here.
 - Replicated records keep the source timestamp. Before, the target record got the time of the copy (#27).
 - Replicated records keep the source partition. The producer now writes each record to the partition it came from. Before, the producer default partitioner chose the target partition (#28).
 - A record whose produce fails is no longer skipped with its offset committed. kaf-mirror tries it up to 5 times, waiting 1s, 2s, 4s and 8s between the attempts. If the fifth attempt fails, the job stops with status `failed` and the source offset stays at that record. Stopping a job while the target is down no longer hangs and does not commit the waiting record. See "Resilience and Buffering" in the README (#32).
+- A job that hits the producer error limit, a topic discovery error or a panic no longer hangs as `active` and keeps its partitions. It stops, leaves the source consumer group and is marked `failed` with the reason. A failure of an instance that was already stopped or restarted is ignored, so it no longer stops the new instance or marks the job `failed`. See "Failed Jobs" in the README (#33).
 - If the target topic has fewer partitions than the source while a job runs, records from the missing partitions fall back to key hash placement and kaf-mirror logs one warning per partition. See "What a Copied Record Keeps" in the README.
 
 ### Security

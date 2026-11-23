@@ -54,6 +54,7 @@ type KafMirrorImpl struct {
 	jobID             string
 	onPanic           func(jobID string, reason string)
 	discoveryInterval time.Duration
+	metricsInterval   time.Duration
 
 	// Incident tracking to prevent spam logging
 	incidentStates map[string]bool
@@ -126,7 +127,7 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 			if rec := recover(); rec != nil {
 				reason := fmt.Sprintf("consumer panic: %v", rec)
 				logger.Error("[Job %s] %s", jobID, reason)
-				onPanic(jobID, reason)
+				go onPanic(jobID, reason)
 			}
 		}()
 		logger.Info("[Job %s] Starting consumer goroutine", jobID)
@@ -148,7 +149,7 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 			if rec := recover(); rec != nil {
 				reason := fmt.Sprintf("metrics panic: %v", rec)
 				logger.Error("[Job %s] %s", jobID, reason)
-				onPanic(jobID, reason)
+				go onPanic(jobID, reason)
 			}
 		}()
 		logger.Info("[Job %s] Starting metrics collection goroutine", jobID)
@@ -272,7 +273,11 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) er
 }
 
 func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callback func(database.ReplicationMetric), onPanic func(jobID string, reason string)) {
-	ticker := time.NewTicker(10 * time.Second)
+	interval := r.metricsInterval
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	logger.Info("[Job %s] Metrics collection loop started", jobID)
@@ -315,7 +320,7 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 			if producerMetrics.ConsecutiveErrors > 100 {
 				reason := fmt.Sprintf("producer has failed %d consecutive times", producerMetrics.ConsecutiveErrors)
 				logger.Error("[Job %s] %s", jobID, reason)
-				onPanic(jobID, reason) // Use onPanic to trigger a shutdown
+				go onPanic(jobID, reason)
 				return
 			}
 
@@ -676,9 +681,10 @@ func (r *KafMirrorImpl) discoverTopicsLoop(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			if err := r.discoverAndSyncTopics(ctx); err != nil {
-				logger.Error("[Job %s] Topic discovery failed: %v", r.jobID, err)
+				reason := fmt.Sprintf("topic discovery failed: %v", err)
+				logger.Error("[Job %s] %s", r.jobID, reason)
 				if r.onPanic != nil {
-					r.onPanic(r.jobID, err.Error())
+					go r.onPanic(r.jobID, reason)
 				}
 				return
 			}
@@ -1119,6 +1125,11 @@ func NewKafMirrorImplForTest(producer *Producer, topicMap map[string]string) *Ka
 		topicMap:       topicMap,
 		incidentStates: make(map[string]bool),
 	}
+}
+
+func (r *KafMirrorImpl) SetIntervalsForTest(metrics, discovery time.Duration) {
+	r.metricsInterval = metrics
+	r.discoveryInterval = discovery
 }
 
 // ValidateAndSyncClustersForTest exposes cluster validation for unit tests.

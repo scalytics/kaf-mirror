@@ -59,6 +59,7 @@ type Consumer struct {
 	partMu           sync.Mutex
 	partCancels      map[topicPartition]context.CancelFunc
 	revoked          map[topicPartition]bool
+	sleep            func(context.Context, time.Duration) error
 }
 
 func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config.ReplicationConfig, jobID string, topics ...string) (*Consumer, error) {
@@ -276,14 +277,25 @@ func (c *Consumer) handleWithRetry(ctx context.Context, record *kgo.Record, hand
 			return err
 		}
 		logger.Warn("Consumer: produce attempt %d of %d failed for topic %s partition %d offset %d, retrying in %s: %v", attempt, c.produceAttempts, record.Topic, record.Partition, record.Offset, backoff, err)
-		timer := time.NewTimer(backoff)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
+		sleep := c.sleep
+		if sleep == nil {
+			sleep = sleepContext
+		}
+		if err := sleep(ctx, backoff); err != nil {
+			return err
 		}
 		backoff *= 2
+	}
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
@@ -426,6 +438,10 @@ func NewConsumerForTest(highWaterMarks map[string]map[int32]int64, lastOffsets m
 func (c *Consumer) SetProduceRetryForTest(attempts int, backoff time.Duration) {
 	c.produceAttempts = attempts
 	c.produceBackoff = backoff
+}
+
+func (c *Consumer) SetSleepForTest(sleep func(context.Context, time.Duration) error) {
+	c.sleep = sleep
 }
 
 func (c *Consumer) ProduceRetryForTest() (int, time.Duration) {
