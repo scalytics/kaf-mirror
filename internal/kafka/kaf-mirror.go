@@ -48,7 +48,6 @@ type KafMirrorImpl struct {
 	mappings          []config.TopicMapping
 	topicMap          map[string]string
 	regexMaps         []regexMapping
-	targetPartitions  map[string]int32
 	mapMu             sync.RWMutex
 	wg                sync.WaitGroup
 	cancelFunc        context.CancelFunc
@@ -79,8 +78,7 @@ func NewKafMirror(cfg *config.Config) (KafMirror, error) {
 	}
 
 	// Validate cluster compatibility and sync state before starting
-	targetPartitions, err := validateAndSyncClusters(cfg, topics, topicMap)
-	if err != nil {
+	if err := validateAndSyncClusters(cfg, topics, topicMap); err != nil {
 		return nil, fmt.Errorf("cluster validation failed: %w", err)
 	}
 
@@ -105,7 +103,6 @@ func NewKafMirror(cfg *config.Config) (KafMirror, error) {
 		mappings:          cfg.Topics,
 		topicMap:          topicMap,
 		regexMaps:         regexMaps,
-		targetPartitions:  targetPartitions,
 		discoveryInterval: discoveryInterval(cfg),
 		incidentStates:    make(map[string]bool),
 	}, nil
@@ -247,20 +244,14 @@ func (r *KafMirrorImpl) handleRecord(record *kgo.Record) error {
 
 	// Create a new record for the target topic
 	outRecord := &kgo.Record{
-		Topic:   targetTopic,
-		Value:   record.Value,
-		Key:     record.Key,
-		Headers: record.Headers,
+		Topic:     targetTopic,
+		Value:     record.Value,
+		Key:       record.Key,
+		Headers:   record.Headers,
+		Partition: record.Partition,
 	}
-	r.mapMu.RLock()
-	partitionCount, hasPartitions := r.targetPartitions[targetTopic]
-	r.mapMu.RUnlock()
-	if hasPartitions && partitionCount > 0 {
-		if record.Partition < partitionCount {
-			outRecord.Partition = record.Partition
-		} else {
-			logger.Warn("Source partition %d exceeds target partitions %d for topic %s", record.Partition, partitionCount, targetTopic)
-		}
+	if !record.Timestamp.IsZero() && record.Timestamp.UnixMilli() >= 0 {
+		outRecord.Timestamp = record.Timestamp
 	}
 
 	if err := r.Producer.ProduceSync(context.Background(), outRecord); err != nil {
@@ -508,7 +499,7 @@ func resolveTopicMappings(cfg *config.Config) ([]string, map[string]string, []re
 }
 
 // validateAndSyncClusters validates cluster compatibility and syncs state before replication
-func validateAndSyncClusters(cfg *config.Config, topics []string, topicMap map[string]string) (map[string]int32, error) {
+func validateAndSyncClusters(cfg *config.Config, topics []string, topicMap map[string]string) error {
 	logger.Info("Starting cluster validation and state synchronization")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -517,65 +508,63 @@ func validateAndSyncClusters(cfg *config.Config, topics []string, topicMap map[s
 	// Create admin clients for both clusters
 	sourceAdmin, err := adminClientFactory(cfg.Clusters["source"])
 	if err != nil {
-		return nil, fmt.Errorf("failed to create source admin client: %w", err)
+		return fmt.Errorf("failed to create source admin client: %w", err)
 	}
 	defer sourceAdmin.Close()
 
 	targetAdmin, err := adminClientFactory(cfg.Clusters["target"])
 	if err != nil {
-		return nil, fmt.Errorf("failed to create target admin client: %w", err)
+		return fmt.Errorf("failed to create target admin client: %w", err)
 	}
 	defer targetAdmin.Close()
 
 	// Get cluster information
 	sourceInfo, err := sourceAdmin.GetClusterInfo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get source cluster info: %w", err)
+		return fmt.Errorf("failed to get source cluster info: %w", err)
 	}
 
 	targetInfo, err := targetAdmin.GetClusterInfo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get target cluster info: %w", err)
+		return fmt.Errorf("failed to get target cluster info: %w", err)
 	}
 
 	logger.InfoAI("cluster", "validation", "", "Source cluster: %d brokers, %d topics", sourceInfo.BrokerCount, len(sourceInfo.Topics))
 	logger.InfoAI("cluster", "validation", "", "Target cluster: %d brokers, %d topics", targetInfo.BrokerCount, len(targetInfo.Topics))
 
 	// Validate and sync each topic mapping
-	targetPartitions := make(map[string]int32)
 	for sourceTopic, targetTopic := range topicMap {
 		logger.InfoAI("topic", "validation", "", "Validating topic mapping: %s -> %s", sourceTopic, targetTopic)
 
 		// Check if source topic exists
 		sourceTopicInfo, sourceExists := sourceInfo.Topics[sourceTopic]
 		if !sourceExists {
-			return nil, fmt.Errorf("source topic %s does not exist", sourceTopic)
+			return fmt.Errorf("source topic %s does not exist", sourceTopic)
 		}
 
 		// Ensure target topic exists with correct partitions
 		replicationFactor := clampReplicationFactor(sourceTopicInfo.ReplicationFactor, targetInfo.BrokerCount, sourceTopic)
 		err = ensureTopicWithRetry(ctx, targetAdmin, targetTopic, sourceTopicInfo.Partitions, replicationFactor)
 		if err != nil {
-			return nil, fmt.Errorf("failed to ensure target topic %s exists: %w", targetTopic, err)
+			return fmt.Errorf("failed to ensure target topic %s exists: %w", targetTopic, err)
 		}
 
 		// Re-fetch target info after potential topic creation
 		targetInfo, err = targetAdmin.GetClusterInfo(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to refresh target cluster info: %w", err)
+			return fmt.Errorf("failed to refresh target cluster info: %w", err)
 		}
 
 		// Validate topic compatibility
 		targetTopicInfo, targetExists := targetInfo.Topics[targetTopic]
 		if !targetExists {
-			return nil, fmt.Errorf("target topic %s does not exist after creation attempt", targetTopic)
+			return fmt.Errorf("target topic %s does not exist after creation attempt", targetTopic)
 		}
 
 		err = targetAdmin.ValidateTopicCompatibility(ctx, sourceTopicInfo, targetTopicInfo)
 		if err != nil {
-			return nil, fmt.Errorf("topic compatibility validation failed: %w", err)
+			return fmt.Errorf("topic compatibility validation failed: %w", err)
 		}
-		targetPartitions[targetTopic] = targetTopicInfo.Partitions
 
 		// Detect and log compression settings
 		sourceCompression := detectTopicCompression(&sourceTopicInfo)
@@ -667,7 +656,7 @@ func validateAndSyncClusters(cfg *config.Config, topics []string, topicMap map[s
 	}
 
 	logger.Info("Cluster validation and state synchronization completed successfully")
-	return targetPartitions, nil
+	return nil
 }
 
 func (r *KafMirrorImpl) discoverTopicsLoop(ctx context.Context) {
@@ -747,10 +736,6 @@ func (r *KafMirrorImpl) discoverAndSyncTopics(ctx context.Context) error {
 
 			r.mapMu.Lock()
 			r.topicMap[sourceTopic] = targetTopic
-			if r.targetPartitions == nil {
-				r.targetPartitions = make(map[string]int32)
-			}
-			r.targetPartitions[targetTopic] = sourceTopicInfo.Partitions
 			r.mapMu.Unlock()
 
 			r.Consumer.AddTopics(sourceTopic)
@@ -1119,16 +1104,15 @@ func ResolveTopicMappingsForTest(cfg *config.Config) ([]string, map[string]strin
 }
 
 // NewKafMirrorImplForTest builds a minimal KafMirrorImpl for unit tests.
-func NewKafMirrorImplForTest(producer *Producer, topicMap map[string]string, targetPartitions map[string]int32) *KafMirrorImpl {
+func NewKafMirrorImplForTest(producer *Producer, topicMap map[string]string) *KafMirrorImpl {
 	return &KafMirrorImpl{
-		Producer:         producer,
-		topicMap:         topicMap,
-		targetPartitions: targetPartitions,
-		incidentStates:   make(map[string]bool),
+		Producer:       producer,
+		topicMap:       topicMap,
+		incidentStates: make(map[string]bool),
 	}
 }
 
 // ValidateAndSyncClustersForTest exposes cluster validation for unit tests.
-func ValidateAndSyncClustersForTest(cfg *config.Config, topics []string, topicMap map[string]string) (map[string]int32, error) {
+func ValidateAndSyncClustersForTest(cfg *config.Config, topics []string, topicMap map[string]string) error {
 	return validateAndSyncClusters(cfg, topics, topicMap)
 }
