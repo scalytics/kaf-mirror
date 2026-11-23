@@ -4,8 +4,15 @@ The chart runs kaf-mirror as a single pod with a ConfigMap for its config, a Per
 
 ## Install
 
+The default image tag is `v1.3.1`. That published image does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, make it available to the cluster, and point the chart at it:
+
 ```bash
-helm install km deploy/helm/kaf-mirror --wait
+docker build -t kaf-mirror:local .
+helm install km deploy/helm/kaf-mirror \
+  --set image.repository=kaf-mirror \
+  --set image.tag=local \
+  --set image.pullPolicy=IfNotPresent \
+  --wait
 kubectl port-forward svc/km-kaf-mirror 8088:8088
 ```
 
@@ -29,7 +36,7 @@ kubectl exec deploy/km-kaf-mirror -- sh -c 'rm /app/data/kaf-mirror-bootstrap-*'
 
 ## TLS
 
-Create a TLS Secret from your certificate and key files, then point the chart at it. The Secret is mounted read-only at `/app/tls`, and the liveness and readiness probes switch to HTTPS.
+Create a TLS Secret from your certificate and key files, then point the chart at it. The Secret is mounted read-only at `/app/tls`, the liveness and readiness probes switch to HTTPS, and the ServiceMonitor scrapes HTTPS (it skips certificate verification, as the kubelet probes do).
 
 ```bash
 kubectl create secret tls km-tls --cert=server.crt --key=server.key
@@ -73,7 +80,7 @@ The Deployment uses the `Recreate` strategy. SQLite on a ReadWriteOnce volume mu
 | Key | Default | Description |
 |---|---|---|
 | `image.repository` | `ghcr.io/scalytics/kaf-mirror` | Image repository. |
-| `image.tag` | `v1.3.1` | Image tag. |
+| `image.tag` | `v1.3.1` | Image tag. It follows `appVersion`. Until a newer tag is published, set this to an image built from this repository, as in the Install section. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
 | `replicaCount` | `1` | Number of pods. Keep it at 1, SQLite is not shared. |
 | `service.type` | `ClusterIP` | Service type. |
@@ -102,7 +109,7 @@ The Deployment uses the `Recreate` strategy. SQLite on a ReadWriteOnce volume mu
 | `serviceAccount.name` | `""` | ServiceAccount name. Empty uses the release full name. |
 | `serviceAccount.annotations` | `{}` | ServiceAccount annotations. |
 | `labels` | `{}` | Extra labels on every object. |
-| `metrics.enabled` | `true` | Render a ServiceMonitor when the Prometheus Operator CRD is installed. |
+| `metrics.enabled` | `true` | Render a ServiceMonitor when the Prometheus Operator CRD is installed. When TLS is on, it scrapes HTTPS. |
 | `metrics.path` | `/metrics` | Metrics path. |
 | `metrics.serviceMonitor.labels` | `{}` | Extra ServiceMonitor labels. |
 | `metrics.serviceMonitor.interval` | `30s` | Scrape interval. |

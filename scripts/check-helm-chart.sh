@@ -31,5 +31,12 @@ grep -q "name: km-secrets" <<<"$tls_out" || fail "secretEnv is not rendered as a
 
 monitor_out=$(helm template km "$chart" --api-versions monitoring.coreos.com/v1)
 grep -q "kind: ServiceMonitor" <<<"$monitor_out" || fail "ServiceMonitor is not rendered"
+if grep -q "scheme: https" <<<"$monitor_out"; then
+  fail "default ServiceMonitor scrapes HTTPS"
+fi
+
+tls_mon_out=$(helm template km "$chart"   --api-versions monitoring.coreos.com/v1   --set config.server.tls.existingSecret=km-tls   --set config.server.allowInsecure=false)
+grep -q "kind: ServiceMonitor" <<<"$tls_mon_out" || fail "ServiceMonitor is not rendered with TLS"
+grep -q "scheme: https" <<<"$tls_mon_out" || fail "tls ServiceMonitor does not scrape HTTPS"
 
 echo "helm-check: ok"

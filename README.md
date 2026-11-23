@@ -134,15 +134,15 @@ docker compose -p kaf-mirror exec kaf-mirror ./admin-cli reset-admin-password ad
 
 ### 1b. Run from prebuilt image (GHCR)
 
-You can pull and run the published container without building locally. Keep `/app/data` (SQLite and the bootstrap password file) and `/app/logs` on named volumes so they survive a restart or a new container:
+The listen address, the `/app/data` and `/app/logs` layout, and the bootstrap password file next to the database are in the image built from this repository. The published `v1.3.1` image does not include them. Until a newer tag is published, build and run locally. Keep `/app/data` (SQLite and the bootstrap password file) and `/app/logs` on named volumes so they survive a restart or a new container:
 ```bash
-docker pull ghcr.io/scalytics/kaf-mirror:v1.3.1
+docker build -t kaf-mirror:local .
 docker run -d --name kaf-mirror -p 8080:8080 \
   -v kaf-mirror-data:/app/data \
   -v kaf-mirror-logs:/app/logs \
-  ghcr.io/scalytics/kaf-mirror:v1.3.1
+  kaf-mirror:local
 ```
-You can also use the `latest` tag if you prefer:
+`make docker-run` does the same, in the foreground, with the local `kaf-mirror:latest` tag. After a newer image is published, replace `kaf-mirror:local` with `ghcr.io/scalytics/kaf-mirror:<tag>`. You can also use the `latest` tag once it includes this change:
 ```bash
 docker pull ghcr.io/scalytics/kaf-mirror:latest
 ```
@@ -450,7 +450,9 @@ This script will:
 
 ### 4. Run in Kubernetes
 
-To deploy the application to Kubernetes, you will first need to build the Docker image:
+The manifests in `k8s/` have not been updated with the Docker and Helm fixes in this change. A default `kubectl apply -f k8s/` still sets `mode: production` without TLS or `allow_insecure`, so the pod does not start, and the Deployment has no `Recreate` strategy. Use the Helm chart in section 5.
+
+To deploy with the raw manifests after you have updated them, first build the Docker image:
 
 ```bash
 docker build -t kaf-mirror:latest .
@@ -474,14 +476,19 @@ This will create a deployment, a service, a persistent volume claim, a configmap
 
 ### 5. Run with Helm
 
-The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health`:
+The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health`. The chart's default image tag is `v1.3.1`, which does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, make it available to the cluster, and point the chart at it:
 
 ```bash
-helm install km deploy/helm/kaf-mirror --wait
+docker build -t kaf-mirror:local .
+helm install km deploy/helm/kaf-mirror \
+  --set image.repository=kaf-mirror \
+  --set image.tag=local \
+  --set image.pullPolicy=IfNotPresent \
+  --wait
 kubectl port-forward svc/km-kaf-mirror 8088:8088
 ```
 
-*   **TLS:** by default the server runs without TLS (`config.server.allowInsecure: true`). For production, create a TLS Secret, set `config.server.tls.existingSecret` to its name and `config.server.allowInsecure` to `false`. The Secret is mounted at `/app/tls` and the probes use HTTPS.
+*   **TLS:** by default the server runs without TLS (`config.server.allowInsecure: true`). For production, create a TLS Secret, set `config.server.tls.existingSecret` to its name and `config.server.allowInsecure` to `false`. The Secret is mounted at `/app/tls`, the probes use HTTPS, and the ServiceMonitor scrapes HTTPS.
 *   **Tokens:** `secretEnv` sets `KAF_MIRROR_AI_TOKEN`, `KAF_MIRROR_AI_API_SECRET` or `KAF_MIRROR_MONITORING_SPLUNK_HEC_TOKEN` from a Secret key. Do not pass secrets with `--set`.
 *   **Upgrades:** the Deployment uses the `Recreate` strategy, because SQLite on a ReadWriteOnce volume must not be opened by two pods. Keep one replica.
 *   **Bootstrap password:** it is written to `/app/data/kaf-mirror-bootstrap-<random>` on the PVC. Read it with `kubectl exec deploy/km-kaf-mirror -- sh -c 'cat /app/data/kaf-mirror-bootstrap-*'`, then delete the file.

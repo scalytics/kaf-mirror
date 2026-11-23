@@ -18,4 +18,9 @@ spec:
       path: {{ .Values.metrics.path | quote }}
       interval: {{ .Values.metrics.serviceMonitor.interval | quote }}
       scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout | quote }}
+      {{- if .Values.config.server.tls.existingSecret }}
+      scheme: https
+      tlsConfig:
+        insecureSkipVerify: true
+      {{- end }}
 {{- end }}
