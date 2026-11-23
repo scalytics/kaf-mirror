@@ -62,6 +62,9 @@ type JobManager struct {
 	closing              int32
 	closeOnce            sync.Once
 	shuttingDown         atomic.Bool
+	shutdownCtx          context.Context
+	shutdownCancel       context.CancelFunc
+	sleep                func(context.Context, time.Duration) error
 	Protection           *protection.Controller
 }
 
@@ -94,6 +97,7 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		lastComplianceReport: make(map[string]time.Time),
 		Protection:           protection.New(db, cfg.Protection),
 	}
+	jm.shutdownCtx, jm.shutdownCancel = context.WithCancel(context.Background())
 	if cfg.Protection.Enabled {
 		_ = database.SetProtectionEnabled(db, true)
 	}
@@ -184,6 +188,9 @@ func (jm *JobManager) Close() {
 
 func (jm *JobManager) Shutdown(ctx context.Context) error {
 	jm.shuttingDown.Store(true)
+	if jm.shutdownCancel != nil {
+		jm.shutdownCancel()
+	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -221,6 +228,33 @@ func (jm *JobManager) ClosedForTest() bool {
 
 func (jm *JobManager) ReconcileForTest() error {
 	return jm.reconcileAndStartJobs()
+}
+
+func (jm *JobManager) SetSleepForTest(sleep func(context.Context, time.Duration) error) {
+	jm.sleep = sleep
+}
+
+func (jm *JobManager) ApplyThrottlingChangesForTest(jobID, jobName string, job *database.ReplicationJob, decision *ThrottlingDecision) error {
+	return jm.applyThrottlingChanges(jobID, jobName, job, decision)
+}
+
+func (jm *JobManager) wait(ctx context.Context, d time.Duration) error {
+	sleep := jm.sleep
+	if sleep == nil {
+		sleep = sleepContext
+	}
+	return sleep(ctx, d)
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (jm *JobManager) beginDBOp() bool {
@@ -1877,26 +1911,40 @@ func (jm *JobManager) shouldApplyThrottling(jobID string, decision *ThrottlingDe
 
 func (jm *JobManager) applyThrottlingChanges(jobID, jobName string, job *database.ReplicationJob, decision *ThrottlingDecision) error {
 	jm.Mu.Lock()
-	defer jm.Mu.Unlock()
-
+	if jm.shuttingDown.Load() {
+		jm.Mu.Unlock()
+		return ErrShuttingDown
+	}
 	kafMirror, isRunning := jm.KafMirrors[jobID]
 	if !isRunning {
+		jm.Mu.Unlock()
 		return fmt.Errorf("job %s is not running, cannot apply throttling", jobID)
 	}
 
 	job.BatchSize = decision.NewBatchSize
-
 	if err := database.UpdateJob(jm.Db, job); err != nil {
+		jm.Mu.Unlock()
 		return fmt.Errorf("failed to update job configuration: %v", err)
 	}
 
 	logger.InfoAI("ai", "throttling", jobID, "Restarting job %s to apply throttling changes", jobName)
-
 	kafMirror.Stop()
 	delete(jm.KafMirrors, jobID)
+	jm.Mu.Unlock()
 
-	time.Sleep(2 * time.Second)
+	ctx := jm.shutdownCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := jm.wait(ctx, 2*time.Second); err != nil {
+		return ErrShuttingDown
+	}
 
+	jm.Mu.Lock()
+	defer jm.Mu.Unlock()
+	if jm.shuttingDown.Load() {
+		return ErrShuttingDown
+	}
 	if err := jm.startJobWithNewConfig(jobID, job); err != nil {
 		return fmt.Errorf("failed to restart job with new config: %v", err)
 	}
@@ -1919,6 +1967,9 @@ func (jm *JobManager) applyThrottlingChanges(jobID, jobName string, job *databas
 }
 
 func (jm *JobManager) startJobWithNewConfig(jobID string, job *database.ReplicationJob) error {
+	if jm.shuttingDown.Load() {
+		return ErrShuttingDown
+	}
 	sourceCluster, err := database.GetCluster(jm.Db, job.SourceClusterName)
 	if err != nil {
 		return fmt.Errorf("failed to get source cluster: %v", err)

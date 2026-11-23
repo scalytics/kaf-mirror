@@ -21,6 +21,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -154,5 +155,55 @@ func TestReconcileAfterShutdownKeepsActiveJobsActive(t *testing.T) {
 	require.NoError(t, jm.Shutdown(context.Background()))
 
 	require.NoError(t, jm.ReconcileForTest())
+	assert.Equal(t, "active", jobStatus(t, db, jobID))
+}
+
+func TestShutdownIsNotBlockedByThrottlingRestart(t *testing.T) {
+	db, jm := setupShutdownTest(t)
+	var starts atomic.Int32
+	var stopOnce sync.Once
+	stopped := make(chan struct{})
+	jm.KafMirrorFactory = func(cfg *config.Config) (kafka.KafMirror, error) {
+		return &mocks.MockKafMirror{
+			StartFunc: func(string, func(database.ReplicationMetric), func(string, string)) {
+				starts.Add(1)
+			},
+			StopFunc: func() {
+				stopOnce.Do(func() { close(stopped) })
+			},
+		}, nil
+	}
+	waiting := make(chan struct{})
+	jm.SetSleepForTest(func(ctx context.Context, d time.Duration) error {
+		close(waiting)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+
+	jobID := createShutdownJob(t, db, "paused")
+	require.NoError(t, jm.StartJob(jobID))
+	require.Equal(t, int32(1), starts.Load())
+	job, err := database.GetJob(db, jobID)
+	require.NoError(t, err)
+
+	throttleErr := make(chan error, 1)
+	go func() {
+		throttleErr <- jm.ApplyThrottlingChangesForTest(jobID, job.Name, job, &manager.ThrottlingDecision{NewBatchSize: 200, Reason: "test", Confidence: 1})
+	}()
+	<-stopped
+
+	shutdownErr := make(chan error, 1)
+	go func() { shutdownErr <- jm.Shutdown(context.Background()) }()
+
+	var shutdown error
+	select {
+	case <-waiting:
+		shutdown = <-shutdownErr
+	case shutdown = <-shutdownErr:
+	}
+	require.NoError(t, shutdown)
+	assert.ErrorIs(t, <-throttleErr, manager.ErrShuttingDown)
+	assert.Equal(t, int32(1), starts.Load())
+	assert.Empty(t, jm.KafMirrors)
 	assert.Equal(t, "active", jobStatus(t, db, jobID))
 }
