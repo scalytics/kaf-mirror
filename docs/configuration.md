@@ -29,7 +29,7 @@ This page lists every config key and environment variable that kaf-mirror reads.
 | `database.path` | none | Path to the SQLite database. The first start writes the bootstrap admin password file to the same directory. |
 | `database.retention_days` | `30` | Days of metrics and events to keep, from 1 to 30. |
 | `logging.level` | none | `DEBUG`, `INFO`, `WARN`, `ERROR` or `FATAL`. Required. |
-| `logging.file` | none | Log file. If the name has no date, kaf-mirror adds the start date, so `logs/kaf-mirror.log` becomes `logs/kaf-mirror-2026-01-31.log`. kaf-mirror does not rotate the file. Use `logrotate` or the log tooling of your platform. |
+| `logging.file` | none | Log file. If the name has no date, kaf-mirror adds the start date, so `logs/kaf-mirror.log` becomes `logs/kaf-mirror-2026-01-31.log`. kaf-mirror does not rotate the file. Use `logrotate` or the log tooling of your platform. The size of each copied record is logged only at `DEBUG`. |
 | `logging.console` | `false` | Also writes the log to stdout. |
 | `clusters.<name>.provider` | empty | `plain`, `confluent`, `redpanda` or `azure`. |
 | `clusters.<name>.cluster_id` | empty | Cluster ID, used by the `confluent` provider. |
@@ -81,7 +81,7 @@ This page lists every config key and environment variable that kaf-mirror reads.
 
 While protection is on, kaf-mirror never starts a job that writes into a cluster with the role `prod`. This has no key.
 
-The settings of a job, such as `batch_size` (in KB) and `compression`, are stored with the job and set with `mirror-cli jobs add` or the API. The config file has no keys for them.
+The settings of a job, such as `batch_size` (in KB, default 1000, from 1 to 102400) and `compression`, are stored with the job and set with `mirror-cli jobs add` or the API. The config file has no keys for them.
 
 ### Clusters in the config file
 

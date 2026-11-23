@@ -1666,13 +1666,19 @@ func (jm *JobManager) buildJobConfig(sourceCluster, targetCluster *database.Kafk
 		targetConfig.DisableIdempotentWrites = true
 	}
 
+	batchSize := job.BatchSize
+	if batchSize <= 0 {
+		logger.Warn("Job %s has batch_size %d, using the default of %d KB", job.ID, batchSize, database.DefaultBatchSizeKB)
+		batchSize = database.DefaultBatchSizeKB
+	}
+
 	jobConfig := &config.Config{
 		Clusters: map[string]config.ClusterConfig{
 			"source": sourceConfig,
 			"target": targetConfig,
 		},
 		Replication: config.ReplicationConfig{
-			BatchSize:              job.BatchSize,
+			BatchSize:              batchSize,
 			Compression:            job.Compression,
 			TopicDiscoveryInterval: jm.topicDiscoveryInterval(),
 		},
@@ -1895,22 +1901,19 @@ func (jm *JobManager) analyzeThrottlingMetrics(metrics []database.ReplicationMet
 func (jm *JobManager) calculateOptimalBatchSize(current int, throughput, lag float64, direction string) int {
 	switch direction {
 	case "increase":
-		newSize := int(float64(current) * 1.5)
-		if newSize > 10000 {
-			newSize = 10000
+		if current >= 10000 {
+			return current
 		}
+		newSize := int(float64(current) * 1.5)
 		if newSize <= current {
 			newSize = current + 500
 		}
-		return newSize
+		return min(newSize, 10000)
 
 	case "decrease":
-		newSize := int(float64(current) * 0.7)
-		if newSize < 100 {
-			newSize = 100
-		}
+		newSize := max(int(float64(current)*0.7), 100)
 		if newSize >= current {
-			newSize = current - 200
+			return current
 		}
 		return newSize
 

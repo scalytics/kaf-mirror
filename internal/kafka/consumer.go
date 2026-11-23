@@ -125,17 +125,20 @@ const (
 )
 
 type partitionBatch struct {
-	tp       topicPartition
-	ctx      context.Context
-	records  []*kgo.Record
-	next     int
-	status   []int
-	sends    []int
-	failures []int
-	acked    []bool
-	errs     []error
-	failedAt int
-	inflight int
+	tp            topicPartition
+	ctx           context.Context
+	records       []*kgo.Record
+	next          int
+	status        []int
+	sends         []int
+	failures      []int
+	acked         []bool
+	errs          []error
+	failedAt      int
+	inflight      int
+	roundFailures int
+	lastFailed    int
+	isolateUntil  int
 }
 
 type batchRound struct {
@@ -180,15 +183,16 @@ func (c *Consumer) ConsumeAsync(ctx context.Context, handler AsyncHandler) error
 			}
 			tp := topicPartition{topic: partition.Topic, partition: partition.Partition}
 			batches = append(batches, &partitionBatch{
-				tp:       tp,
-				ctx:      partCtxs[tp],
-				records:  partition.Records,
-				status:   make([]int, len(partition.Records)),
-				sends:    make([]int, len(partition.Records)),
-				failures: make([]int, len(partition.Records)),
-				acked:    make([]bool, len(partition.Records)),
-				errs:     make([]error, len(partition.Records)),
-				failedAt: -1,
+				tp:           tp,
+				ctx:          partCtxs[tp],
+				records:      partition.Records,
+				status:       make([]int, len(partition.Records)),
+				sends:        make([]int, len(partition.Records)),
+				failures:     make([]int, len(partition.Records)),
+				acked:        make([]bool, len(partition.Records)),
+				errs:         make([]error, len(partition.Records)),
+				failedAt:     -1,
+				isolateUntil: -1,
 			})
 		})
 		err := c.consumeBatches(ctx, batches, handler)
@@ -224,6 +228,10 @@ func (c *Consumer) consumeBatches(ctx context.Context, batches []*partitionBatch
 			}
 			record := b.records[b.failedAt]
 			failures := b.failures[b.failedAt]
+			if b.roundFailures > 1 {
+				b.isolateUntil = max(b.isolateUntil, b.lastFailed)
+				logger.Warn("Consumer: %d records of topic %s partition %d failed together, sending them one at a time from offset %d, job=%s", b.roundFailures, record.Topic, record.Partition, record.Offset, c.jobID)
+			}
 			if failures >= attempts {
 				logger.Error("Consumer: handler failed for topic %s partition %d offset %d after %d attempts, job=%s", record.Topic, record.Partition, record.Offset, attempts, c.jobID)
 				return fmt.Errorf("produce failed for topic %s partition %d offset %d after %d attempts: %w", record.Topic, record.Partition, record.Offset, attempts, b.errs[b.failedAt])
@@ -270,6 +278,8 @@ func (c *Consumer) produceRound(ctx context.Context, batches []*partitionBatch, 
 		}
 		b.failedAt = -1
 		b.inflight = 0
+		b.roundFailures = 0
+		b.lastFailed = -1
 		stops = append(stops, context.AfterFunc(b.ctx, func() {
 			round.mu.Lock()
 			defer round.mu.Unlock()
@@ -288,6 +298,9 @@ func (c *Consumer) produceRound(ctx context.Context, batches []*partitionBatch, 
 		}
 		for i := b.next; i < len(b.records); i++ {
 			if ctx.Err() != nil || b.ctx.Err() != nil {
+				break
+			}
+			if i > b.next && b.next <= b.isolateUntil {
 				break
 			}
 			round.mu.Lock()
@@ -343,6 +356,8 @@ func (c *Consumer) recordDone(round *batchRound, b *partitionBatch, i int) func(
 				b.status[i] = recordFailed
 				b.failures[i]++
 				b.errs[i] = err
+				b.roundFailures++
+				b.lastFailed = max(b.lastFailed, i)
 				if b.failedAt < 0 || i < b.failedAt {
 					b.failedAt = i
 				}

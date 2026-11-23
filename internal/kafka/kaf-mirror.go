@@ -63,6 +63,8 @@ type KafMirrorImpl struct {
 	incidentMutex  sync.RWMutex
 	incidentHook   func(name string)
 	recordHook     func(topic string, key, value []byte)
+	sizeHintMu     sync.Mutex
+	sizeHinted     map[string]bool
 	lagAdmin       *AdminClient
 	groupLag       func(ctx context.Context, topics []string) (int64, error)
 }
@@ -253,31 +255,7 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record, at
 			r.recordHook(string(record.Topic), record.Key, record.Value)
 		}
 
-		// Analyze message size for compression recommendations
-		valueSize := len(record.Value)
-		keySize := len(record.Key)
-		totalSize := valueSize + keySize
-
-		// Log message size analysis for AI recommendations (periodic sampling)
-		if totalSize > 0 {
-			// Sample every 100th message or messages > 2KB for compression analysis
-			if totalSize > 2048 || record.Offset%100 == 0 {
-				logger.InfoAI("message", "size", string(record.Topic),
-					"Message analysis: topic=%s, partition=%d, total_size=%d bytes, value_size=%d bytes, key_size=%d bytes - potential compression candidate",
-					record.Topic, record.Partition, totalSize, valueSize, keySize)
-			}
-
-			// AI recommendation triggers
-			if totalSize > 5120 { // > 5KB
-				logger.InfoAI("compression", "recommendation", string(record.Topic),
-					"Large message detected: %d bytes on topic %s - consider enabling lz4 or snappy compression for better performance",
-					totalSize, record.Topic)
-			} else if totalSize > 2048 { // > 2KB
-				logger.InfoAI("compression", "candidate", string(record.Topic),
-					"Medium message detected: %d bytes on topic %s - snappy compression could reduce storage overhead",
-					totalSize, record.Topic)
-			}
-		}
+		r.analyzeRecordSize(record)
 	}
 
 	// Create a new record for the target topic
@@ -300,6 +278,36 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record, at
 		}
 		done(err)
 	})
+}
+
+func (r *KafMirrorImpl) analyzeRecordSize(record *kgo.Record) {
+	valueSize := len(record.Value)
+	keySize := len(record.Key)
+	totalSize := valueSize + keySize
+	if totalSize == 0 {
+		return
+	}
+	if totalSize > 2048 || record.Offset%100 == 0 {
+		logger.DebugAI("message", "size", r.jobID,
+			"Message analysis: topic=%s, partition=%d, total_size=%d bytes, value_size=%d bytes, key_size=%d bytes",
+			record.Topic, record.Partition, totalSize, valueSize, keySize)
+	}
+	if totalSize <= 2048 {
+		return
+	}
+	r.sizeHintMu.Lock()
+	if r.sizeHinted == nil {
+		r.sizeHinted = make(map[string]bool)
+	}
+	hinted := r.sizeHinted[record.Topic]
+	r.sizeHinted[record.Topic] = true
+	r.sizeHintMu.Unlock()
+	if hinted {
+		return
+	}
+	logger.InfoAI("compression", "candidate", r.jobID,
+		"Topic %s has records larger than 2 KB, the first is %d bytes. lz4 or snappy compression could reduce the transfer size. This is logged once per topic while the job runs",
+		record.Topic, totalSize)
 }
 
 type stallProgress struct {
@@ -590,17 +598,14 @@ func validateAndSyncClusters(cfg *config.Config, db *sqlx.DB, topics []string, t
 			return fmt.Errorf("failed to ensure target topic %s exists: %w", targetTopic, err)
 		}
 
-		// Re-fetch target info after potential topic creation
-		targetInfo, err = targetAdmin.GetClusterInfo(ctx)
+		targetTopicInfo, err := waitForTargetTopicInfo(ctx, targetAdmin, targetTopic)
 		if err != nil {
-			return fmt.Errorf("failed to refresh target cluster info: %w", err)
+			return err
 		}
-
-		// Validate topic compatibility
-		targetTopicInfo, targetExists := targetInfo.Topics[targetTopic]
-		if !targetExists {
-			return fmt.Errorf("target topic %s does not exist after creation attempt", targetTopic)
+		if targetInfo.Topics == nil {
+			targetInfo.Topics = make(map[string]TopicInfo)
 		}
+		targetInfo.Topics[targetTopic] = targetTopicInfo
 
 		err = targetAdmin.ValidateTopicCompatibility(ctx, sourceTopicInfo, targetTopicInfo)
 		if err != nil {
@@ -841,6 +846,28 @@ func ensureTopicWithRetry(ctx context.Context, admin AdminClientAPI, topicName s
 		return nil
 	}
 	return fmt.Errorf("topic %s creation failed after 5 attempts: %w", topicName, lastErr)
+}
+
+func waitForTargetTopicInfo(ctx context.Context, admin AdminClientAPI, topicName string) (TopicInfo, error) {
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		info, err := admin.GetClusterInfo(ctx)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to refresh target cluster info: %w", err)
+		} else if topic, ok := info.Topics[topicName]; ok && topic.Partitions > 0 {
+			return topic, nil
+		} else {
+			lastErr = fmt.Errorf("target topic %s does not exist after creation attempt", topicName)
+		}
+		if attempt == 5 {
+			break
+		}
+		logger.Info("Target topic %s is not in the target metadata yet (check %d/5)", topicName, attempt)
+		if err := topicMetadataSleep(ctx, time.Duration(attempt)*time.Second); err != nil {
+			return TopicInfo{}, fmt.Errorf("waiting for target topic %s metadata: %w", topicName, err)
+		}
+	}
+	return TopicInfo{}, lastErr
 }
 
 func clampReplicationFactor(sourceRF int16, targetBrokerCount int, sourceTopic string) int16 {
