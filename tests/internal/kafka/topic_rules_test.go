@@ -154,3 +154,26 @@ func TestDiscoveryRegexMatchesOnlyFullTopicNames(t *testing.T) {
 
 	assert.Equal(t, []string{"big.new", "zz"}, added)
 }
+
+func TestExactMappingWinsOverRegex(t *testing.T) {
+	sourceWith(t, "app-a", "app-b")
+
+	topics, topicMap, err := resolve(t,
+		config.TopicMapping{Source: "app-.*", Target: "mirror-$0", Enabled: true},
+		config.TopicMapping{Source: "app-a", Target: "special", Enabled: true},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"app-a", "app-b"}, topics)
+	assert.Equal(t, map[string]string{"app-a": "special", "app-b": "mirror-app-b"}, topicMap)
+}
+
+func TestUserAnchoredRegexStillMatchesWholeName(t *testing.T) {
+	sourceWith(t, "app-a", "app-b", "myapp-a")
+
+	topics, topicMap, err := resolve(t, config.TopicMapping{Source: "^app-.*$", Target: "$0", Enabled: true})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"app-a", "app-b"}, topics)
+	assert.Equal(t, map[string]string{"app-a": "app-a", "app-b": "app-b"}, topicMap)
+}

@@ -342,6 +342,46 @@ func topicExists(details kadm.TopicDetails, topicName string) bool {
 	return ok && detail.Err == nil
 }
 
+func topicVisible(details kadm.TopicDetails, topicName string) bool {
+	detail, ok := details[topicName]
+	return ok && detail.Err == nil && len(detail.Partitions) > 0
+}
+
+var topicMetadataSleep = sleepContext
+
+func SetTopicMetadataSleepForTest(fn func(context.Context, time.Duration) error) func() {
+	prev := topicMetadataSleep
+	if fn == nil {
+		fn = sleepContext
+	}
+	topicMetadataSleep = fn
+	return func() { topicMetadataSleep = prev }
+}
+
+func waitForTopicVisible(ctx context.Context, client TopicCreator, topicName string) error {
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		existing, err := client.ListTopics(ctx, topicName)
+		if err != nil {
+			lastErr = err
+		} else if topicVisible(existing, topicName) {
+			return nil
+		} else {
+			lastErr = fmt.Errorf("topic %s is not visible in metadata yet", topicName)
+		}
+		if attempt == 5 {
+			break
+		}
+		if err := topicMetadataSleep(ctx, time.Duration(attempt)*time.Second); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("topic %s was created but is not visible after 5 metadata checks: %w", topicName, lastErr)
+}
+
 func ensureTopicExists(ctx context.Context, client TopicCreator, topicName string, partitions int32, replicationFactor int16) error {
 	logger.Info("Ensuring topic %s exists with %d partitions", topicName, partitions)
 
@@ -371,7 +411,7 @@ func ensureTopicExists(ctx context.Context, client TopicCreator, topicName strin
 		logger.Info("Successfully created topic %s with %d partitions", result.Topic, partitions)
 	}
 
-	return nil
+	return waitForTopicVisible(ctx, client, topicName)
 }
 
 func EnsureTopicExistsForTest(ctx context.Context, client TopicCreator, topicName string, partitions int32, replicationFactor int16) error {
