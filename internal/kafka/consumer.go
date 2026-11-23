@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/kerberos"
@@ -34,6 +35,16 @@ type ConsumerMetrics struct {
 	Tombstones       int64
 }
 
+const (
+	defaultProduceAttempts = 5
+	defaultProduceBackoff  = time.Second
+)
+
+type topicPartition struct {
+	topic     string
+	partition int32
+}
+
 type Consumer struct {
 	Client           KgoClient
 	recordsProcessed int64
@@ -43,11 +54,23 @@ type Consumer struct {
 	mu               sync.RWMutex
 	highWaterMarks   map[string]map[int32]int64
 	lastOffsets      map[string]map[int32]int64
+	produceAttempts  int
+	produceBackoff   time.Duration
+	partMu           sync.Mutex
+	partCancels      map[topicPartition]context.CancelFunc
 }
 
 func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config.ReplicationConfig, jobID string, topics ...string) (*Consumer, error) {
 	logger.Info("Creating new Kafka consumer: provider=%s, brokers=%s, group=%s, topics=%v, job=%s, component=%s",
 		cfg.Provider, cfg.Brokers, groupID, topics, jobID, "consumer")
+
+	consumer := &Consumer{
+		jobID:           jobID,
+		highWaterMarks:  make(map[string]map[int32]int64),
+		lastOffsets:     make(map[string]map[int32]int64),
+		produceAttempts: defaultProduceAttempts,
+		produceBackoff:  defaultProduceBackoff,
+	}
 
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(strings.Split(cfg.Brokers, ",")...),
@@ -60,6 +83,7 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 		}),
 		kgo.OnPartitionsRevoked(func(ctx context.Context, c *kgo.Client, revoked map[string][]int32) {
 			logger.Info("Consumer partitions revoked: %v, job=%s, component=%s", revoked, jobID, "consumer")
+			consumer.RevokePartitions(revoked)
 		}),
 	}
 
@@ -161,75 +185,163 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 		return nil, err
 	}
 
-	consumer := &Consumer{
-		Client:         client,
-		jobID:          jobID,
-		highWaterMarks: make(map[string]map[int32]int64),
-		lastOffsets:    make(map[string]map[int32]int64),
-	}
+	consumer.Client = client
 
 	logger.Info("Consumer: Successfully created Kafka client, job=%s, component=%s", jobID, "consumer")
 	return consumer, nil
 }
 
-func (c *Consumer) Consume(ctx context.Context, handler func(*kgo.Record) error) {
+func (c *Consumer) Consume(ctx context.Context, handler func(context.Context, *kgo.Record) error) error {
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			fetches := c.Client.PollFetches(ctx)
-			if fetches.IsClientClosed() {
+		if ctx.Err() != nil {
+			return nil
+		}
+		fetches := c.Client.PollFetches(ctx)
+		if fetches.IsClientClosed() {
+			return nil
+		}
+
+		fetches.EachError(func(t string, p int32, err error) {
+			logger.ErrorAI("disaster", "replication", c.jobID, "Consumer: Fetch error for topic %s, partition %d: %v", t, p, err)
+		})
+
+		partCtxs := c.trackPartitions(ctx, fetches)
+		var failed error
+		fetches.EachPartition(func(partition kgo.FetchTopicPartition) {
+			c.setHighWaterMark(partition.Topic, partition.Partition, partition.HighWatermark)
+			if failed != nil {
 				return
 			}
+			tp := topicPartition{topic: partition.Topic, partition: partition.Partition}
+			failed = c.consumePartition(ctx, partCtxs[tp], partition.Records, handler)
+		})
+		c.releasePartitions(partCtxs)
 
-			recordCount := 0
-			fetches.EachError(func(t string, p int32, err error) {
-				logger.ErrorAI("disaster", "replication", c.jobID, "Consumer: Fetch error for topic %s, partition %d: %v", t, p, err)
-			})
-			fetches.EachPartition(func(partition kgo.FetchTopicPartition) {
-				high := partition.HighWatermark
-				topic := partition.Topic
-				partID := partition.Partition
-				c.mu.Lock()
-				if c.highWaterMarks == nil {
-					c.highWaterMarks = make(map[string]map[int32]int64)
-				}
-				if c.highWaterMarks[topic] == nil {
-					c.highWaterMarks[topic] = make(map[int32]int64)
-				}
-				c.highWaterMarks[topic][partID] = high
-				c.mu.Unlock()
-			})
-
-			fetches.EachRecord(func(record *kgo.Record) {
-				recordCount++
-
-				c.mu.Lock()
-				if c.lastOffsets == nil {
-					c.lastOffsets = make(map[string]map[int32]int64)
-				}
-				if c.lastOffsets[string(record.Topic)] == nil {
-					c.lastOffsets[string(record.Topic)] = make(map[int32]int64)
-				}
-				c.lastOffsets[string(record.Topic)][record.Partition] = record.Offset
-				c.mu.Unlock()
-
-				if err := handler(record); err != nil {
-					logger.Error("Consumer: handler failed for topic %s partition %d offset %d: %v", record.Topic, record.Partition, record.Offset, err)
-					return
-				}
-				atomic.AddInt64(&c.recordsProcessed, 1)
-				atomic.AddInt64(&c.bytesProcessed, int64(len(record.Value)+len(record.Key)))
-				if len(record.Value) == 0 {
-					atomic.AddInt64(&c.tombstones, 1)
-				}
-				if err := c.Client.CommitRecords(ctx, record); err != nil {
-					logger.Error("Consumer: failed to commit offset for topic %s partition %d offset %d: %v", record.Topic, record.Partition, record.Offset, err)
-				}
-			})
+		if ctx.Err() != nil {
+			return nil
+		}
+		if failed != nil {
+			return failed
 		}
 	}
+}
+
+func (c *Consumer) consumePartition(ctx, partCtx context.Context, records []*kgo.Record, handler func(context.Context, *kgo.Record) error) error {
+	for _, record := range records {
+		c.setLastOffset(record.Topic, record.Partition, record.Offset)
+
+		if err := c.handleWithRetry(partCtx, record, handler); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if partCtx.Err() != nil {
+				logger.Warn("Consumer: partition revoked, stopped at topic %s partition %d offset %d without commit, job=%s", record.Topic, record.Partition, record.Offset, c.jobID)
+				return nil
+			}
+			logger.Error("Consumer: handler failed for topic %s partition %d offset %d: %v", record.Topic, record.Partition, record.Offset, err)
+			return fmt.Errorf("produce failed for topic %s partition %d offset %d after %d attempts: %w", record.Topic, record.Partition, record.Offset, max(c.produceAttempts, 1), err)
+		}
+		atomic.AddInt64(&c.recordsProcessed, 1)
+		atomic.AddInt64(&c.bytesProcessed, int64(len(record.Value)+len(record.Key)))
+		if len(record.Value) == 0 {
+			atomic.AddInt64(&c.tombstones, 1)
+		}
+		if err := c.Client.CommitRecords(ctx, record); err != nil {
+			logger.Error("Consumer: failed to commit offset for topic %s partition %d offset %d: %v", record.Topic, record.Partition, record.Offset, err)
+		}
+	}
+	return nil
+}
+
+func (c *Consumer) handleWithRetry(ctx context.Context, record *kgo.Record, handler func(context.Context, *kgo.Record) error) error {
+	backoff := c.produceBackoff
+	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := handler(ctx, record)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if attempt >= c.produceAttempts {
+			return err
+		}
+		logger.Warn("Consumer: produce attempt %d of %d failed for topic %s partition %d offset %d, retrying in %s: %v", attempt, c.produceAttempts, record.Topic, record.Partition, record.Offset, backoff, err)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		backoff *= 2
+	}
+}
+
+func (c *Consumer) trackPartitions(ctx context.Context, fetches kgo.Fetches) map[topicPartition]context.Context {
+	ctxs := make(map[topicPartition]context.Context)
+	c.partMu.Lock()
+	defer c.partMu.Unlock()
+	if c.partCancels == nil {
+		c.partCancels = make(map[topicPartition]context.CancelFunc)
+	}
+	fetches.EachPartition(func(partition kgo.FetchTopicPartition) {
+		tp := topicPartition{topic: partition.Topic, partition: partition.Partition}
+		partCtx, cancel := context.WithCancel(ctx)
+		ctxs[tp] = partCtx
+		c.partCancels[tp] = cancel
+	})
+	return ctxs
+}
+
+func (c *Consumer) releasePartitions(ctxs map[topicPartition]context.Context) {
+	c.partMu.Lock()
+	defer c.partMu.Unlock()
+	for tp := range ctxs {
+		if cancel, ok := c.partCancels[tp]; ok {
+			cancel()
+			delete(c.partCancels, tp)
+		}
+	}
+}
+
+func (c *Consumer) RevokePartitions(revoked map[string][]int32) {
+	c.partMu.Lock()
+	defer c.partMu.Unlock()
+	for topic, partitions := range revoked {
+		for _, partition := range partitions {
+			if cancel, ok := c.partCancels[topicPartition{topic: topic, partition: partition}]; ok {
+				cancel()
+			}
+		}
+	}
+}
+
+func (c *Consumer) setHighWaterMark(topic string, partition int32, high int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.highWaterMarks == nil {
+		c.highWaterMarks = make(map[string]map[int32]int64)
+	}
+	if c.highWaterMarks[topic] == nil {
+		c.highWaterMarks[topic] = make(map[int32]int64)
+	}
+	c.highWaterMarks[topic][partition] = high
+}
+
+func (c *Consumer) setLastOffset(topic string, partition int32, offset int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.lastOffsets == nil {
+		c.lastOffsets = make(map[string]map[int32]int64)
+	}
+	if c.lastOffsets[topic] == nil {
+		c.lastOffsets[topic] = make(map[int32]int64)
+	}
+	c.lastOffsets[topic][partition] = offset
 }
 
 func (c *Consumer) GetMetrics() ConsumerMetrics {
@@ -282,4 +394,9 @@ func NewConsumerForTest(highWaterMarks map[string]map[int32]int64, lastOffsets m
 		highWaterMarks: highWaterMarks,
 		lastOffsets:    lastOffsets,
 	}
+}
+
+func (c *Consumer) SetProduceRetryForTest(attempts int, backoff time.Duration) {
+	c.produceAttempts = attempts
+	c.produceBackoff = backoff
 }

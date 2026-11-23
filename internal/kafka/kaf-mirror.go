@@ -129,10 +129,15 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 			}
 		}()
 		logger.Info("[Job %s] Starting consumer goroutine", jobID)
-		r.Consumer.Consume(ctx, func(record *kgo.Record) error {
+		err := r.Consumer.Consume(ctx, func(ctx context.Context, record *kgo.Record) error {
 			logger.Debug("[Job %s] Received record from topic %s, partition %d, offset %d", jobID, record.Topic, record.Partition, record.Offset)
-			return r.handleRecord(record)
+			return r.handleRecord(ctx, record)
 		})
+		if err != nil {
+			reason := fmt.Sprintf("consumer stopped: %v", err)
+			logger.Error("[Job %s] %s", jobID, reason)
+			go onPanic(jobID, reason)
+		}
 		logger.Info("[Job %s] Consumer goroutine ended", jobID)
 	}()
 
@@ -183,7 +188,7 @@ func (r *KafMirrorImpl) GetProducer() *Producer {
 
 // HandleRecordForTest exposes record handling for tests.
 func (r *KafMirrorImpl) HandleRecordForTest(record *kgo.Record) error {
-	return r.handleRecord(record)
+	return r.handleRecord(context.Background(), record)
 }
 
 func (r *KafMirrorImpl) AddRegexMapForTest(pattern, target string) error {
@@ -195,7 +200,7 @@ func (r *KafMirrorImpl) AddRegexMapForTest(pattern, target string) error {
 	return nil
 }
 
-func (r *KafMirrorImpl) handleRecord(record *kgo.Record) error {
+func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) error {
 	r.mapMu.RLock()
 	targetTopic, ok := r.topicMap[string(record.Topic)]
 	r.mapMu.RUnlock()
@@ -254,7 +259,7 @@ func (r *KafMirrorImpl) handleRecord(record *kgo.Record) error {
 		outRecord.Timestamp = record.Timestamp
 	}
 
-	if err := r.Producer.ProduceSync(context.Background(), outRecord); err != nil {
+	if err := r.Producer.ProduceSync(ctx, outRecord); err != nil {
 		logger.Error("Failed to produce record to topic %s: %v", outRecord.Topic, err)
 		return err
 	}
