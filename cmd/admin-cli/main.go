@@ -39,18 +39,31 @@ func copyFile(src, dst string) error {
 	}
 	defer sourceFile.Close()
 
+	if _, err := os.Stat(dst); err == nil {
+		if err := os.Chmod(dst, privateFileMode); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
 	destFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, privateFileMode)
 	if err != nil {
 		return err
 	}
-	defer destFile.Close()
-
-	_, err = io.Copy(destFile, sourceFile)
-	if err != nil {
+	if err := destFile.Chmod(privateFileMode); err != nil {
+		destFile.Close()
 		return err
 	}
-
-	return destFile.Sync()
+	if _, err := io.Copy(destFile, sourceFile); err != nil {
+		destFile.Close()
+		return err
+	}
+	if err := destFile.Sync(); err != nil {
+		destFile.Close()
+		return err
+	}
+	return destFile.Close()
 }
 
 func writeSecretTempFile(prefix string, secret string) (string, error) {

@@ -14,6 +14,7 @@
 package database_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -113,5 +114,27 @@ func assertMode(t *testing.T, path string, want os.FileMode) {
 	}
 	if got := info.Mode().Perm(); got != want {
 		t.Fatalf("%s mode %o, want %o", path, got, want)
+	}
+}
+
+func TestOpenLockedDBRefusesSecondServer(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "kaf-mirror.db")
+	db, lock, err := database.OpenLockedDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		db.Close()
+		lock.Close()
+	})
+
+	_, lock2, err := database.OpenLockedDB(dbPath)
+	if err == nil {
+		lock2.Close()
+		t.Fatal("second OpenLockedDB: want error")
+	}
+	if !errors.Is(err, database.ErrDatabaseInUse) {
+		t.Fatalf("OpenLockedDB: %v, want ErrDatabaseInUse", err)
 	}
 }

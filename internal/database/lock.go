@@ -15,10 +15,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
+
+	"github.com/jmoiron/sqlx"
 )
 
-var ErrDatabaseInUse = errors.New("database is open in another process; stop kaf-mirror before you restore or import the database")
+var ErrDatabaseInUse = errors.New("database is locked by kaf-mirror or by admin-cli restore/import")
 
 var heldLocks sync.Map
 
@@ -100,4 +103,24 @@ func IsDBLocked(dbPath string) (bool, error) {
 		return false, err
 	}
 	return false, nil
+}
+
+func OpenLockedDB(dbPath string) (*sqlx.DB, *DBLock, error) {
+	if dbPath == ":memory:" {
+		db, err := InitDB(dbPath)
+		return db, nil, err
+	}
+	if err := EnsurePrivateDir(filepath.Dir(dbPath)); err != nil {
+		return nil, nil, err
+	}
+	lock, err := AcquireDBLock(dbPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	db, err := InitDB(dbPath)
+	if err != nil {
+		lock.Close()
+		return nil, nil, err
+	}
+	return db, lock, nil
 }

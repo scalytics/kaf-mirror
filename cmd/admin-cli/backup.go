@@ -126,21 +126,24 @@ func resolveDBPath(dbPath string) (string, error) {
 	return resolved, nil
 }
 
-func databaseInUse(dbPath string) (bool, error) {
-	return database.IsDBLocked(dbPath)
-}
+var duringRestoreHeld func(dbPath string)
 
 func restoreDatabase(backupPath, dbPath string) error {
 	dbPath, err := resolveDBPath(dbPath)
 	if err != nil {
 		return err
 	}
-	inUse, err := databaseInUse(dbPath)
-	if err != nil {
-		return fmt.Errorf("check whether %s is in use: %w", dbPath, err)
+	dir := filepath.Dir(dbPath)
+	if err := database.EnsurePrivateDir(dir); err != nil {
+		return err
 	}
-	if inUse {
-		return fmt.Errorf("%s: %w", dbPath, database.ErrDatabaseInUse)
+	lock, err := database.AcquireDBLock(dbPath)
+	if err != nil {
+		return fmt.Errorf("%s: %w; stop kaf-mirror first", dbPath, err)
+	}
+	defer lock.Close()
+	if duringRestoreHeld != nil {
+		duringRestoreHeld(dbPath)
 	}
 	if err := checkDatabaseFile(backupPath); err != nil {
 		return err
@@ -150,11 +153,6 @@ func restoreDatabase(backupPath, dbPath string) error {
 		return err
 	}
 	defer src.Close()
-
-	dir := filepath.Dir(dbPath)
-	if err := database.EnsurePrivateDir(dir); err != nil {
-		return err
-	}
 	tmp, err := os.CreateTemp(dir, ".restore-*.db")
 	if err != nil {
 		return err

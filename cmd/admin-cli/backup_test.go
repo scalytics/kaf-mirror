@@ -12,6 +12,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -362,5 +363,125 @@ func TestRestoreReplacesThroughSymlink(t *testing.T) {
 	}
 	if n := countRows(t, realPath, "original"); n != 0 {
 		t.Fatalf("real db kept %d original rows", n)
+	}
+}
+
+func TestRestoreHoldsLockSoServerCannotStart(t *testing.T) {
+	dbPath, writer := newServerDB(t)
+	insertCluster(t, writer, "before")
+	writer.Close()
+
+	backupDir := t.TempDir()
+	out := filepath.Join(backupDir, "copy.db")
+	srcPath := filepath.Join(backupDir, "src.db")
+	src, err := database.InitDB(srcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertCluster(t, src, "from-backup")
+	src.Close()
+	admin, err := sqlx.Connect("sqlite3", fmt.Sprintf("file:%s?mode=ro&_busy_timeout=5000", srcPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backupDatabase(admin, out); err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+	admin.Close()
+
+	started := false
+	duringRestoreHeld = func(path string) {
+		_, lock, err := database.OpenLockedDB(path)
+		if err == nil {
+			lock.Close()
+			started = true
+			t.Error("server started while restore held the lock")
+			return
+		}
+		if !errors.Is(err, database.ErrDatabaseInUse) {
+			t.Errorf("OpenLockedDB during restore: %v, want ErrDatabaseInUse", err)
+		}
+	}
+	t.Cleanup(func() { duringRestoreHeld = nil })
+
+	if err := restoreDatabase(out, dbPath); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if started {
+		t.Fatal("server started during restore")
+	}
+
+	db, lock, err := database.OpenLockedDB(dbPath)
+	if err != nil {
+		t.Fatalf("server should start after restore: %v", err)
+	}
+	lock.Close()
+	db.Close()
+	if n := countRows(t, dbPath, "from-backup"); n != 1 {
+		t.Fatalf("restored db has %d from-backup rows, want 1", n)
+	}
+}
+
+func TestRestoreRefusesWhileOpenLockedDBHoldsLock(t *testing.T) {
+	dbPath, writer := newServerDB(t)
+	insertCluster(t, writer, "live")
+	writer.Close()
+
+	_, serverLock, err := database.OpenLockedDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { serverLock.Close() })
+
+	backupDir := t.TempDir()
+	other := filepath.Join(backupDir, "other.db")
+	o, err := database.InitDB(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Close()
+
+	err = restoreDatabase(other, dbPath)
+	if err == nil {
+		t.Fatal("restore while the server holds the lock: want error")
+	}
+	if !errors.Is(err, database.ErrDatabaseInUse) {
+		t.Fatalf("restore error %v, want ErrDatabaseInUse", err)
+	}
+	if n := countRows(t, dbPath, "live"); n != 1 {
+		t.Fatalf("live db changed, has %d live rows", n)
+	}
+}
+
+func TestCopyFileTightensExistingMode(t *testing.T) {
+	old := syscall.Umask(0)
+	t.Cleanup(func() { syscall.Umask(old) })
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.yml")
+	dst := filepath.Join(dir, "dst.yml")
+	if err := os.WriteFile(src, []byte("secret: value\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old: data\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("copied file mode %v, want 0600", info.Mode().Perm())
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "secret: value\n" {
+		t.Fatalf("copied contents %q", got)
 	}
 }
