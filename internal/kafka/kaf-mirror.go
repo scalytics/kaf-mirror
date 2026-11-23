@@ -284,6 +284,29 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record, at
 	})
 }
 
+type stallProgress struct {
+	lastConsumed, lastReplicated int64
+	idleTicks                    int
+}
+
+func (s *stallProgress) stalled(consumed, replicated, lag int64) bool {
+	if consumed < s.lastConsumed || replicated < s.lastReplicated {
+		s.lastConsumed = consumed
+		s.lastReplicated = replicated
+		s.idleTicks = 0
+		return false
+	}
+	moved := consumed > s.lastConsumed || replicated > s.lastReplicated
+	s.lastConsumed = consumed
+	s.lastReplicated = replicated
+	if lag > 0 && !moved {
+		s.idleTicks++
+	} else {
+		s.idleTicks = 0
+	}
+	return s.idleTicks > 6
+}
+
 func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callback func(database.ReplicationMetric), onPanic func(jobID string, reason string)) {
 	interval := r.metricsInterval
 	if interval <= 0 {
@@ -297,6 +320,7 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 	// Counter for periodic logging (every 5th tick = ~50 seconds)
 	logCounter := 0
 	var lastErrors int64
+	var progress stallProgress
 
 	for {
 		select {
@@ -318,8 +342,8 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 			// Disaster detection thresholds
 			criticalLag := currentLag > 200
 			highErrorRate := totalErrors > 0 && totalMessages > 0 && (float64(totalErrors)/float64(totalMessages)) > 0.1
-			sourceStalled := logCounter > 6 && totalConsumed == 0
-			targetStalled := logCounter > 6 && totalConsumed > 0 && totalMessages == 0
+			sourceStalled := progress.stalled(totalConsumed, totalMessages, currentLag)
+			var targetStalled bool
 			newErrors := totalErrors - lastErrors
 			if newErrors < 0 {
 				newErrors = totalErrors
@@ -368,7 +392,7 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 
 			if sourceStalled {
 				if !r.incidentStates["source_stalled"] {
-					logger.WarnAI("incident", "start", jobID, "Source stalled: No messages consumed in 60+ seconds")
+					logger.WarnAI("incident", "start", jobID, "Source stalled: no progress for 60+ seconds while lag is %d", currentLag)
 					r.incidentStates["source_stalled"] = true
 					r.incidentStarted("source_stalled")
 				}

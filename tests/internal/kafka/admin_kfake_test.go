@@ -117,6 +117,16 @@ func TestGetTopicLagCountsFromCommitOrLogStart(t *testing.T) {
 	lag, err = admin.GetTopicLag(ctx, group, "orders")
 	require.NoError(t, err)
 	assert.Equal(t, int64(7+3+0), lag)
+
+	below := kadm.Offsets{}
+	below.AddOffset("orders", 1, 0, -1)
+	committed, err = adm.CommitOffsets(ctx, group, below)
+	require.NoError(t, err)
+	require.NoError(t, committed.Error())
+
+	lag, err = admin.GetTopicLag(ctx, group, "orders")
+	require.NoError(t, err)
+	assert.Equal(t, int64(7+3+0), lag)
 }
 
 func TestTopicLagTreatsAMissingCommitAsLogStart(t *testing.T) {
@@ -129,4 +139,6 @@ func TestTopicLagTreatsAMissingCommitAsLogStart(t *testing.T) {
 	assert.Equal(t, int64(3), kafka.TopicLag("t", committed, starts, ends))
 	assert.Equal(t, int64(0), kafka.TopicLag("missing", committed, starts, ends))
 	assert.Equal(t, int64(8+4), kafka.TopicLag("t", nil, nil, ends))
+	below := kadm.OffsetResponses{"t": {0: {Offset: kadm.Offset{Topic: "t", Partition: 0, At: 1}}}}
+	assert.Equal(t, int64(3+4), kafka.TopicLag("t", below, starts, ends))
 }

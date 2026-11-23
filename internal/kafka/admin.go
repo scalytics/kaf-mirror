@@ -475,7 +475,7 @@ func TopicLag(topic string, committed kadm.OffsetResponses, starts, ends kadm.Li
 		if start, ok := starts.Lookup(topic, partition); ok {
 			from = start.Offset
 		}
-		if commit, ok := committed.Lookup(topic, partition); ok && commit.Err == nil && commit.At >= 0 {
+		if commit, ok := committed.Lookup(topic, partition); ok && commit.Err == nil && commit.At >= from {
 			from = commit.At
 		}
 		if lag := end.Offset - from; lag > 0 {

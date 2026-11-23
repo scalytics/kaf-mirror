@@ -214,7 +214,7 @@ Every running job reports its counters every 10 seconds. Each report holds the c
 *   `tombstone_count` counts committed records with an empty value.
 *   `current_lag` is the lag the job saw at its last report.
 
-`GET /api/v1/jobs/{id}/metrics/current` returns the totals since the job was created and `GET /api/v1/jobs/{id}/metrics/history` returns the stored reports, with `tombstone_count_delta` for each. `GET /api/v1/jobs/{id}/lag` reads the lag of the job consumer group `kaf-mirror-job-<id>` from the source cluster for each mapped topic: for every partition, the end offset minus the committed offset. A partition without a commit counts from its log start offset, and a partition never counts below 0. It also works for a stopped job. With `$KM`, `$TOKEN` and the job ID in `$JOB` as in your setup:
+`GET /api/v1/jobs/{id}/metrics/current` returns the totals since the job was created and `GET /api/v1/jobs/{id}/metrics/history` returns the stored reports, with `tombstone_count_delta` for each. `GET /api/v1/jobs/{id}/lag` reads the lag of the job consumer group `kaf-mirror-job-<id>` from the source cluster for each mapped topic: for every partition, the end offset minus the committed offset. A partition without a commit, or with a commit below the log start (for example after `DeleteRecords`), counts from its log start offset, and a partition never counts below 0. It also works for a stopped job. With `$KM`, `$TOKEN` and the job ID in `$JOB` as in your setup:
 
 ```bash
 curl -s "$KM/jobs/$JOB/metrics/current" -H "Authorization: Bearer $TOKEN" | jq '{messages_replicated, bytes_transferred, error_count, tombstone_count, current_lag}'
@@ -222,6 +222,8 @@ curl -s "$KM/jobs/$JOB/lag" -H "Authorization: Bearer $TOKEN" | jq .
 ```
 
 When new produce errors come in, the job logs `Error spike detected` once. It logs it again only after a report with no new errors, followed by new errors.
+
+`source_stalled` is set when the job has lag and neither `messages_replicated` nor `messages_consumed` grows for 60+ seconds (seven 10-second reports). An idle topic with lag 0 does not stall. After a report with progress, the window starts again. `target_stalled` stays false: after batching, a record is counted as consumed only when the target has acked it and the source offset is committed, so a stuck target looks like no progress with lag and is reported as `source_stalled`. The Prometheus gauges `kaf_mirror_incident_source_stalled` and `kaf_mirror_incident_target_stalled` still exist, and the target gauge stays 0.
 
 At job start kaf-mirror reads the topic configs of both clusters and logs the `compression.type` of each source and target topic, and warns when they differ. The inventory snapshot stores the same configs. If the configs cannot be read, for example because the broker does not support `DescribeConfigs`, kaf-mirror logs a warning and reports the compression as `NONE`.
 

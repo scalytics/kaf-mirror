@@ -996,7 +996,7 @@ func (s *Server) handleGetOperationalEvents(c *fiber.Ctx) error {
 
 // handleGetLag godoc
 // @Summary Get consumer lag for a job
-// @Description Get the lag of the job consumer group kaf-mirror-job-{id} per mapped source topic: the sum over all partitions of the end offset minus the committed offset. A partition without a commit counts from its log start offset, and a partition never counts below 0. A topic whose offsets cannot be read has an error string as its value.
+// @Description Get the lag of the job consumer group kaf-mirror-job-{id} per mapped source topic: the sum over all partitions of the end offset minus the committed offset. A partition without a commit, or with a commit below the log start, counts from its log start offset, and a partition never counts below 0. A topic whose offsets cannot be read has an error string as its value.
 // @Tags jobs
 // @Produce json
 // @Param id path string true "Job ID"
@@ -1030,7 +1030,10 @@ func (s *Server) handleGetLag(c *fiber.Ctx) error {
 	}
 	defer adminClient.Close()
 
-	topics, _, err := kafka.ResolveTopics(context.Background(), adminClient, database.ConfigTopicMappings(mappings))
+	ctx, cancel := context.WithTimeout(c.UserContext(), clusterTestTimeout)
+	defer cancel()
+
+	topics, _, err := kafka.ResolveTopics(ctx, adminClient, database.ConfigTopicMappings(mappings))
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to resolve topic mappings: "+err.Error())
 	}
@@ -1044,7 +1047,7 @@ func (s *Server) handleGetLag(c *fiber.Ctx) error {
 		wg.Add(1)
 		go func(topic string) {
 			defer wg.Done()
-			lag, err := adminClient.GetTopicLag(context.Background(), groupID, topic)
+			lag, err := adminClient.GetTopicLag(ctx, groupID, topic)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {

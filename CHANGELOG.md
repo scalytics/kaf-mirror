@@ -46,6 +46,10 @@ All notable changes to this project are documented here.
 - `Error spike detected` is logged once when new produce errors come in, and again only after a report without new errors. `error_spike` in the metric sinks is true only for a report with new errors. Before, one error logged the line every 30 seconds for the life of the job (#49).
 - `GET /api/v1/jobs/{id}/metrics/current` returns an error when the database cannot be read. Before, a failed read of the last report was ignored.
 - The swagger docs list the response of `GET /api/v1/jobs/{id}/metrics/history` as `database.AggregatedMetric` and include `server.shutdownTimeout`.
+- `GET /api/v1/jobs/{id}/lag` counts a partition from its log start when the committed offset is below the log start, for example after `DeleteRecords`. Before, it used the stale commit and overstated the lag (#44).
+- `GET /api/v1/jobs/{id}/lag` uses the request context with a 15s timeout. Before, it used `context.Background()` with no deadline.
+- `source_stalled` is true only when the job has lag and no new acks or commits for 60+ seconds. An idle job with lag 0 does not stall, and a stall can clear and fire again after traffic stops. Before, it fired for the life of the run once no record had been committed since start. `target_stalled` stays false, because consumed counts only rise after a target ack and a source commit, so a stuck target is reported as `source_stalled`. The `kaf_mirror_incident_target_stalled` gauge is kept and stays 0.
+- The unused copies of the swagger spec at `web/docu/docs.go`, `web/docu/swagger.json` and `web/docu/swagger.yaml` were removed. The UI and the embedded spec use `web/docu/swagger/`.
 ### Security
 - github.com/gofiber/fiber/v2 2.52.12 to 2.52.16 (GHSA-gcfq-8gqf-4876, GHSA-qjv7-627w-8qjv).
 - github.com/gomarkdown/markdown to v0.0.0-20260724235538-61af6e1e6971 (GHSA-cv23-7vc5-jfh7, GHSA-77fj-vx54-gvh7).
