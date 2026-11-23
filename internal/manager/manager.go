@@ -66,6 +66,7 @@ type JobManager struct {
 	shutdownCancel       context.CancelFunc
 	sleep                func(context.Context, time.Duration) error
 	Protection           *protection.Controller
+	restartJob           func(string) error
 }
 
 var ErrShuttingDown = errors.New("kaf-mirror is shutting down")
@@ -76,12 +77,11 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		logger.Warn("Failed to create metrics sink: %v", err)
 	}
 
-	var aiConfig config.AIConfig
+	var dbAI *config.AIConfig
 	if dbConfig, err := database.LoadConfig(db); err == nil {
-		aiConfig = dbConfig.AI
-	} else {
-		aiConfig = cfg.AI
+		dbAI = &dbConfig.AI
 	}
+	aiConfig := ai.ResolveConfig(cfg.AI, dbAI)
 
 	jm := &JobManager{
 		Db:                   db,
@@ -98,6 +98,8 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		Protection:           protection.New(db, cfg.Protection),
 	}
 	jm.shutdownCtx, jm.shutdownCancel = context.WithCancel(context.Background())
+	jm.restartJob = jm.ForceRestartJob
+	logger.Info("AI analysis is %s", ai.Status(aiConfig))
 	if cfg.Protection.Enabled {
 		_ = database.SetProtectionEnabled(db, true)
 	}
@@ -857,9 +859,13 @@ func (jm *JobManager) handleJobFailure(jobID string, kafMirror kafka.KafMirror, 
 }
 
 // startAIAnalysis runs intelligent anomaly-based AI analysis every 5 minutes with cost-effective triggering
+func (jm *JobManager) selfHealingEnabled() bool {
+	return jm.Config != nil && (jm.Config.AI.SelfHealing.AutomatedRemediation || jm.Config.AI.SelfHealing.DynamicThrottling)
+}
+
 func (jm *JobManager) startAIAnalysis() {
 	defer jm.wg.Done()
-	if jm.AIClient == nil {
+	if !jm.AIClient.Enabled() && !jm.selfHealingEnabled() {
 		return
 	}
 
@@ -902,7 +908,11 @@ func (jm *JobManager) performSmartAnalysis() {
 			go jm.performDynamicThrottling(job.ID, job.Name)
 		}
 
-		if jm.shouldTriggerAIAnalysis(job.ID, job.Name) {
+		if jm.Config.AI.SelfHealing.AutomatedRemediation {
+			jm.maybeRestartZeroThroughputJob(job.ID, job.Name)
+		}
+
+		if jm.AIClient.Enabled() && jm.shouldTriggerAIAnalysis(job.ID, job.Name) {
 			go jm.analyzeJobTimeSeries(job.ID, job.Name)
 		}
 	}
@@ -918,12 +928,12 @@ func (jm *JobManager) shouldTriggerAIAnalysis(jobID, jobName string) bool {
 
 	// Get recent metrics to check for anomalies
 	metricsQuery := `
-		SELECT 
+		SELECT
 			messages_replicated_delta AS messages_replicated,
 			avg_lag AS current_lag,
 			error_count_delta AS error_count,
 			timestamp
-		FROM aggregated_metrics 
+		FROM aggregated_metrics
 		WHERE job_id = ? AND timestamp > datetime('now', '-10 minutes')
 		ORDER BY timestamp DESC LIMIT 10
 	`
@@ -951,38 +961,46 @@ func (jm *JobManager) shouldTriggerAIAnalysis(jobID, jobName string) bool {
 	jm.lastAIMetric[jobID] = recentMetrics[0]
 	jm.lastAIAnalysis[jobID] = time.Now()
 
-	// If zero throughput is detected, add a specific recommendation to the analysis
-	if jm.detectAnomalies(recentMetrics, jobName) {
-		// This is a simplified check. A more robust implementation would be in detectAnomalies.
-		isZeroThroughput := true
-		for _, m := range recentMetrics {
-			if m.MessagesReplicated > 0 {
-				isZeroThroughput = false
-				break
-			}
-		}
-		if isZeroThroughput {
-			if jm.Config.AI.SelfHealing.AutomatedRemediation {
-				logger.InfoAI("ai", "remediation", jobID, "Automated remediation: force-restarting job %s", jobName)
-				go jm.ForceRestartJob(jobID)
-			} else {
-				go func() {
-					time.Sleep(10 * time.Second) // Allow other analyses to complete first
-					recommendation := "Zero throughput detected. Consider using 'jobs restart-force' to recover the job."
-					insight := &database.AIInsight{
-						JobID:          &jobID,
-						InsightType:    "recommendation",
-						Recommendation: recommendation,
-						SeverityLevel:  "high",
-						AIModel:        "system-rule",
-					}
-					database.InsertAIInsight(jm.Db, insight)
-				}()
-			}
+	return true
+}
+
+func zeroThroughput(metrics []database.ReplicationMetric) bool {
+	if len(metrics) == 0 {
+		return false
+	}
+	for _, m := range metrics {
+		if m.MessagesReplicated > 0 {
+			return false
 		}
 	}
-
 	return true
+}
+
+func (jm *JobManager) maybeRestartZeroThroughputJob(jobID, jobName string) {
+	metricsQuery := `
+		SELECT 
+			messages_replicated_delta AS messages_replicated,
+			avg_lag AS current_lag,
+			error_count_delta AS error_count,
+			timestamp
+		FROM aggregated_metrics 
+		WHERE job_id = ? AND timestamp > datetime('now', '-10 minutes')
+		ORDER BY timestamp DESC LIMIT 10
+	`
+	var recentMetrics []database.ReplicationMetric
+	if err := jm.Db.Select(&recentMetrics, metricsQuery, jobID); err != nil || !zeroThroughput(recentMetrics) {
+		return
+	}
+	logger.InfoAI("ai", "remediation", jobID, "Automated remediation: force-restarting job %s", jobName)
+	restart := jm.restartJob
+	if restart == nil {
+		restart = jm.ForceRestartJob
+	}
+	go func() {
+		if err := restart(jobID); err != nil {
+			logger.Error("Automated remediation failed to restart job %s: %v", jobID, err)
+		}
+	}()
 }
 
 // detectAnomalies checks for performance anomalies that warrant AI analysis
@@ -1058,6 +1076,9 @@ func (jm *JobManager) detectAnomalies(metrics []database.ReplicationMetric, jobN
 
 // analyzeJobTimeSeries analyzes time-series patterns for a specific job using enhanced log + metrics analysis
 func (jm *JobManager) analyzeJobTimeSeries(jobID, jobName string) {
+	if !jm.AIClient.Enabled() {
+		return
+	}
 	logger.InfoAI("ai", "analysis", jobID, "Starting comprehensive AI analysis for job %s", jobName)
 
 	startTime := time.Now()
@@ -1237,7 +1258,7 @@ Based on this time-series data, what are your key findings and recommendations?`
 // startHistoricalAnalysis runs long-term historical analysis every 24 hours
 func (jm *JobManager) startHistoricalAnalysis() {
 	defer jm.wg.Done()
-	if jm.AIClient == nil {
+	if !jm.AIClient.Enabled() {
 		return
 	}
 
@@ -1271,6 +1292,9 @@ func (jm *JobManager) performHistoricalAnalysis() {
 
 // AnalyzeJobHistory analyzes historical trends for a specific job
 func (jm *JobManager) AnalyzeJobHistory(jobID, jobName string, periodDays int, granularity string) {
+	if !jm.AIClient.Enabled() {
+		return
+	}
 	metrics, err := database.GetAggregatedHistoricalMetrics(jm.Db, jobID, periodDays, granularity)
 	if err != nil {
 		logger.Error("Failed to fetch historical metrics for AI analysis (job %s): %v", jobID, err)
@@ -1366,8 +1390,8 @@ func (jm *JobManager) determineSeverity(metrics []database.ReplicationMetric) st
 
 // AnalyzeJobNow immediately triggers comprehensive AI analysis for a specific job (bypasses rate limiting)
 func (jm *JobManager) AnalyzeJobNow(jobID, jobName string) {
-	if jm.AIClient == nil {
-		logger.Error("Cannot analyze job %s: AI client not configured", jobName)
+	if !jm.AIClient.Enabled() {
+		logger.Warn("Cannot analyze job %s: %v", jobName, ai.ErrNotConfigured)
 		return
 	}
 
@@ -1638,6 +1662,9 @@ func (jm *JobManager) int32SliceToJSON(slice []int32) string {
 func (jm *JobManager) buildJobConfig(sourceCluster, targetCluster *database.KafkaCluster, mappings []database.TopicMapping, job *database.ReplicationJob) (*config.Config, error) {
 	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
 	targetConfig := database.ClusterConfigFromRow(*targetCluster)
+	if jm.Config != nil && jm.Config.Clusters[targetCluster.Name].DisableIdempotentWrites {
+		targetConfig.DisableIdempotentWrites = true
+	}
 
 	jobConfig := &config.Config{
 		Clusters: map[string]config.ClusterConfig{

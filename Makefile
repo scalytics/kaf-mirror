@@ -90,7 +90,7 @@ if warnings > 0:
 endef
 export PY_CODEQL_GATE
 
-.PHONY: all build run start stop restart clean test check test-smoke vet race fmt fmt-check commit-check code-ql code-ql-summary code-ql-gate helm-check docker docker-build docker-run docs
+.PHONY: all build run start stop restart clean test check test-smoke vet race fmt fmt-check commit-check code-ql code-ql-summary code-ql-gate helm-check docker docker-build docker-run docs docs-check
 
 BIN_DIR=bin
 KAF_MIRROR_BINARY=$(BIN_DIR)/kaf-mirror
@@ -215,6 +215,9 @@ docs-html:
 docs-cli:
 	@echo "Generating CLI documentation (Markdown)..."
 	@go run cmd/mirror-cli/main.go docs generate
+
+docs-check: docs-cli docs-html
+	@git diff --exit-code -- docs web/docu || { echo "Generated docs are out of date. Run 'make docs-cli docs-html' and commit the result."; exit 1; }
 
 # Detect docker compose command (plugin or standalone)
 COMPOSE ?= $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo ""; fi)

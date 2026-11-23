@@ -25,8 +25,14 @@ func TestCheckEmptyURL(t *testing.T) {
 	assert.NoError(t, egress.Check("", nil))
 }
 
-func TestCheckRejectsLoopbackAndMetadata(t *testing.T) {
-	assert.Error(t, egress.Check("http://127.0.0.1/latest", nil))
+func TestCheckAllowsLoopbackAndPrivateAIEndpoints(t *testing.T) {
+	assert.NoError(t, egress.Check("http://127.0.0.1:11434/v1", nil))
+	assert.NoError(t, egress.Check("http://localhost:8000/v1", nil))
+	assert.NoError(t, egress.Check("http://10.0.0.8:8000/v1", nil))
+	assert.NoError(t, egress.Check("http://192.168.1.10:11434/v1", nil))
+}
+
+func TestCheckRejectsMetadataAndInvalidURLs(t *testing.T) {
 	assert.Error(t, egress.Check("http://169.254.169.254/latest/meta-data", nil))
 	assert.Error(t, egress.Check("http://100.100.100.200/", nil))
 	assert.Error(t, egress.Check("ftp://example.com/x", nil))
@@ -40,7 +46,7 @@ func TestCheckAllowlist(t *testing.T) {
 
 func TestCheckResolvesBlockedName(t *testing.T) {
 	restore := egress.SetLookupIPForTest(func(host string) ([]net.IP, error) {
-		return []net.IP{net.ParseIP("127.0.0.1")}, nil
+		return []net.IP{net.ParseIP("169.254.169.254")}, nil
 	})
 	defer restore()
 	assert.Error(t, egress.Check("https://metadata.internal/latest", nil))

@@ -249,7 +249,7 @@ func convertMarkdownToHTML(markdownFile, htmlFile string) error {
                         <a class="nav-link" href="/docu/rbac.html">RBAC</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/docu/swagger/?` + fmt.Sprintf("t=%d", os.Getpid()) + `">API (Swagger)</a>
+                        <a class="nav-link" href="/docu/swagger/">API (Swagger)</a>
                     </li>
                 </ul>
             </div>
@@ -423,6 +423,9 @@ func processInlineMarkdown(text string) string {
 
 	codeRe := regexp.MustCompile("`([^`]+)`")
 	text = codeRe.ReplaceAllString(text, "<code>$1</code>")
+
+	linkRe := regexp.MustCompile(`\[([^\]]+)\]\((https://[^)\s"<>]+)\)`)
+	text = linkRe.ReplaceAllString(text, `<a href="$2">$1</a>`)
 
 	return text
 }

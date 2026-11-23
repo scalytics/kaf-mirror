@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"kaf-mirror/internal/ai"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
 	"kaf-mirror/internal/kafka"
@@ -1103,11 +1104,12 @@ func (s *Server) handleGetAIMetrics(c *fiber.Ctx) error {
 // @Tags ai
 // @Produce json
 // @Success 200 {object} map[string]interface{}
+// @Failure 503 {object} map[string]interface{} "AI is not configured"
 // @Router /ai/test [post]
 // @Security ApiKeyAuth
 func (s *Server) handleTestAIIntegration(c *fiber.Ctx) error {
-	if s.aiClient == nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "AI client not configured")
+	if !s.aiClient.Enabled() {
+		return fiber.NewError(fiber.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
 	}
 
 	testMetrics := "Timestamp: 2025-08-13T16:48:00Z, Throughput: 1000 msg/sec, Lag: 50, Errors: 0"
@@ -1153,9 +1155,13 @@ func (s *Server) handleTestAIIntegration(c *fiber.Ctx) error {
 // @Tags jobs
 // @Param id path string true "Job ID"
 // @Success 202
+// @Failure 503 {object} map[string]interface{} "AI is not configured"
 // @Router /jobs/{id}/ai/analyze [post]
 // @Security ApiKeyAuth
 func (s *Server) handleTriggerJobAIAnalysis(c *fiber.Ctx) error {
+	if !s.aiClient.Enabled() {
+		return fiber.NewError(fiber.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
+	}
 	jobID := c.Params("id")
 	job, err := database.GetJob(s.Db, jobID)
 	if err != nil {
@@ -1199,9 +1205,13 @@ func (s *Server) handleGetJobAIInsights(c *fiber.Ctx) error {
 // @Param id path string true "Job ID"
 // @Param period query string false "Analysis period in days (e.g., 7d, 30d)" default(7d)
 // @Success 202
+// @Failure 503 {object} map[string]interface{} "AI is not configured"
 // @Router /jobs/{id}/ai/historical-analysis [post]
 // @Security ApiKeyAuth
 func (s *Server) handleTriggerHistoricalAnalysis(c *fiber.Ctx) error {
+	if !s.aiClient.Enabled() {
+		return fiber.NewError(fiber.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
+	}
 	jobID := c.Params("id")
 	job, err := database.GetJob(s.Db, jobID)
 	if err != nil {
@@ -1263,9 +1273,13 @@ func (s *Server) handleGetRecommendations(c *fiber.Ctx) error {
 // @Produce json
 // @Param event path string true "Event"
 // @Success 200 {object} map[string]interface{}
+// @Failure 503 {object} map[string]interface{} "AI is not configured"
 // @Router /ai/explain/{event} [post]
 // @Security ApiKeyAuth
 func (s *Server) handleExplainEvent(c *fiber.Ctx) error {
+	if !s.aiClient.Enabled() {
+		return fiber.NewError(fiber.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
+	}
 	event := c.Params("event")
 	explanation, err := s.aiClient.ExplainEvent(context.Background(), event)
 	if err != nil {
@@ -1280,9 +1294,13 @@ func (s *Server) handleExplainEvent(c *fiber.Ctx) error {
 // @Tags ai
 // @Param event_id path int true "Event ID"
 // @Success 202
+// @Failure 503 {object} map[string]interface{} "AI is not configured"
 // @Router /ai/incidents/{event_id}/analyze [post]
 // @Security ApiKeyAuth
 func (s *Server) handleAnalyzeIncident(c *fiber.Ctx) error {
+	if !s.aiClient.Enabled() {
+		return fiber.NewError(fiber.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
+	}
 	eventID, err := c.ParamsInt("event_id")
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid event ID")

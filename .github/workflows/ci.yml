@@ -51,6 +51,9 @@ jobs:
       - name: Run go vet
         run: make vet
 
+      - name: Check generated docs
+        run: make docs-check
+
       - name: Run smoke tests
         run: make test-smoke
 

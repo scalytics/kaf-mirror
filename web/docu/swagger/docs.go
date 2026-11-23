@@ -74,6 +74,13 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": true
                         }
+                    },
+                    "503": {
+                        "description": "AI is not configured",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -102,6 +109,13 @@ const docTemplate = `{
                 "responses": {
                     "202": {
                         "description": "Accepted"
+                    },
+                    "503": {
+                        "description": "AI is not configured",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -205,6 +219,13 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "AI is not configured",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1360,6 +1381,13 @@ const docTemplate = `{
                 "responses": {
                     "202": {
                         "description": "Accepted"
+                    },
+                    "503": {
+                        "description": "AI is not configured",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -1395,6 +1423,13 @@ const docTemplate = `{
                 "responses": {
                     "202": {
                         "description": "Accepted"
+                    },
+                    "503": {
+                        "description": "AI is not configured",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -2931,15 +2966,6 @@ const docTemplate = `{
                 },
                 "level": {
                     "type": "string"
-                },
-                "maxAge": {
-                    "type": "integer"
-                },
-                "maxBackups": {
-                    "type": "integer"
-                },
-                "maxSize": {
-                    "type": "integer"
                 }
             }
         },
@@ -3063,9 +3089,6 @@ const docTemplate = `{
         "config.ServerConfig": {
             "type": "object",
             "properties": {
-                "adminEmail": {
-                    "type": "string"
-                },
                 "allowInsecure": {
                     "type": "boolean"
                 },

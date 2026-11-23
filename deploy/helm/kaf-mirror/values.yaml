@@ -30,6 +30,21 @@ config:
     enabled: false
   targetSecurity:
     enabled: false
+  ai:
+    provider: ""
+    endpoint: ""
+    model: ""
+  monitoring:
+    enabled: false
+    platform: ""
+    prometheus:
+      pushGateway: ""
+  protection:
+    enabled: false
+    autoHalt:
+      enabled: false
+  egress:
+    allowedHosts: []
 
 kerberos:
   keytabSecret: ""

@@ -26,9 +26,6 @@ data:
     logging:
       file: "/app/logs/kaf-mirror.log"
       level: {{ .Values.config.logLevel | quote }}
-      max_size: 100
-      max_backups: 5
-      max_age: 30
       console: true
     database:
       path: "/app/data/kaf-mirror.db"
@@ -45,12 +42,23 @@ data:
         security:
           {{- toYaml .Values.config.targetSecurity | nindent 10 }}
     replication:
-      batch_size: 1000
-      compression: "none"
       topic_discovery_interval: "5m"
     ai:
+      provider: {{ .Values.config.ai.provider | quote }}
+      endpoint: {{ .Values.config.ai.endpoint | quote }}
+      model: {{ .Values.config.ai.model | quote }}
       token: ""
       api_secret: ""
     monitoring:
+      enabled: {{ .Values.config.monitoring.enabled }}
+      platform: {{ .Values.config.monitoring.platform | quote }}
+      prometheus:
+        push_gateway: {{ .Values.config.monitoring.prometheus.pushGateway | quote }}
       splunk:
         hec_token: ""
+    protection:
+      enabled: {{ .Values.config.protection.enabled }}
+      auto_halt:
+        enabled: {{ .Values.config.protection.autoHalt.enabled }}
+    egress:
+      allowed_hosts: {{ toJson .Values.config.egress.allowedHosts }}

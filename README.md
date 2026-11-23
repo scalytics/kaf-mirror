@@ -12,10 +12,10 @@
 
 - **Core Replication Engine:** Built with `franz-go`, it handles consuming from a source Kafka cluster and producing to a target cluster with same-name mirroring by default, plus optional exact/regex mappings.
 - **Enterprise Web Dashboard:** Professional tab-based interface with Operations, Health, Executive, and Compliance sections.
-- **Hybrid Configuration:** The application loads its base configuration from a `default.yml` file and stores runtime changes (like replication jobs) in a SQLite database.
+- **Hybrid Configuration:** The application loads its base configuration from a `default.yml` file and stores runtime changes (like replication jobs) in a SQLite database. Every config key and environment variable is listed in [docs/configuration.md](docs/configuration.md).
 - **Comprehensive REST API:** A full-featured API built with Fiber provides endpoints for managing the application.
 - **Job Management:** A `JobManager` controls the lifecycle of replication jobs (start, stop, pause).
-- **AI-Powered Insights:**
+- **AI-Powered Insights (opt-in):** Off until `ai.provider` is set. Without a provider kaf-mirror makes no AI requests. See [docs/configuration.md](docs/configuration.md#ai-analysis).
     - **Anomaly Detection:** Automatically detects anomalies in replication metrics.
     - **Performance Tuning:** Provides recommendations for optimizing replication performance.
     - **Incident Analysis:** Offers detailed analysis of operational incidents.
@@ -60,13 +60,20 @@ KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true ./bin/kaf-mirror
 ```
 
 KafScale does not implement `InitProducerId`, so idempotent writes must be off
-when it is the target. The admin password
-for `admin@localhost` is printed once to `logs/kaf-mirror.log`.
+when it is the target. On the first start kaf-mirror creates `admin@localhost`
+with a random password and writes it to `data/kaf-mirror-bootstrap-<random>`,
+next to the database. The path is printed on stdout as `Password File`. In a
+third terminal, read the password, then delete the file:
+
+```bash
+cat data/kaf-mirror-bootstrap-*
+rm data/kaf-mirror-bootstrap-*
+```
 
 **3. Add the clusters and start a job**
 
 ```bash
-./bin/mirror-cli login admin@localhost --password <password-from-log>
+./bin/mirror-cli login admin@localhost   # asks for the password
 ./bin/mirror-cli clusters add   # your source cluster
 ./bin/mirror-cli clusters add   # target: brokers 127.0.0.1:39092
 ./bin/mirror-cli jobs add       # pick source, target and topics
@@ -127,9 +134,11 @@ If you need to recreate roles or bootstrap again when the DB is empty:
 ```bash
 docker compose -p kaf-mirror exec kaf-mirror ./admin-cli repair
 ```
-To reset the initial admin password:
+To reset the initial admin password. `admin-cli` writes the new password to `/tmp/kaf-mirror-admin-reset-<random>` in the container and prints that path:
 ```bash
 docker compose -p kaf-mirror exec kaf-mirror ./admin-cli reset-admin-password admin@localhost
+docker compose -p kaf-mirror exec kaf-mirror sh -c 'cat /tmp/kaf-mirror-admin-reset-*'
+docker compose -p kaf-mirror exec kaf-mirror sh -c 'rm /tmp/kaf-mirror-admin-reset-*'
 ```
 
 ### 1b. Run from prebuilt image (GHCR)
@@ -231,7 +240,7 @@ At job start kaf-mirror reads the topic configs of both clusters and logs the `c
 
 The application is designed to be resilient to network issues and outages of the target cluster. It does not require a separate disk-based buffer for the following reasons:
 
-*   **Transient Network Issues:** The internal Kafka producer has an in-memory buffer and an automatic retry mechanism. This handles short-term network interruptions without data loss or duplication, thanks to its idempotent producer configuration.
+*   **Transient Network Issues:** The internal Kafka producer has an in-memory buffer and an automatic retry mechanism. This handles short-term network interruptions without data loss. The idempotent producer keeps these client retries from writing a record twice. When idempotent writes are off, with `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` or `clusters.<name>.disable_idempotent_writes` as needed for KafScale, a retried write can be stored twice on the target.
 *   **Prolonged Target Cluster Outages:** If the target cluster is unavailable for an extended period, the application will experience backpressure. The consumer will stop reading messages from the source cluster, and its consumer offset will not advance. The source Kafka cluster itself acts as the durable, large-scale buffer, retaining the data until the target cluster is available again. When the connection is restored, the application will resume mirroring from the last committed offset, ensuring no data is lost.
 *   **Rejected Records:** If the target returns an error for a record, for example `MESSAGE_TOO_LARGE` or an authorization error, kaf-mirror tries the record 5 times. This covers errors the Kafka client does not retry itself, such as `MESSAGE_TOO_LARGE`, an authorization error, or a target topic that does not exist. Errors the client retries itself, such as `NOT_ENOUGH_REPLICAS` or a broker that cannot be reached, are retried without a limit and the job waits as described under Prolonged Target Cluster Outages. Between the 5 tries, kaf-mirror waits 1s, 2s, 4s and 8s. Each try sends the failed record and the records after it in the same partition again, in order. kaf-mirror does not fetch more records while it retries. If the fifth attempt fails, the job stops with status `failed`, and `failed_reason` names the topic, partition, offset and error. The source offset stays at the failed record. Fix the cause, then start the job again. It reads the failed record again and continues from there. These values are fixed and have no config key.
 *   **Batching:** kaf-mirror sends all records of a fetch to the target without waiting for each ack, so many records are in flight at once. The job `batch_size`, in KB, sets how much a fetch holds. The Kafka client writes the records of each partition in source order. When every record of the fetch is acked, kaf-mirror commits the highest offset of each partition in one commit call. If a record fails, the commit of its partition stops at the last acked record before it, so the offset never moves past a record that was not copied. Records after the failed one that the target had already written are written again when the failed record is retried, so the target can get them twice. A slow or failing partition holds back the next fetch, not the commit of the other partitions in the same fetch. There is no setting for the number of records in flight. The job fields `parallelism` and `preserve_partitions` were removed, because kaf-mirror never used them. Records always keep their source partition.
@@ -265,14 +274,15 @@ All ongoing management is performed via the `mirror-cli`, which interacts with t
 
 **a) Initial Setup & Configuration**
 
-The server auto-bootstraps on first start: it seeds default roles/permissions and creates `admin@localhost` with a random password. The password is written to a `kaf-mirror-bootstrap-<random>` file next to the database, readable only by the kaf-mirror user, and the log prints the file path. Read it, deliver it securely, and delete the file. For repairs or reseeding when empty, use:
+The server auto-bootstraps on first start: it seeds default roles/permissions and creates `admin@localhost` with a random password. The password is written to a `kaf-mirror-bootstrap-<random>` file next to the database, readable only by the kaf-mirror user, and the file path is printed on stdout as `Password File`. Read it, deliver it securely, and delete the file. For repairs or reseeding when empty, use:
 ```bash
 ./admin-cli repair
 ```
-To reset the initial admin password:
+To reset the initial admin password. The new password is written to a `kaf-mirror-admin-reset-<random>` file in the temp directory, and the path is printed:
 ```bash
 ./admin-cli reset-admin-password admin@localhost
 ```
+`admin-cli repair` also writes a new bootstrap password to a `kaf-mirror-bootstrap-<random>` file in the temp directory when it creates `admin@localhost`.
 
 **b) `mirror-cli`: The Unified Management Tool**
 
@@ -281,10 +291,10 @@ To reset the initial admin password:
 Before you can use the `mirror-cli`, you need to log in to the backend:
 
 ```bash
-./mirror-cli login <username> --password <password>
+./mirror-cli login <username>
 ```
 
-This will authenticate with the API and store a session token securely on your local machine.
+It asks for the password without echo. Do not pass `--password`, because the password then ends up in the shell history and the process list. This will authenticate with the API and store a session token securely on your local machine.
 
 **Configuration Management**
 
@@ -348,6 +358,8 @@ TLS features include:
 
 **AI Configuration Management**
 
+AI is off until `ai.provider` is set. Without a provider kaf-mirror sends nothing to any AI service, has no default endpoint, logs `AI analysis is off: ai.provider is not set` at start, and the AI endpoints that start an analysis answer HTTP 503. Restart kaf-mirror after you change the AI settings. See [docs/configuration.md](docs/configuration.md#ai-analysis).
+
 The system supports multiple AI providers for operational intelligence:
 
 - `./mirror-cli config edit ai provider`: Configure AI provider (OpenAI, Claude, Gemini, Grok, Custom)
@@ -393,7 +405,7 @@ Automated scheduling is controlled by `compliance.schedule` (daily/weekly/monthl
 - `./admin-cli repair`: Reseed default roles/permissions; if no users exist, create `admin@localhost` with a random password.
 - `./admin-cli reset-admin-password <username>`: Reset the password for the initial admin user (the one marked `is_initial`).
 - `./admin-cli users list`: List users directly from the database.
-- `./admin-cli users add <username> --password <password>`: Adds a new user directly to the database.
+- `./admin-cli users add <username>`: Adds a new user directly to the database. It asks for the password without echo.
 
 **d) Backup and Data Management**
 
@@ -502,29 +514,7 @@ This script will:
 
 ### 4. Run in Kubernetes
 
-The manifests in `k8s/` have not been updated with the Docker and Helm fixes in this change. A default `kubectl apply -f k8s/` still sets `mode: production` without TLS or `allow_insecure`, so the pod does not start, and the Deployment has no `Recreate` strategy. Use the Helm chart in section 5.
-
-To deploy with the raw manifests after you have updated them, first build the Docker image:
-
-```bash
-docker build -t kaf-mirror:latest .
-```
-
-Once the image is built, you can apply the Kubernetes configuration files:
-
-```bash
-kubectl apply -f k8s/
-```
-
-This will create a deployment, a service, a persistent volume claim, a configmap, and a secret in your Kubernetes cluster.
-
-**Configuration:**
-
-*   **`k8s/configmap.yaml`**: You will need to edit this file to provide the correct Kafka broker addresses.
-*   **`k8s/pvc.yaml`**: This file defines the persistent storage for the application's internal SQLite database. **Important:** This storage is for metadata (users, job configurations, audit logs, metrics) and is NOT used to buffer the data being mirrored. The size required does not depend on your Kafka topic throughput. The default of 1Gi is a generous starting point for most use cases. In a production environment, ensure this PVC is backed by a high-performance `StorageClass` (e.g., SSDs). You can monitor its usage and expand the volume later if needed.
-*   **`k8s/secrets.yaml`**: This file provides a template for managing secrets. You will need to add your base64-encoded secrets (e.g., TLS keys, API tokens) to this file.
-*   **`k8s/deployment.yaml`**: This file defines the deployment of the application. It is configured to use the `ConfigMap` for configuration, the `PersistentVolumeClaim` for data storage, and the `Secret` for sensitive information.
-*   **`k8s/service.yaml`**: This file exposes the application via a `LoadBalancer` service.
+Use the Helm chart in section 5. It is the supported way to run kaf-mirror in Kubernetes, and CI lints and renders it with `make helm-check`. The raw manifests that were in `k8s/` were removed: they used config keys kaf-mirror does not read, did not start with their defaults (`mode: production` without TLS), mounted a Secret at a path nothing reads, and had no `Recreate` strategy and no shutdown grace period.
 
 ### 5. Run with Helm
 
@@ -542,6 +532,8 @@ kubectl port-forward svc/km-kaf-mirror 8088:8088
 
 *   **TLS:** by default the server runs without TLS (`config.server.allowInsecure: true`). For production, create a TLS Secret, set `config.server.tls.existingSecret` to its name and `config.server.allowInsecure` to `false`. The Secret is mounted at `/app/tls`, the probes use HTTPS, and the ServiceMonitor scrapes HTTPS.
 *   **Tokens:** `secretEnv` sets `KAF_MIRROR_AI_TOKEN`, `KAF_MIRROR_AI_API_SECRET` or `KAF_MIRROR_MONITORING_SPLUNK_HEC_TOKEN` from a Secret key. Do not pass secrets with `--set`.
+*   **Metrics:** the ServiceMonitor scrapes `/metrics`, which serves only the Go runtime metrics of the process. Job metrics are not on `/metrics`. They are stored in SQLite, returned by `GET /api/v1/jobs/{id}/metrics/current` and pushed to a Prometheus Pushgateway when `monitoring.platform` is `prometheus`.
+*   **AI:** off by default. Set `config.ai.provider` to turn it on. See [deploy/helm/kaf-mirror/README.md](deploy/helm/kaf-mirror/README.md#ai-analysis).
 *   **Upgrades:** the Deployment uses the `Recreate` strategy, because SQLite on a ReadWriteOnce volume must not be opened by two pods. Keep one replica.
 *   **Shutdown:** `terminationGracePeriodSeconds` (default 45) must stay longer than `config.server.shutdownTimeoutSeconds` (default 30), which sets `server.shutdown_timeout`. The render fails otherwise. See "Graceful Shutdown" under Resilience and Buffering.
 *   **Bootstrap password:** it is written to `/app/data/kaf-mirror-bootstrap-<random>` on the PVC. Read it with `kubectl exec deploy/km-kaf-mirror -- sh -c 'cat /app/data/kaf-mirror-bootstrap-*'`, then delete the file.
@@ -560,20 +552,19 @@ The consumer, the producer, the admin client, `POST /api/v1/clusters/test`, the 
 *   **Validation:** creating or updating a cluster and `POST /api/v1/clusters/test` answer HTTP 400 when `security_config` is not a JSON object, a mechanism is unknown, a password is missing or a GSSAPI path is missing.
 *   **Logs:** kaf-mirror logs the provider, whether TLS is on and the mechanism name. It never logs a password, API secret or connection string.
 
-A cluster with SCRAM-SHA-512 in the config file:
-```yaml
-clusters:
-  source:
-    provider: "plain"
-    brokers: "broker1:9093,broker2:9093"
-    security:
-      enabled: true
-      protocol: "SASL_SSL"
-      sasl_mechanism: "SCRAM-SHA-512"
-      username: "kaf-mirror"
-      password: ""
+Jobs use the clusters stored in the database. Create them with `mirror-cli clusters add`, which asks for the password without echo, or with `POST /api/v1/clusters`. The security settings go in `security_config`, a JSON object written as a string. All fields are listed in [docs/configuration.md](docs/configuration.md#cluster-api-fields). The `clusters` section of the config file is only used by `GET /api/v1/topics/source` and `/target`, and for `disable_idempotent_writes`.
+
+A cluster with SCRAM-SHA-512, created with the API. Write the body to a file that only you can read, so the password is not on the command line:
+```bash
+umask 077
+"${EDITOR:-vi}" scram-cluster.json
+curl -s -X POST "$KM/clusters" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @scram-cluster.json
+rm scram-cluster.json
 ```
-Keep `password: ""` in the file and set the value from the environment, for example from a Kubernetes Secret with `secretEnv` and the variable `KAF_MIRROR_CLUSTERS_SOURCE_SECURITY_PASSWORD`. kaf-mirror only reads an environment override for a key that is in the config file.
+with this content in `scram-cluster.json`:
+```json
+{"name":"src","provider":"plain","brokers":"broker1:9093,broker2:9093","security_config":"{\"enabled\":true,\"protocol\":\"SASL_SSL\",\"sasl_mechanism\":\"SCRAM-SHA-512\",\"username\":\"kaf-mirror\",\"password\":\"<password>\"}"}
+```
 
 Test a SASL cluster before you save it. The body takes the same fields as `POST /api/v1/clusters`, plus an optional `security` object. Write the body to a file that only you can read, so the password is not on the command line:
 ```bash
@@ -588,34 +579,18 @@ with this content in `scram-test.json`:
 
 ### Kerberos (GSSAPI)
 
-kaf-mirror logs in with a keytab through franz-go and gokrb5. It needs three file paths and no inline secret:
+kaf-mirror logs in with a keytab through franz-go and gokrb5. It needs three file paths and no inline secret. Set them in `security_config` of the cluster:
 
 | Key | Description |
 |---|---|
-| `security.kerberos.principal` | Client principal, for example `kaf-mirror@EXAMPLE.COM`. Without `@REALM`, `default_realm` from `krb5.conf` is used. |
-| `security.kerberos.keytab_path` | Path to the keytab file inside the container. |
-| `security.kerberos.krb5_conf_path` | Path to `krb5.conf` inside the container. |
-| `security.kerberos.service_name` | Kerberos service name of the brokers. Default `kafka`. |
+| `kerberos.principal` | Client principal, for example `kaf-mirror@EXAMPLE.COM`. Without `@REALM`, `default_realm` from `krb5.conf` is used. |
+| `kerberos.keytab_path` | Path to the keytab file inside the container. |
+| `kerberos.krb5_conf_path` | Path to `krb5.conf` inside the container. |
+| `kerberos.service_name` | Kerberos service name of the brokers. Default `kafka`. |
 
 The keytab and `krb5.conf` are read when a client is created. A missing or unreadable file fails the client with the path in the error.
 
-```yaml
-clusters:
-  source:
-    provider: "plain"
-    brokers: "broker1.example.com:9093"
-    security:
-      enabled: true
-      protocol: "SASL_SSL"
-      sasl_mechanism: "GSSAPI"
-      kerberos:
-        service_name: "kafka"
-        principal: "kaf-mirror@EXAMPLE.COM"
-        keytab_path: "/app/kerberos/keytab/kafka.keytab"
-        krb5_conf_path: "/app/kerberos/krb5/krb5.conf"
-```
-
-The same settings for a cluster created with the API:
+A cluster with Kerberos, created with the API:
 ```bash
 curl -s -X POST "$KM/clusters" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"src","provider":"plain","brokers":"broker1.example.com:9093","security_config":"{\"enabled\":true,\"protocol\":\"SASL_SSL\",\"sasl_mechanism\":\"GSSAPI\",\"kerberos\":{\"service_name\":\"kafka\",\"principal\":\"kaf-mirror@EXAMPLE.COM\",\"keytab_path\":\"/app/kerberos/keytab/kafka.keytab\",\"krb5_conf_path\":\"/app/kerberos/krb5/krb5.conf\"}}"}'
@@ -636,7 +611,7 @@ In Kubernetes with the Helm chart, keep the keytab in a Secret and `krb5.conf` i
 
 ## API Documentation
 
-The full API documentation is available via Swagger at `http://localhost:8080/swagger/index.html`.
+The full API documentation is available via Swagger at `http://localhost:8080/docu/swagger/`. The OpenAPI files are in `web/docu/swagger/`. Regenerate them with `make docs`.
 
 ## Testing
 
@@ -648,7 +623,7 @@ go test ./...
 
 ## Architecture Context
 
-kaf-mirror addresses one of the hardest Kafka operational challenges: **cross-cluster replication with disaster recovery, observability, and governed failover**. This is section 3.4 of my Kafka architecture guide — where most production deployments eventually fail.
+kaf-mirror addresses one of the hardest Kafka operational challenges: **cross-cluster replication with disaster recovery, observability, and governed failover**. This is section 3.4 of my Kafka architecture guide, where most production deployments eventually fail.
 
 **Full architecture guide:** [Apache Kafka® Architecture Leadership](https://www.novatechflow.com/p/kafka-architecture-leadership.html)
 
@@ -690,7 +665,7 @@ The guide emphasizes treating lag as an architectural signal, not a metric to hi
 
 > "If the target cluster is unavailable, the consumer stops reading and its offset does not advance. The source Kafka cluster itself acts as the durable buffer. When restored, replication resumes from the last committed offset."
 
-No separate disk buffer. Kafka's retention *is* the buffer. This simplifies operations and supports at-least-once delivery with an idempotent producer (duplicates reduced, not transactional exactly-once across clusters).
+No separate disk buffer. Kafka's retention *is* the buffer. This simplifies operations and supports at-least-once delivery with an idempotent producer (duplicates reduced, not transactional exactly-once across clusters). With idempotent writes off, for example for KafScale, client retries can add duplicates.
 
 ### Key Capabilities
 
