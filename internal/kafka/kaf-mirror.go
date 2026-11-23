@@ -59,6 +59,7 @@ type KafMirrorImpl struct {
 	incidentStates map[string]bool
 	incidentMutex  sync.RWMutex
 	recordHook     func(topic string, key, value []byte)
+	hookedRecord   *kgo.Record
 }
 
 func (r *KafMirrorImpl) SetRecordHook(h func(topic string, key, value []byte)) {
@@ -217,33 +218,36 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) er
 		logger.Warn("No mapping found for topic: %s", record.Topic)
 		return nil
 	}
-	if r.recordHook != nil {
-		r.recordHook(string(record.Topic), record.Key, record.Value)
-	}
-
-	// Analyze message size for compression recommendations
-	valueSize := len(record.Value)
-	keySize := len(record.Key)
-	totalSize := valueSize + keySize
-
-	// Log message size analysis for AI recommendations (periodic sampling)
-	if totalSize > 0 {
-		// Sample every 100th message or messages > 2KB for compression analysis
-		if totalSize > 2048 || record.Offset%100 == 0 {
-			logger.InfoAI("message", "size", string(record.Topic),
-				"Message analysis: topic=%s, partition=%d, total_size=%d bytes, value_size=%d bytes, key_size=%d bytes - potential compression candidate",
-				record.Topic, record.Partition, totalSize, valueSize, keySize)
+	if record != r.hookedRecord {
+		r.hookedRecord = record
+		if r.recordHook != nil {
+			r.recordHook(string(record.Topic), record.Key, record.Value)
 		}
 
-		// AI recommendation triggers
-		if totalSize > 5120 { // > 5KB
-			logger.InfoAI("compression", "recommendation", string(record.Topic),
-				"Large message detected: %d bytes on topic %s - consider enabling lz4 or snappy compression for better performance",
-				totalSize, record.Topic)
-		} else if totalSize > 2048 { // > 2KB
-			logger.InfoAI("compression", "candidate", string(record.Topic),
-				"Medium message detected: %d bytes on topic %s - snappy compression could reduce storage overhead",
-				totalSize, record.Topic)
+		// Analyze message size for compression recommendations
+		valueSize := len(record.Value)
+		keySize := len(record.Key)
+		totalSize := valueSize + keySize
+
+		// Log message size analysis for AI recommendations (periodic sampling)
+		if totalSize > 0 {
+			// Sample every 100th message or messages > 2KB for compression analysis
+			if totalSize > 2048 || record.Offset%100 == 0 {
+				logger.InfoAI("message", "size", string(record.Topic),
+					"Message analysis: topic=%s, partition=%d, total_size=%d bytes, value_size=%d bytes, key_size=%d bytes - potential compression candidate",
+					record.Topic, record.Partition, totalSize, valueSize, keySize)
+			}
+
+			// AI recommendation triggers
+			if totalSize > 5120 { // > 5KB
+				logger.InfoAI("compression", "recommendation", string(record.Topic),
+					"Large message detected: %d bytes on topic %s - consider enabling lz4 or snappy compression for better performance",
+					totalSize, record.Topic)
+			} else if totalSize > 2048 { // > 2KB
+				logger.InfoAI("compression", "candidate", string(record.Topic),
+					"Medium message detected: %d bytes on topic %s - snappy compression could reduce storage overhead",
+					totalSize, record.Topic)
+			}
 		}
 	}
 

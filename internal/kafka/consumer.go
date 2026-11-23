@@ -85,6 +85,10 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 			logger.Info("Consumer partitions revoked: %v, job=%s, component=%s", revoked, jobID, "consumer")
 			consumer.RevokePartitions(revoked)
 		}),
+		kgo.OnPartitionsLost(func(ctx context.Context, c *kgo.Client, lost map[string][]int32) {
+			logger.Warn("Consumer partitions lost: %v, job=%s, component=%s", lost, jobID, "consumer")
+			consumer.RevokePartitions(lost)
+		}),
 	}
 
 	logger.Debug("Consumer configuration: batch_size=%dKB, parallelism=%d, job=%s, component=%s",
@@ -290,6 +294,9 @@ func (c *Consumer) trackPartitions(ctx context.Context, fetches kgo.Fetches) map
 	}
 	fetches.EachPartition(func(partition kgo.FetchTopicPartition) {
 		tp := topicPartition{topic: partition.Topic, partition: partition.Partition}
+		if _, ok := ctxs[tp]; ok {
+			return
+		}
 		partCtx, cancel := context.WithCancel(ctx)
 		ctxs[tp] = partCtx
 		c.partCancels[tp] = cancel
@@ -399,4 +406,8 @@ func NewConsumerForTest(highWaterMarks map[string]map[int32]int64, lastOffsets m
 func (c *Consumer) SetProduceRetryForTest(attempts int, backoff time.Duration) {
 	c.produceAttempts = attempts
 	c.produceBackoff = backoff
+}
+
+func (c *Consumer) ProduceRetryForTest() (int, time.Duration) {
+	return c.produceAttempts, c.produceBackoff
 }

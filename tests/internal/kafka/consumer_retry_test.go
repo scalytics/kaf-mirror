@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/kafka"
 	"kaf-mirror/tests/mocks"
 	"sync"
@@ -231,4 +232,57 @@ func TestConsumeSkipsPartitionRevokedBeforeItsRecordsAreHandled(t *testing.T) {
 	assert.Equal(t, 0, calls["0/0"])
 	assert.Equal(t, 0, calls["0/1"])
 	assert.Equal(t, []string{"1/0"}, log.get())
+}
+
+func TestNewConsumerUsesDefaultProduceRetry(t *testing.T) {
+	c, err := kafka.NewConsumer(config.ClusterConfig{Brokers: "127.0.0.1:1"}, "g", config.ReplicationConfig{BatchSize: 1}, "j", "t")
+	require.NoError(t, err)
+	defer c.Close()
+
+	attempts, backoff := c.ProduceRetryForTest()
+	assert.Equal(t, 5, attempts)
+	assert.Equal(t, time.Second, backoff)
+}
+
+func TestConsumeBackoffDoubles(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := &commitLog{}
+	c := newRetryConsumer(fetchOf("orders", partitionRecords{0, []int64{0}}), cancel, log, 5, 20*time.Millisecond)
+
+	var calls []time.Time
+	err := c.Consume(ctx, func(ctx context.Context, r *kgo.Record) error {
+		calls = append(calls, time.Now())
+		return errors.New("produce failed")
+	})
+
+	require.Error(t, err)
+	require.Len(t, calls, 5)
+	for i, want := range []time.Duration{20, 40, 80, 160} {
+		gap := calls[i+1].Sub(calls[i])
+		assert.GreaterOrEqual(t, gap, want*time.Millisecond, "gap %d", i+1)
+	}
+	assert.Empty(t, log.get())
+}
+
+func TestConsumeLostPartitionStopsRetryWithoutCommit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := &commitLog{}
+	c := newRetryConsumer(fetchOf("orders", partitionRecords{0, []int64{0, 1}}, partitionRecords{1, []int64{0}}), cancel, log, 5, time.Hour)
+
+	calls := map[string]int{}
+	err := c.Consume(ctx, func(ctx context.Context, r *kgo.Record) error {
+		calls[key(r)]++
+		if r.Partition == 0 && r.Offset == 1 {
+			c.RevokePartitions(map[string][]int32{"orders": {0, 1}})
+			return errors.New("produce failed")
+		}
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls["0/1"])
+	assert.Equal(t, 0, calls["1/0"])
+	assert.Equal(t, []string{"0/0"}, log.get())
 }
