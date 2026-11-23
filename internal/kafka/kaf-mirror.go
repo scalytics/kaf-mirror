@@ -59,6 +59,7 @@ type KafMirrorImpl struct {
 	incidentStates map[string]bool
 	incidentMutex  sync.RWMutex
 	recordHook     func(topic string, key, value []byte)
+	hookedRecord   *kgo.Record
 }
 
 func (r *KafMirrorImpl) SetRecordHook(h func(topic string, key, value []byte)) {
@@ -129,10 +130,15 @@ func (r *KafMirrorImpl) Start(jobID string, metricsCallback func(database.Replic
 			}
 		}()
 		logger.Info("[Job %s] Starting consumer goroutine", jobID)
-		r.Consumer.Consume(ctx, func(record *kgo.Record) error {
+		err := r.Consumer.Consume(ctx, func(ctx context.Context, record *kgo.Record) error {
 			logger.Debug("[Job %s] Received record from topic %s, partition %d, offset %d", jobID, record.Topic, record.Partition, record.Offset)
-			return r.handleRecord(record)
+			return r.handleRecord(ctx, record)
 		})
+		if err != nil {
+			reason := fmt.Sprintf("consumer stopped: %v", err)
+			logger.Error("[Job %s] %s", jobID, reason)
+			go onPanic(jobID, reason)
+		}
 		logger.Info("[Job %s] Consumer goroutine ended", jobID)
 	}()
 
@@ -183,7 +189,7 @@ func (r *KafMirrorImpl) GetProducer() *Producer {
 
 // HandleRecordForTest exposes record handling for tests.
 func (r *KafMirrorImpl) HandleRecordForTest(record *kgo.Record) error {
-	return r.handleRecord(record)
+	return r.handleRecord(context.Background(), record)
 }
 
 func (r *KafMirrorImpl) AddRegexMapForTest(pattern, target string) error {
@@ -195,7 +201,7 @@ func (r *KafMirrorImpl) AddRegexMapForTest(pattern, target string) error {
 	return nil
 }
 
-func (r *KafMirrorImpl) handleRecord(record *kgo.Record) error {
+func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record) error {
 	r.mapMu.RLock()
 	targetTopic, ok := r.topicMap[string(record.Topic)]
 	r.mapMu.RUnlock()
@@ -212,33 +218,36 @@ func (r *KafMirrorImpl) handleRecord(record *kgo.Record) error {
 		logger.Warn("No mapping found for topic: %s", record.Topic)
 		return nil
 	}
-	if r.recordHook != nil {
-		r.recordHook(string(record.Topic), record.Key, record.Value)
-	}
-
-	// Analyze message size for compression recommendations
-	valueSize := len(record.Value)
-	keySize := len(record.Key)
-	totalSize := valueSize + keySize
-
-	// Log message size analysis for AI recommendations (periodic sampling)
-	if totalSize > 0 {
-		// Sample every 100th message or messages > 2KB for compression analysis
-		if totalSize > 2048 || record.Offset%100 == 0 {
-			logger.InfoAI("message", "size", string(record.Topic),
-				"Message analysis: topic=%s, partition=%d, total_size=%d bytes, value_size=%d bytes, key_size=%d bytes - potential compression candidate",
-				record.Topic, record.Partition, totalSize, valueSize, keySize)
+	if record != r.hookedRecord {
+		r.hookedRecord = record
+		if r.recordHook != nil {
+			r.recordHook(string(record.Topic), record.Key, record.Value)
 		}
 
-		// AI recommendation triggers
-		if totalSize > 5120 { // > 5KB
-			logger.InfoAI("compression", "recommendation", string(record.Topic),
-				"Large message detected: %d bytes on topic %s - consider enabling lz4 or snappy compression for better performance",
-				totalSize, record.Topic)
-		} else if totalSize > 2048 { // > 2KB
-			logger.InfoAI("compression", "candidate", string(record.Topic),
-				"Medium message detected: %d bytes on topic %s - snappy compression could reduce storage overhead",
-				totalSize, record.Topic)
+		// Analyze message size for compression recommendations
+		valueSize := len(record.Value)
+		keySize := len(record.Key)
+		totalSize := valueSize + keySize
+
+		// Log message size analysis for AI recommendations (periodic sampling)
+		if totalSize > 0 {
+			// Sample every 100th message or messages > 2KB for compression analysis
+			if totalSize > 2048 || record.Offset%100 == 0 {
+				logger.InfoAI("message", "size", string(record.Topic),
+					"Message analysis: topic=%s, partition=%d, total_size=%d bytes, value_size=%d bytes, key_size=%d bytes - potential compression candidate",
+					record.Topic, record.Partition, totalSize, valueSize, keySize)
+			}
+
+			// AI recommendation triggers
+			if totalSize > 5120 { // > 5KB
+				logger.InfoAI("compression", "recommendation", string(record.Topic),
+					"Large message detected: %d bytes on topic %s - consider enabling lz4 or snappy compression for better performance",
+					totalSize, record.Topic)
+			} else if totalSize > 2048 { // > 2KB
+				logger.InfoAI("compression", "candidate", string(record.Topic),
+					"Medium message detected: %d bytes on topic %s - snappy compression could reduce storage overhead",
+					totalSize, record.Topic)
+			}
 		}
 	}
 
@@ -254,7 +263,7 @@ func (r *KafMirrorImpl) handleRecord(record *kgo.Record) error {
 		outRecord.Timestamp = record.Timestamp
 	}
 
-	if err := r.Producer.ProduceSync(context.Background(), outRecord); err != nil {
+	if err := r.Producer.ProduceSync(ctx, outRecord); err != nil {
 		logger.Error("Failed to produce record to topic %s: %v", outRecord.Topic, err)
 		return err
 	}
