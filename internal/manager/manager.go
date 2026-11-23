@@ -139,8 +139,14 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		}
 	}()
 
-	jm.wg.Add(8)
-	go jm.startClusterStatusChecks()
+	backgroundLoops := 7
+	if !strings.EqualFold(cfg.Server.Mode, "test") {
+		backgroundLoops++
+	}
+	jm.wg.Add(backgroundLoops)
+	if !strings.EqualFold(cfg.Server.Mode, "test") {
+		go jm.startClusterStatusChecks()
+	}
 	go jm.watchProtection()
 	go jm.startPruning()
 	go jm.startAIAnalysis()

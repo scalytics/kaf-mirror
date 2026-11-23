@@ -431,7 +431,7 @@ func (s *Server) handleGetTopicDetails(c *fiber.Ctx) error {
 
 // handleGetClusterStatus godoc
 // @Summary Get the status of a Kafka cluster
-// @Description Run a live connection test against the cluster, bounded by 10 seconds, and store the result as the cluster status (active or unreachable). Inactive and archived clusters keep their status.
+// @Description Run a live connection test against the cluster, bounded by 10 seconds, and store the result as the cluster status (active or unreachable). When the check fails the response is HTTP 503 and the stored status is unreachable. Inactive and archived clusters are not probed and keep their status.
 // @Tags clusters
 // @Produce json
 // @Param name path string true "Cluster Name"
@@ -451,7 +451,11 @@ func (s *Server) handleGetClusterStatus(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusServiceUnavailable, fmt.Sprintf("Failed to connect to cluster: %v", err))
 	}
 
-	return c.JSON(fiber.Map{"status": status, "message": "Cluster is reachable"})
+	message := "Cluster is reachable"
+	if status != database.ClusterStatusActive {
+		message = "Cluster status is " + status
+	}
+	return c.JSON(fiber.Map{"status": status, "message": message})
 }
 
 // handleTestClusterConnection godoc

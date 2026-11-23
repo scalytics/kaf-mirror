@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -144,4 +145,183 @@ func TestClusterStatusCheckKeepsStatusWhenCancelled(t *testing.T) {
 	_, err = jm.CheckClusterStatus(ctx, "c")
 	require.Error(t, err)
 	assert.Equal(t, database.ClusterStatusActive, clusterStatus(t, jm, "c"))
+}
+
+func TestFailedCheckDoesNotLeaveRestoredClusterUnknown(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	jm := manager.New(db, &config.Config{Server: config.ServerConfig{Mode: "test"}}, &mocks.MockHub{})
+	t.Cleanup(func() {
+		jm.Close()
+		db.Close()
+	})
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "restored", Brokers: "localhost:1", SecurityConfig: "{}"}))
+	assert.Equal(t, database.ClusterStatusUnknown, clusterStatus(t, jm, "restored"))
+	jm.SetClusterProbeForTest(func(context.Context, database.KafkaCluster) error {
+		return errors.New("dial tcp: connection refused")
+	})
+	status, err := jm.CheckClusterStatus(context.Background(), "restored")
+	require.Error(t, err)
+	assert.Equal(t, database.ClusterStatusUnreachable, status)
+	assert.Equal(t, database.ClusterStatusUnreachable, clusterStatus(t, jm, "restored"))
+}
+
+func TestClusterStatusCheckKeepsRetiredStatusIfStateChangesDuringProbe(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	jm := manager.New(db, &config.Config{Server: config.ServerConfig{Mode: "test"}}, &mocks.MockHub{})
+	t.Cleanup(func() {
+		jm.Close()
+		db.Close()
+	})
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "c", Brokers: "localhost:1", SecurityConfig: "{}"}))
+	require.NoError(t, database.RecordClusterHealth(db, "c", true))
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	jm.SetClusterProbeForTest(func(context.Context, database.KafkaCluster) error {
+		close(started)
+		<-release
+		return nil
+	})
+
+	done := make(chan struct{})
+	var status string
+	var checkErr error
+	go func() {
+		defer close(done)
+		status, checkErr = jm.CheckClusterStatus(context.Background(), "c")
+	}()
+	<-started
+	require.NoError(t, database.SetClusterStatus(db, "c", database.ClusterStatusInactive))
+	close(release)
+	<-done
+	require.NoError(t, checkErr)
+	assert.Equal(t, database.ClusterStatusInactive, status)
+	assert.Equal(t, database.ClusterStatusInactive, clusterStatus(t, jm, "c"))
+}
+
+func TestClusterStatusCheckDoesNotRecreateDeletedCluster(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	jm := manager.New(db, &config.Config{Server: config.ServerConfig{Mode: "test"}}, &mocks.MockHub{})
+	t.Cleanup(func() {
+		jm.Close()
+		db.Close()
+	})
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "gone", Brokers: "localhost:1", SecurityConfig: "{}"}))
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	jm.SetClusterProbeForTest(func(context.Context, database.KafkaCluster) error {
+		close(started)
+		<-release
+		return nil
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = jm.CheckClusterStatus(context.Background(), "gone")
+	}()
+	<-started
+	require.NoError(t, database.DeleteCluster(db, "gone"))
+	close(release)
+	<-done
+	_, err = database.GetCluster(db, "gone")
+	require.Error(t, err)
+}
+
+func TestCheckAllClusterStatusesCapsConcurrencyAtFour(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	jm := manager.New(db, &config.Config{Server: config.ServerConfig{Mode: "test"}}, &mocks.MockHub{})
+	t.Cleanup(func() {
+		jm.Close()
+		db.Close()
+	})
+	for i := 0; i < 5; i++ {
+		name := "c" + string(rune('a'+i))
+		require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: name, Brokers: "localhost:1", SecurityConfig: "{}"}))
+	}
+
+	var current, max, started int32
+	release := make(chan struct{})
+	entered := make(chan struct{}, 5)
+	jm.SetClusterProbeForTest(func(context.Context, database.KafkaCluster) error {
+		n := atomic.AddInt32(&current, 1)
+		atomic.AddInt32(&started, 1)
+		for {
+			old := atomic.LoadInt32(&max)
+			if n <= old || atomic.CompareAndSwapInt32(&max, old, n) {
+				break
+			}
+		}
+		entered <- struct{}{}
+		<-release
+		atomic.AddInt32(&current, -1)
+		return nil
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		jm.CheckAllClusterStatuses(context.Background())
+	}()
+	for i := 0; i < 4; i++ {
+		<-entered
+	}
+	assert.Equal(t, int32(4), atomic.LoadInt32(&current))
+	assert.Equal(t, int32(4), atomic.LoadInt32(&max))
+	assert.Equal(t, int32(4), atomic.LoadInt32(&started))
+	close(release)
+	<-done
+	assert.Equal(t, int32(4), atomic.LoadInt32(&max))
+	assert.Equal(t, int32(5), atomic.LoadInt32(&started))
+}
+
+func TestCloseDoesNotWriteClusterStatusAfterShutdown(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	jm := manager.New(db, &config.Config{Server: config.ServerConfig{Mode: "test"}}, &mocks.MockHub{})
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "c", Brokers: "localhost:1", SecurityConfig: "{}"}))
+	require.NoError(t, database.RecordClusterHealth(db, "c", true))
+
+	started := make(chan struct{})
+	jm.SetClusterProbeForTest(func(ctx context.Context, _ database.KafkaCluster) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	jm.CheckClusterStatusAsync("c")
+	<-started
+	jm.Close()
+	assert.Equal(t, database.ClusterStatusActive, clusterStatus(t, jm, "c"))
+
+	jm.SetClusterProbeForTest(func(context.Context, database.KafkaCluster) error {
+		return errors.New("dial tcp: connection refused")
+	})
+	status, err := jm.CheckClusterStatus(context.Background(), "c")
+	require.Error(t, err)
+	assert.Equal(t, database.ClusterStatusActive, status)
+	assert.Equal(t, database.ClusterStatusActive, clusterStatus(t, jm, "c"))
+	db.Close()
+}
+
+func TestClusterStatusLoopDoesNotStartInTestMode(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	var probes int32
+	jm := manager.New(db, &config.Config{Server: config.ServerConfig{Mode: "test"}}, &mocks.MockHub{})
+	t.Cleanup(func() {
+		jm.Close()
+		db.Close()
+	})
+	jm.SetClusterProbeForTest(func(context.Context, database.KafkaCluster) error {
+		atomic.AddInt32(&probes, 1)
+		return nil
+	})
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "c", Brokers: "localhost:1", SecurityConfig: "{}"}))
+	assert.Equal(t, database.ClusterStatusUnknown, clusterStatus(t, jm, "c"))
+	assert.Equal(t, int32(0), atomic.LoadInt32(&probes))
 }

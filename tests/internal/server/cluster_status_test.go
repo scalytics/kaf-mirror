@@ -66,6 +66,7 @@ func TestClusterStatusEndpointStoresReachableStatusForTheList(t *testing.T) {
 	code, body := getClusterStatus(t, ctx, "live")
 	require.Equal(t, 200, code)
 	assert.Equal(t, "active", body["status"])
+	assert.Equal(t, "Cluster is reachable", body["message"])
 	assert.Equal(t, "active", listedClusterStatus(t, ctx, "live"))
 }
 
@@ -100,5 +101,24 @@ func TestClusterStatusEndpointKeepsInactiveClusterInactive(t *testing.T) {
 	code, body := getClusterStatus(t, ctx, "old")
 	assert.Equal(t, 200, code)
 	assert.Equal(t, "inactive", body["status"])
+	assert.Equal(t, "Cluster status is inactive", body["message"])
 	assert.Equal(t, "inactive", listedClusterStatus(t, ctx, "old"))
+}
+
+func TestClusterStatusEndpointKeepsInactiveWhenProbeWouldFail(t *testing.T) {
+	ctx := setupTestServer(t)
+	require.NoError(t, database.CreateCluster(ctx.Server.Db, &database.KafkaCluster{Name: "old", Brokers: "localhost:1", SecurityConfig: "{}"}))
+	require.NoError(t, database.SetClusterStatus(ctx.Server.Db, "old", "inactive"))
+	var probed int
+	ctx.Manager.SetClusterProbeForTest(func(_ context.Context, _ database.KafkaCluster) error {
+		probed++
+		return errors.New("connection refused")
+	})
+
+	code, body := getClusterStatus(t, ctx, "old")
+	assert.Equal(t, 200, code)
+	assert.Equal(t, "inactive", body["status"])
+	assert.Equal(t, "Cluster status is inactive", body["message"])
+	assert.Equal(t, "inactive", listedClusterStatus(t, ctx, "old"))
+	assert.Equal(t, 0, probed)
 }

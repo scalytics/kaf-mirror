@@ -341,6 +341,8 @@ Each cluster has a stored status, shown in `GET /api/v1/clusters`, `mirror-cli c
 
 kaf-mirror checks every cluster that is not `inactive` or `archived` when it starts and then every 60 seconds. Each check connects to the cluster with the same client options a job uses, has a 10 second timeout, and at most 4 run at a time. A cluster is also checked after it is created, updated or restored, when `GET /api/v1/clusters/{name}/status` is called, and in the pre-flight check of a job restart. A cluster that comes back is `active` again after the next check. The interval and the timeout have no config key.
 
+`GET /api/v1/clusters/{name}/status` runs one of those checks now. It answers HTTP 200 with `{"status":"active","message":"Cluster is reachable"}` when the cluster is reached. When the check fails or times out, it stores `unreachable` and answers HTTP 503. Inactive and archived clusters are not probed; the call answers HTTP 200 with their stored status.
+
 **Replication Job Management**
 
 - `./mirror-cli jobs list`: List all replication jobs with status and performance metrics.

@@ -837,17 +837,20 @@
                 const openGaps = mirrorGaps.length;
                 const maxLag = mirrorProgress.reduce((max, mp) => Math.max(max, mp.replication_lag || 0), 0);
 
-                let lastResume = '—';
+                let lastResume = '-';
                 if (resumePoints.length > 0) {
                     const latestRP = resumePoints.reduce((latest, rp) => {
                         return !latest || new Date(rp.calculated_at) > new Date(latest.calculated_at) ? rp : latest;
                     }, null);
                     if (latestRP) {
-                        lastResume = `${latestRP.source_topic || ''} p${latestRP.partition_id || ''} @ ${latestRP.safe_resume_offset || 0}`;
+                        const topic = latestRP.source_topic || '';
+                        const part = latestRP.partition_id ?? '';
+                        const off = latestRP.safe_resume_offset ?? 0;
+                        lastResume = `${topic} p${part} @ ${off}`;
                     }
                 }
 
-                let lastUpdated = '—';
+                let lastUpdated = '-';
                 if (mirrorProgress.length > 0) {
                     const latestMP = mirrorProgress.reduce((latest, mp) => {
                         return !latest || new Date(mp.last_updated) > new Date(latest.last_updated) ? mp : latest;
@@ -1562,7 +1565,10 @@
                     const points = Array.isArray(resumePoints) ? resumePoints : [resumePoints];
                     if (points.length > 0 && points[0]) {
                         const latest = points[points.length - 1];
-                        content += `• Last Resume Point: ${latest.safe_resume_offset || 'N/A'}<br>`;
+                        const topic = latest.source_topic || '';
+                        const part = latest.partition_id ?? '';
+                        const off = latest.safe_resume_offset ?? 0;
+                        content += `• Last Resume Point: ${topic} p${part} @ ${off}<br>`;
                     }
                 }
                 

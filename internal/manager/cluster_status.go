@@ -60,6 +60,9 @@ func (jm *JobManager) CheckClusterStatus(ctx context.Context, name string) (stri
 	if err != nil {
 		return "", err
 	}
+	if database.ClusterStatusIsRetired(cluster.Status) {
+		return cluster.Status, nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, ClusterStatusTimeout)
 	defer cancel()
 	probeErr := jm.probe(ctx, *cluster)
@@ -67,13 +70,17 @@ func (jm *JobManager) CheckClusterStatus(ctx context.Context, name string) (stri
 		return cluster.Status, probeErr
 	}
 	jm.recordClusterHealth(name, probeErr)
-	if database.ClusterStatusIsRetired(cluster.Status) {
-		return cluster.Status, probeErr
+	current, err := database.GetCluster(jm.Db, name)
+	if err != nil {
+		if probeErr != nil {
+			return database.ClusterStatusUnreachable, probeErr
+		}
+		return database.ClusterStatusActive, nil
 	}
-	if probeErr != nil {
-		return database.ClusterStatusUnreachable, probeErr
+	if database.ClusterStatusIsRetired(current.Status) {
+		return current.Status, nil
 	}
-	return database.ClusterStatusActive, nil
+	return current.Status, probeErr
 }
 
 func (jm *JobManager) CheckAllClusterStatuses(ctx context.Context) {
