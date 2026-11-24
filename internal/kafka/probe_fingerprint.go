@@ -17,7 +17,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
 	"sync"
 
 	"kaf-mirror/internal/config"
@@ -62,11 +61,11 @@ func probeFingerprintWithKey(cfg config.ClusterConfig, key []byte) (string, bool
 	return hex.EncodeToString(mac.Sum(nil)), true
 }
 
-func hmacTLSFile(path string, key []byte) (string, bool) {
+func hmacTLSFile(path, setting string, key []byte) (string, bool) {
 	if path == "" {
 		return "", true
 	}
-	data, err := os.ReadFile(path)
+	data, err := readTLSFile(path, setting)
 	if err != nil {
 		return "", false
 	}
@@ -94,8 +93,12 @@ func canonicalClusterConfig(cfg config.ClusterConfig, key []byte) ([]byte, bool)
 	if err != nil {
 		return nil, false
 	}
-	for _, path := range []string{cfg.Security.CAFile, cfg.Security.CertFile, cfg.Security.KeyFile} {
-		digest, ok := hmacTLSFile(path, key)
+	for _, item := range []struct{ path, setting string }{
+		{cfg.Security.CAFile, "ca_file"},
+		{cfg.Security.CertFile, "cert_file"},
+		{cfg.Security.KeyFile, "key_file"},
+	} {
+		digest, ok := hmacTLSFile(item.path, item.setting, key)
 		if !ok {
 			return nil, false
 		}

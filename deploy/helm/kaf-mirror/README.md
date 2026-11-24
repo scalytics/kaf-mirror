@@ -85,7 +85,7 @@ helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f tls-values
 
 ## Kafka TLS
 
-For brokers with a private CA or mTLS, keep the CA certificate and the client certificate and key in a Secret and set `kafkaTLS.existingSecret`. The chart mounts every key of the Secret read-only at `/app/kafka-tls` with mode `0440`, readable by the pod group 101. Then set `ca_file`, `cert_file` and `key_file` to those paths in `security_config` of the cluster you create with the API, or in `config.sourceSecurity` and `config.targetSecurity`. See "TLS with a private CA or mTLS" in the [main README](../../../README.md#tls-with-a-private-ca-or-mtls).
+For brokers with a private CA or mTLS, keep the CA certificate and the client certificate and key in a Secret and set `kafkaTLS.existingSecret`. The chart mounts every key of the Secret read-only at `/app/kafka-tls` with mode `0440`, readable by the pod group 101. Those files must be regular files of at most 1 MiB; a symlink to a regular file, as used by Kubernetes Secret mounts, is accepted. Then set `ca_file`, `cert_file` and `key_file` to those paths in `security_config` of the cluster you create with the API, or in `config.sourceSecurity` and `config.targetSecurity`. See "TLS with a private CA or mTLS" in the [main README](../../../README.md#tls-with-a-private-ca-or-mtls).
 
 ```bash
 kubectl create secret generic km-kafka-tls --from-file=ca.crt=./ca.crt --from-file=tls.crt=./tls.crt --from-file=tls.key=./tls.key

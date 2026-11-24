@@ -42,9 +42,9 @@ This page lists every config key and environment variable that kaf-mirror reads.
 | `clusters.<name>.security.api_key` | empty | API key of the `confluent` provider. |
 | `clusters.<name>.security.api_secret` | empty | API secret of the `confluent` provider. Set it from the environment. |
 | `clusters.<name>.security.connection_string` | empty | Connection string of the `azure` provider. Set it from the environment. |
-| `clusters.<name>.security.ca_file` | empty | PEM file with the CA certificates that sign the broker certificates. Empty uses the system trust store. Needs a TLS connection: `protocol` `SSL` or `SASL_SSL`, or the `confluent` or `azure` provider. |
-| `clusters.<name>.security.cert_file` | empty | PEM client certificate for mTLS. Set it together with `key_file`. Needs a TLS connection. |
-| `clusters.<name>.security.key_file` | empty | PEM private key of `cert_file`. Set it together with `cert_file`. Needs a TLS connection. |
+| `clusters.<name>.security.ca_file` | empty | PEM file with the CA certificates that sign the broker certificates. Empty uses the system trust store. Needs a TLS connection: `protocol` `SSL` or `SASL_SSL`, or the `confluent` or `azure` provider. Must be a regular file of at most 1 MiB. A path that does not exist yet is accepted in the config and fails when a client is created. |
+| `clusters.<name>.security.cert_file` | empty | PEM client certificate for mTLS. Set it together with `key_file`. Needs a TLS connection. Must be a regular file of at most 1 MiB. |
+| `clusters.<name>.security.key_file` | empty | PEM private key of `cert_file`. Set it together with `cert_file`. Needs a TLS connection. Must be a regular file of at most 1 MiB. |
 | `clusters.<name>.security.kerberos.service_name` | `kafka` | Kerberos service name of the brokers. |
 | `clusters.<name>.security.kerberos.principal` | empty | Kerberos client principal. |
 | `clusters.<name>.security.kerberos.keytab_path` | empty | Path to the keytab. |

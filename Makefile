@@ -107,13 +107,20 @@ all: build
 # to avoid issues with the swag tool parsing non-application Go files.
 docs:
 	@echo "Generating Swagger docs..."
-	@GOPATH=$(shell go env GOPATH); \
-	if [ -z "$$GOPATH" ]; then \
-		echo "GOPATH is not set. Please set it and try again."; \
-		exit 1; \
+	@SWAG_VER=$$(go list -m -f '{{.Version}}' github.com/swaggo/swag); \
+	go install github.com/swaggo/swag/cmd/swag@$$SWAG_VER; \
+	GOBIN_DIR=$$(go env GOBIN); \
+	if [ -n "$$GOBIN_DIR" ]; then \
+	SWAG_BIN=$$GOBIN_DIR/swag; \
+	else \
+	GOPATH_DIR=$$(go env GOPATH); \
+	if [ -z "$$GOPATH_DIR" ]; then \
+	echo "GOPATH is not set. Please set it and try again."; \
+	exit 1; \
 	fi; \
-	go install github.com/swaggo/swag/cmd/swag@$$(go list -m -f '{{.Version}}' github.com/swaggo/swag); \
-	$$GOPATH/bin/swag init -g cmd/kaf-mirror/main.go --output web/docu/swagger --exclude scripts
+	SWAG_BIN=$$GOPATH_DIR/bin/swag; \
+	fi; \
+	$$SWAG_BIN init -g cmd/kaf-mirror/main.go --output web/docu/swagger --exclude scripts
 
 build: docs docs-cli docs-html binaries
 

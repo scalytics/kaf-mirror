@@ -200,3 +200,21 @@ func TestTLSFileSettingsAreValidated(t *testing.T) {
 	_, err = kafka.ClientOptions(confluent)
 	assert.NoError(t, err)
 }
+
+func TestTLSFileSymlinkToPEMIsAccepted(t *testing.T) {
+	p := newTestPKI(t)
+	dir := t.TempDir()
+	linkCA := filepath.Join(dir, "ca.crt")
+	linkCert := filepath.Join(dir, "client.crt")
+	linkKey := filepath.Join(dir, "client.key")
+	require.NoError(t, os.Symlink(p.caFile, linkCA))
+	require.NoError(t, os.Symlink(p.certFile, linkCert))
+	require.NoError(t, os.Symlink(p.keyFile, linkKey))
+	cfg := config.ClusterConfig{Provider: "plain", Brokers: "127.0.0.1:9093", Security: config.SecurityConfig{Protocol: "SSL", CAFile: linkCA, CertFile: linkCert, KeyFile: linkKey}}
+	assert.NoError(t, kafka.ValidateSecurity(cfg))
+	_, err := kafka.ClientOptions(cfg)
+	assert.NoError(t, err)
+	fp, ok := kafka.ProbeFingerprint(cfg)
+	require.True(t, ok)
+	require.NotEmpty(t, fp)
+}

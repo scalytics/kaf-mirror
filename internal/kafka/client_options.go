@@ -16,7 +16,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -143,9 +142,9 @@ func splitBrokers(brokers string) []string {
 func tlsConfig(plan securityPlan) (*tls.Config, error) {
 	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	if plan.caFile != "" {
-		pem, err := os.ReadFile(plan.caFile)
+		pem, err := readTLSFile(plan.caFile, "ca_file")
 		if err != nil {
-			return nil, fmt.Errorf("failed to read ca_file: %w", err)
+			return nil, err
 		}
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(pem) {
@@ -154,7 +153,15 @@ func tlsConfig(plan securityPlan) (*tls.Config, error) {
 		cfg.RootCAs = pool
 	}
 	if plan.certFile != "" {
-		cert, err := tls.LoadX509KeyPair(plan.certFile, plan.keyFile)
+		certPEM, err := readTLSFile(plan.certFile, "cert_file")
+		if err != nil {
+			return nil, err
+		}
+		keyPEM, err := readTLSFile(plan.keyFile, "key_file")
+		if err != nil {
+			return nil, err
+		}
+		cert, err := tls.X509KeyPair(certPEM, keyPEM)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load cert_file and key_file: %w", err)
 		}
@@ -176,6 +183,15 @@ func planSecurity(cfg config.ClusterConfig) (securityPlan, error) {
 		return plan, errors.New("ca_file, cert_file and key_file need protocol SSL or SASL_SSL")
 	}
 	plan.caFile, plan.certFile, plan.keyFile = sec.CAFile, sec.CertFile, sec.KeyFile
+	for _, item := range []struct{ path, setting string }{
+		{plan.caFile, "ca_file"},
+		{plan.certFile, "cert_file"},
+		{plan.keyFile, "key_file"},
+	} {
+		if err := validateTLSFile(item.path, item.setting); err != nil {
+			return plan, err
+		}
+	}
 	return plan, nil
 }
 

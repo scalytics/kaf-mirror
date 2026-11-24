@@ -584,7 +584,7 @@ The consumer, the producer, the admin client, `POST /api/v1/clusters/test`, the 
 *   **TLS:** on when `security.protocol` is `SSL` or `SASL_SSL`, and always for the `confluent` and `azure` providers. The client checks the broker certificate against the system trust store, or against `ca_file` when it is set, and needs TLS 1.2 or newer. `cert_file` and `key_file` send a client certificate for mTLS. See "TLS with a private CA or mTLS" below.
 *   **Generic SASL:** used when `security.enabled` is `true` and `security.sasl_mechanism` is set. `PLAIN`, `SCRAM-SHA-256` and `SCRAM-SHA-512` need `username` and `password`. `GSSAPI` needs the Kerberos settings below. Any other mechanism is an error.
 *   **Provider presets:** `confluent` uses SASL PLAIN with `api_key` and `api_secret`. `azure` uses SASL PLAIN with the user `$ConnectionString` and `connection_string`. `redpanda` with `username` and `password` and no `sasl_mechanism` uses TLS and SCRAM-SHA-256. With an explicit `sasl_mechanism`, a `redpanda` cluster uses the generic settings.
-*   **Validation:** creating or updating a cluster and `POST /api/v1/clusters/test` answer HTTP 400 when `security_config` is not a JSON object, a mechanism is unknown, a password is missing, a GSSAPI path is missing, only one of `cert_file` and `key_file` is set, or `ca_file`, `cert_file` or `key_file` is set on a cluster without TLS.
+*   **Validation:** creating or updating a cluster and `POST /api/v1/clusters/test` answer HTTP 400 when `security_config` is not a JSON object, a mechanism is unknown, a password is missing, a GSSAPI path is missing, only one of `cert_file` and `key_file` is set, `ca_file`, `cert_file` or `key_file` is set on a cluster without TLS, or a set `ca_file`, `cert_file` or `key_file` exists and is not a regular file or is larger than 1 MiB.
 *   **Logs:** kaf-mirror logs the provider, whether TLS is on and the mechanism name. It never logs a password, API secret or connection string.
 
 Jobs use the clusters stored in the database. Create them with `mirror-cli clusters add`, which asks for the password without echo, or with `POST /api/v1/clusters`. The security settings go in `security_config`, a JSON object written as a string. All fields are listed in [docs/configuration.md](docs/configuration.md#cluster-api-fields). The `clusters` section of the config file is only used by `GET /api/v1/topics/source` and `/target`, and for `disable_idempotent_writes`.
@@ -618,11 +618,11 @@ Set these keys in `security_config` of the cluster, or in `security` of a cluste
 
 | Key | Description |
 |---|---|
-| `ca_file` | PEM file with the CA certificates that sign the broker certificates. Without it, the system trust store is used. |
-| `cert_file` | PEM client certificate for mTLS. Set it together with `key_file`. |
-| `key_file` | PEM private key of `cert_file`. |
+| `ca_file` | PEM file with the CA certificates that sign the broker certificates. Without it, the system trust store is used. The file must be a regular file of at most 1 MiB. |
+| `cert_file` | PEM client certificate for mTLS. Set it together with `key_file`. The file must be a regular file of at most 1 MiB. |
+| `key_file` | PEM private key of `cert_file`. The file must be a regular file of at most 1 MiB. |
 
-They need a TLS connection: `protocol` `SSL` or `SASL_SSL`, or the `confluent` or `azure` provider. The files are read when a client is created. A missing file, a `ca_file` without a PEM certificate, or a key that does not match the certificate fails the client. They work with SASL on `SASL_SSL`. kaf-mirror does not read `SSL_CERT_FILE` for this. Use `ca_file`.
+They need a TLS connection: `protocol` `SSL` or `SASL_SSL`, or the `confluent` or `azure` provider. Each file must be a regular file of at most 1 MiB. A symlink to a regular file is accepted, including the `..data` symlinks used by Kubernetes Secret mounts. Paths are not limited to one directory, so a config file cluster and the Helm mount at `/app/kafka-tls` both work. A FIFO, device, directory or larger file is rejected. The files are read when a client is created. A path that does not exist yet is accepted when the cluster is saved, and a missing file, a `ca_file` without a PEM certificate, or a key that does not match the certificate fails the client. If a TLS file cannot be read during a cluster probe, the check is not shared and the cluster is probed again. They work with SASL on `SASL_SSL`. kaf-mirror does not read `SSL_CERT_FILE` for this. Use `ca_file`.
 
 A cluster with a private CA and a client certificate, created with the API:
 ```bash
