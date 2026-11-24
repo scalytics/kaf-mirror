@@ -30,6 +30,9 @@ type ConsumerMetrics struct {
 	BytesReplicated   int64
 	ConsumerLag       int64
 	Tombstones        int64
+	FetchErrors       int64
+	TopicRecreations  int64
+	MissingTopics     []string
 }
 
 const (
@@ -59,6 +62,12 @@ type Consumer struct {
 	partCancels      map[topicPartition]context.CancelFunc
 	revoked          map[topicPartition]bool
 	sleep            func(context.Context, time.Duration) error
+	now              func() time.Time
+	fetchErrors      int64
+	fetchBackoff     time.Duration
+	fetchErrorLogs   map[fetchErrorKey]*fetchErrorLog
+	topicIDs         topicIDState
+	topicCommitMu    sync.Mutex
 }
 
 func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config.ReplicationConfig, jobID string, topics ...string) (*Consumer, error) {
@@ -103,6 +112,7 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 	}
 
 	consumer.Client = client
+	consumer.watchTopics(topics...)
 
 	logger.Info("Consumer: Successfully created Kafka client, job=%s, component=%s", jobID, "consumer")
 	return consumer, nil
@@ -126,6 +136,7 @@ const (
 
 type partitionBatch struct {
 	tp            topicPartition
+	topicID       topicID
 	ctx           context.Context
 	records       []*kgo.Record
 	next          int
@@ -161,39 +172,42 @@ func (c *Consumer) Consume(ctx context.Context, handler func(context.Context, *k
 }
 
 func (c *Consumer) ConsumeAsync(ctx context.Context, handler AsyncHandler) error {
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	defer stopWatch()
+	go c.watchTopicIDs(watchCtx)
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
 		fetches := c.Client.PollFetches(ctx)
-		if fetches.IsClientClosed() {
+		if fetches.IsClientClosed() || ctx.Err() != nil {
 			return nil
 		}
-
-		fetches.EachError(func(t string, p int32, err error) {
-			logger.ErrorAI("disaster", "replication", c.jobID, "Consumer: Fetch error for topic %s, partition %d: %v", t, p, err)
-		})
+		c.handleFetchErrors(ctx, fetches)
 
 		partCtxs := c.trackPartitions(ctx, fetches)
 		var batches []*partitionBatch
-		fetches.EachPartition(func(partition kgo.FetchTopicPartition) {
-			c.setHighWaterMark(partition.Topic, partition.Partition, partition.HighWatermark)
-			if len(partition.Records) == 0 {
-				return
+		fetches.EachTopic(func(topic kgo.FetchTopic) {
+			for _, partition := range topic.Partitions {
+				c.setHighWaterMark(topic.Topic, partition.Partition, partition.HighWatermark)
+				if len(partition.Records) == 0 {
+					continue
+				}
+				tp := topicPartition{topic: topic.Topic, partition: partition.Partition}
+				batches = append(batches, &partitionBatch{
+					tp:           tp,
+					topicID:      topic.TopicID,
+					ctx:          partCtxs[tp],
+					records:      partition.Records,
+					status:       make([]int, len(partition.Records)),
+					sends:        make([]int, len(partition.Records)),
+					failures:     make([]int, len(partition.Records)),
+					acked:        make([]bool, len(partition.Records)),
+					errs:         make([]error, len(partition.Records)),
+					failedAt:     -1,
+					isolateUntil: -1,
+				})
 			}
-			tp := topicPartition{topic: partition.Topic, partition: partition.Partition}
-			batches = append(batches, &partitionBatch{
-				tp:           tp,
-				ctx:          partCtxs[tp],
-				records:      partition.Records,
-				status:       make([]int, len(partition.Records)),
-				sends:        make([]int, len(partition.Records)),
-				failures:     make([]int, len(partition.Records)),
-				acked:        make([]bool, len(partition.Records)),
-				errs:         make([]error, len(partition.Records)),
-				failedAt:     -1,
-				isolateUntil: -1,
-			})
 		})
 		err := c.consumeBatches(ctx, batches, handler)
 		c.releasePartitions(partCtxs)
@@ -370,6 +384,7 @@ func (c *Consumer) recordDone(round *batchRound, b *partitionBatch, i int) func(
 
 func (c *Consumer) commitAcked(ctx context.Context, batches []*partitionBatch) {
 	var commits []*kgo.Record
+	var commitIDs []topicID
 	for _, b := range batches {
 		if c.isRevoked(b.tp) {
 			continue
@@ -386,6 +401,7 @@ func (c *Consumer) commitAcked(ctx context.Context, batches []*partitionBatch) {
 		}
 		if b.next > start {
 			commits = append(commits, b.records[b.next-1])
+			commitIDs = append(commitIDs, b.topicID)
 		}
 	}
 	if len(commits) == 0 {
@@ -397,8 +413,25 @@ func (c *Consumer) commitAcked(ctx context.Context, batches []*partitionBatch) {
 		commitCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), shutdownCommitTimeout)
 		defer cancel()
 	}
-	if err := c.Client.CommitRecords(commitCtx, commits...); err != nil {
-		logger.Error("Consumer: failed to commit %d partition offsets: %v, job=%s", len(commits), err, c.jobID)
+	c.topicCommitMu.Lock()
+	defer c.topicCommitMu.Unlock()
+	known := c.knownTopicIDs()
+	live := commits[:0]
+	for i, rec := range commits {
+		if c.isRevoked(topicPartition{topic: rec.Topic, partition: rec.Partition}) {
+			continue
+		}
+		if current, ok := known[rec.Topic]; ok && commitIDs[i] != (topicID{}) && commitIDs[i] != current {
+			logger.Warn("Consumer: not committing offset %d of topic %s partition %d, the records came from topic ID %s and the topic now has %s, job=%s", rec.Offset+1, rec.Topic, rec.Partition, commitIDs[i], current, c.jobID)
+			continue
+		}
+		live = append(live, rec)
+	}
+	if len(live) == 0 {
+		return
+	}
+	if err := c.Client.CommitRecords(commitCtx, live...); err != nil {
+		logger.Error("Consumer: failed to commit %d partition offsets: %v, job=%s", len(live), err, c.jobID)
 	}
 }
 
@@ -473,6 +506,7 @@ func (c *Consumer) releasePartitions(ctxs map[topicPartition]context.Context) {
 }
 
 func (c *Consumer) RevokePartitions(revoked map[string][]int32) {
+	defer c.sessionEnded(revoked)
 	c.partMu.Lock()
 	defer c.partMu.Unlock()
 	if c.revoked == nil {
@@ -491,12 +525,13 @@ func (c *Consumer) RevokePartitions(revoked map[string][]int32) {
 
 func (c *Consumer) AssignPartitions(assigned map[string][]int32) {
 	c.partMu.Lock()
-	defer c.partMu.Unlock()
 	for topic, partitions := range assigned {
 		for _, partition := range partitions {
 			delete(c.revoked, topicPartition{topic: topic, partition: partition})
 		}
 	}
+	c.partMu.Unlock()
+	c.requestTopicCheck()
 }
 
 func (c *Consumer) setHighWaterMark(topic string, partition int32, high int64) {
@@ -553,6 +588,9 @@ func (c *Consumer) GetMetrics() ConsumerMetrics {
 		BytesReplicated:   atomic.LoadInt64(&c.bytesAcked),
 		ConsumerLag:       calculatedLag,
 		Tombstones:        atomic.LoadInt64(&c.tombstones),
+		FetchErrors:       atomic.LoadInt64(&c.fetchErrors),
+		TopicRecreations:  atomic.LoadInt64(&c.topicIDs.recreations),
+		MissingTopics:     c.missingTopics(),
 	}
 }
 
@@ -566,7 +604,9 @@ func (c *Consumer) AddTopics(topics ...string) {
 	if len(topics) == 0 {
 		return
 	}
+	c.watchTopics(topics...)
 	c.Client.AddConsumeTopics(topics...)
+	c.requestTopicCheck()
 }
 
 // NewConsumerForTest creates a Consumer with preset offsets for unit tests.

@@ -167,7 +167,7 @@ func CreateCluster(db *sqlx.DB, cluster *KafkaCluster) error {
 		return err
 	}
 	if count > 0 {
-		return errors.New("a cluster with this name already exists")
+		return ErrClusterExists
 	}
 
 	// Provider-aware uniqueness check
@@ -177,7 +177,7 @@ func CreateCluster(db *sqlx.DB, cluster *KafkaCluster) error {
 			return err
 		}
 		if count > 0 {
-			return errors.New("a confluent cluster with this cluster_id already exists")
+			return ErrConfluentClusterExists
 		}
 	}
 
@@ -187,10 +187,41 @@ func CreateCluster(db *sqlx.DB, cluster *KafkaCluster) error {
 	if cluster.UID == "" {
 		cluster.UID = uuid.NewString()
 	}
+	if beforeCreateInsert != nil {
+		beforeCreateInsert()
+	}
 	query := `INSERT INTO kafka_clusters (name, uid, provider, cluster_id, brokers, security_config, api_key, api_secret, connection_string, role)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err = db.Exec(query, cluster.Name, cluster.UID, cluster.Provider, cluster.ClusterID, cluster.Brokers, cluster.SecurityConfig, cluster.APIKey, cluster.APISecret, cluster.ConnectionString, cluster.Role)
-	return err
+              SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+              WHERE NOT EXISTS (SELECT 1 FROM kafka_clusters WHERE name = ?)
+              AND NOT (? = 'confluent' AND ? != '' AND EXISTS (SELECT 1 FROM kafka_clusters WHERE cluster_id = ?))`
+	res, err := db.Exec(query, cluster.Name, cluster.UID, cluster.Provider, cluster.ClusterID, cluster.Brokers, cluster.SecurityConfig, cluster.APIKey, cluster.APISecret, cluster.ConnectionString, cluster.Role,
+		cluster.Name, cluster.Provider, cluster.ClusterID, cluster.ClusterID)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return ErrClusterExists
+		}
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		if err := db.Get(&count, "SELECT COUNT(*) FROM kafka_clusters WHERE name = ?", cluster.Name); err == nil && count > 0 {
+			return ErrClusterExists
+		}
+		return ErrConfluentClusterExists
+	}
+	return nil
+}
+
+var beforeCreateInsert func()
+
+func SetBeforeCreateInsertForTest(hook func()) func() {
+	old := beforeCreateInsert
+	beforeCreateInsert = hook
+	return func() { beforeCreateInsert = old }
+}
+
+func isUniqueViolation(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "UNIQUE constraint failed") || strings.Contains(msg, "PRIMARY KEY constraint failed")
 }
 
 // UpdateCluster updates an existing Kafka cluster in the database.
@@ -202,7 +233,7 @@ func UpdateCluster(db *sqlx.DB, cluster *KafkaCluster) error {
 		return err
 	}
 	if count > 0 {
-		return errors.New("a cluster with this name already exists")
+		return ErrClusterExists
 	}
 
 	// Provider-aware uniqueness check
@@ -212,7 +243,7 @@ func UpdateCluster(db *sqlx.DB, cluster *KafkaCluster) error {
 			return err
 		}
 		if count > 0 {
-			return errors.New("a confluent cluster with this cluster_id already exists")
+			return ErrConfluentClusterExists
 		}
 	}
 
@@ -263,8 +294,18 @@ func RecordClusterHealth(db *sqlx.DB, name string, reachable bool) error {
 }
 
 // PurgeArchivedClusters permanently deletes all archived Kafka clusters.
+var (
+	ErrClusterExists          = errors.New("a cluster with this name already exists")
+	ErrConfluentClusterExists = errors.New("a confluent cluster with this cluster_id already exists")
+)
+
 func PurgeArchivedClusters(db *sqlx.DB) error {
-	_, err := db.Exec("DELETE FROM kafka_clusters WHERE status = 'archived'")
+	if _, err := db.Exec("DELETE FROM kafka_clusters WHERE status = 'archived'"); err != nil {
+		return err
+	}
+	_, err := db.Exec(`DELETE FROM kafka_clusters WHERE TRIM(name) = ''
+		AND name NOT IN (SELECT source_cluster_name FROM replication_jobs)
+		AND name NOT IN (SELECT target_cluster_name FROM replication_jobs)`)
 	return err
 }
 

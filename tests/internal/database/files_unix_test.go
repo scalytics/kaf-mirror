@@ -15,6 +15,7 @@ package database_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -137,4 +138,36 @@ func TestOpenLockedDBRefusesSecondServer(t *testing.T) {
 	if !errors.Is(err, database.ErrDatabaseInUse) {
 		t.Fatalf("OpenLockedDB: %v, want ErrDatabaseInUse", err)
 	}
+}
+
+func TestOpenLockedDBStartsInAWritableDirOfAnotherUser(t *testing.T) {
+	const dir = "/dev/shm"
+	if os.Geteuid() == 0 {
+		t.Skip("root may change the mode of any directory")
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Skipf("%s: %v", dir, err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int(st.Uid) == os.Geteuid() || info.Mode().Perm()&0002 == 0 {
+		t.Skipf("%s is not a world-writable directory of another user", dir)
+	}
+	mode := info.Mode().Perm()
+	dbPath := filepath.Join(dir, fmt.Sprintf("kaf-mirror-test-%d-%s.db", os.Getpid(), t.Name()))
+	t.Cleanup(func() {
+		for _, suffix := range []string{"", "-wal", "-shm", "-journal", ".lock"} {
+			os.Remove(dbPath + suffix)
+		}
+	})
+
+	db, lock, err := database.OpenLockedDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenLockedDB in %s: %v", dir, err)
+	}
+	db.Close()
+	lock.Close()
+
+	assertMode(t, dir, mode)
+	assertMode(t, dbPath, 0600)
 }

@@ -162,6 +162,17 @@ curl -s http://localhost:8080/health
 ```
 Stop the container with `docker stop -t 45 kaf-mirror`, so it has time to stop its jobs. See "Graceful Shutdown".
 
+A bind mount also works when the container user, UID 100 or GID 101, can write to the host directory. The directory may belong to another user, for example group 101 with mode `0775`. A directory of another user that every user can write to, such as `root` with mode `0777`, stops the start unless it has the sticky bit (mode `1777`), because any user could replace the database files in it. The error names the directory, its mode and its owner. kaf-mirror sets the data directory to mode `0700` only when it owns it. Otherwise it leaves the mode alone and logs a warning when the directory is open to the group or others. The database, its `-wal` and `-shm` files and `kaf-mirror.db.lock` are always created with mode `0600`. An existing database file of another user that the group or others can read stops the start, because kaf-mirror cannot make it private. For a private data directory on the host, give it to the container user:
+```bash
+mkdir -p kaf-mirror-data
+sudo chown 100:101 kaf-mirror-data
+docker run -d --name kaf-mirror -p 8080:8080 \
+  -v "$PWD/kaf-mirror-data:/app/data" \
+  -v kaf-mirror-logs:/app/logs \
+  kaf-mirror:local
+```
+If the data directory is not writable, kaf-mirror exits with `Refusing to start` and the UID and GID it needs. Only a lock held by a restore, an import or another kaf-mirror process gives the hint about waiting for a restore.
+
 The image sets `KAF_MIRROR_SERVER_HOST=0.0.0.0`, so the server listens on all container interfaces. The bundled `configs/default.yml` keeps `host: "localhost"` for runs outside Docker. To listen on another address, pass `-e KAF_MIRROR_SERVER_HOST=<address>`. The image runs in `development` mode. If you mount a config with `mode: "production"`, give it TLS or set `server.allow_insecure`.
 
 Read the bootstrap admin password, then delete the file:
@@ -222,7 +233,7 @@ Every running job reports its counters every 10 seconds. Each report holds the c
 
 *   `messages_replicated` and `bytes_transferred` (key plus value bytes) count each source record once, when the target first acks it. A record that is written again during a retry is not counted again.
 *   `messages_consumed` and `bytes_consumed` count each record when its source offset is committed.
-*   `error_count` counts failed produce attempts, so a record that fails twice counts 2.
+*   `error_count` counts failed produce attempts, so a record that fails twice counts 2, plus source fetch errors, one for each partition in each fetch that returns an error, and one for each check that finds a source topic missing.
 *   `tombstone_count` counts committed records with an empty value.
 *   `current_lag` is the lag of the job consumer group at the last report, computed the same way as `GET /api/v1/jobs/{id}/lag` and summed over all mapped source topics. It keeps growing while the target is down. If the source offsets cannot be read within 5 seconds, the report uses the lag from the last fetch instead.
 
@@ -235,7 +246,12 @@ curl -s "$KM/jobs/$JOB/lag" -H "Authorization: Bearer $TOKEN" | jq .
 
 kaf-mirror does not rotate its log file. Use `logrotate` or the log tooling of your platform, see `logging.file` in [docs/configuration.md](docs/configuration.md). The size of copied records is logged only at `DEBUG`. At `INFO`, a job logs one line per source topic when that topic has a record larger than 2 KB, as a compression hint.
 
-When new produce errors come in, the job logs `Error spike detected` once. It logs it again only after a report with no new errors, followed by new errors.
+When new produce or fetch errors come in, the job logs `Error spike detected` once. It logs it again only after a report with no new errors, followed by new errors.
+
+`GET /api/v1/jobs/{id}/metrics/current` also returns the incident flags `source_stalled`, `target_stalled`, `critical_lag`, `high_error_rate` and `error_spike`. They come from the last report of the running job, so they match the `Source stalled`, `Critical lag detected` and `Error spike detected` log lines and the Prometheus gauges. A job that is not running, or has not sent a report since it started, returns them as `false`. They are not stored in SQLite, so `GET /api/v1/jobs/{id}/metrics/history` does not have them:
+```bash
+curl -s "$KM/jobs/$JOB/metrics/current" -H "Authorization: Bearer $TOKEN" | jq '{source_stalled, target_stalled, critical_lag, high_error_rate, error_spike}'
+```
 
 `source_stalled` is set when the consumer group lag is above 0 and neither `messages_replicated` nor `messages_consumed` grows for about 70 seconds (seven 10-second reports). An idle topic with lag 0 does not stall. After a report with progress, the window starts again. `target_stalled` stays false: after batching, a record is counted as consumed only when the target has acked it and the source offset is committed, so a stuck target looks like no progress with lag and is reported as `source_stalled`. The lag here is the consumer group lag, so it grows while the target is down even though the job does not fetch new records. The Prometheus gauges `kaf_mirror_incident_source_stalled` and `kaf_mirror_incident_target_stalled` still exist, and the target gauge stays 0.
 
@@ -253,6 +269,8 @@ The application is designed to be resilient to network issues and outages of the
 *   **Partition Rebalance:** If the source consumer group takes a partition away from kaf-mirror while a record of that partition is retried, kaf-mirror stops the retry and does not commit the record. Records of that partition that kaf-mirror fetched but has not sent yet are not sent, and records of that partition that were acked but not committed yet are not committed. The consumer that gets the partition reads it from the last committed offset. The same happens when kaf-mirror loses its group membership. If the target had already written that record, the target gets it twice.
 *   **Failed Jobs:** A job stops with status `failed` when a record fails all 5 tries, when the producer fails more than 100 times in a row, when topic discovery finds a regex mapping it cannot apply, or when the consumer or metrics goroutine panics. Discovery cannot apply a mapping when it would send a new source topic to a target topic that another source topic already uses, or when it gives an empty target topic name. `failed_reason` says why, for example `consumer stopped: produce failed for topic orders partition 0 offset 2 after 5 attempts: <error>`, `topic discovery failed: target topic merged is mapped from multiple sources: ev.a and ev.b` or `consumer panic: <value>`. The job closes its Kafka clients and leaves the source consumer group, so its partitions are free. Fix the cause, then start or restart the job. It resumes from the last committed offset and `failed_reason` is cleared. If you stop or restart the job before kaf-mirror handles the failure, the stop or restart wins. The failure is only logged, a stopped job stays `paused` and a restarted job keeps running.
 *   **Graceful Shutdown:** On `SIGTERM` or `SIGINT`, kaf-mirror stops the API server and all running jobs at the same time. Each job stops sending, commits the records the target already acked, closes its Kafka clients and leaves the source consumer group, so another member can take its partitions at once. The status of the jobs stays `active`, so they start again when kaf-mirror starts. Then the background work stops. All of this has to finish within `server.shutdown_timeout`, default `30s`. If it does not, kaf-mirror logs `Shutdown incomplete` and exits. A record that was not committed is read again on the next start. Give the process manager more time than `server.shutdown_timeout` before it kills kaf-mirror: `terminationGracePeriodSeconds` in Kubernetes, which the Helm chart sets to 45, `stop_grace_period` in Docker Compose, which `docker-compose.yml` sets to `45s`, or `docker stop -t 45`. The default of `docker stop` is 10 seconds.
+*   **Source Fetch Errors:** When a fetch from the source returns an error for a partition, kaf-mirror counts it in `error_count` and logs it. The same error of the same partition is logged at most once every 30 seconds, and the next line says how many were left out. When a fetch returns only errors and no records, the consumer waits before it fetches again: 100ms, doubling up to 5s, and back to no wait after a fetch without errors, also an empty one, or with records. Fetch errors are not counted by the protection auto-halt, which only looks at produce errors.
+*   **Recreated Source Topic:** kaf-mirror notes the Kafka topic ID of each source topic from the source metadata when the job starts, when a topic is added, and from any successful fetch, including an empty one. It reads the topic metadata again every 10 seconds, and at once when a fetch answers `UNKNOWN_TOPIC_ID`. When the topic ID of a source topic has changed, the topic was deleted and created again. kaf-mirror then commits the earliest offset of each partition of the new topic for the job consumer group, takes the topic out of the consumer and adds it again, so the consumer loads the new metadata and copies the new topic from its earliest offsets. The job stays `active`. The log has an `ERROR` line `source topic <topic> was recreated, topic ID <old> changed to <new>` with the IDs in the format of `kafka-topics.sh --describe`, and `source_topic_recreations` in `GET /api/v1/jobs/{id}/metrics/current` and the Prometheus gauge `kaf_mirror_source_topic_recreations` count the switches since the job started. Earliest is the start position because a job has no setting for it, and the consumer of a job always starts a partition without committed offsets at the earliest offset. kaf-mirror commits it itself because not every cluster removes the committed offsets of a deleted topic. When the source topic is deleted and not created again, the job stays `active`, every check adds 1 to `error_count`, `missing_source_topics` in `GET /api/v1/jobs/{id}/metrics/current` lists the topic, the Prometheus gauge `kaf_mirror_incident_source_topic_missing` is 1, and the log has `source topic <topic> does not exist` at most once every 30 seconds. When the topic is created again, kaf-mirror switches to it as above. A broker without topic IDs, before Kafka 2.8, or a topic ID of all zeros, keeps the old behavior: the consumer follows the topic by name and nothing is switched. A short `UNKNOWN_TOPIC_ID` while a topic is created, with the topic ID unchanged, only waits and fetches again.
 *   **Topic Discovery During an Outage:** Jobs with regex mappings look for new source topics at every discovery run. If a run fails, for example because the source or target cluster does not answer within 30 seconds or a new target topic cannot be created, kaf-mirror logs a warning and tries again at the next run. The job stays `active` and keeps copying the topics it already has, the same way a job with exact topic names waits out an outage. When a run succeeds again, kaf-mirror logs that discovery works again and starts copying the new topics it finds. Stopping the job during a run or while it waits to retry a topic creation returns at once.
 
 Helm SQLite lives at `/app/data/kaf-mirror.db` on the PVC. Optional `egress.allowed_hosts` restricts AI and metrics HTTP destinations. Passwords must be at least 12 characters.
@@ -548,7 +566,7 @@ Use the Helm chart in section 5. It is the supported way to run kaf-mirror in Ku
 
 ### 5. Run with Helm
 
-The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health`. The chart's default image tag is `v1.3.1`, which does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, make it available to the cluster, and point the chart at it:
+The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health` on storage that honors `fsGroup`. The chart's default image tag is `v1.3.1`, which does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, make it available to the cluster, and point the chart at it:
 
 ```bash
 docker build -t kaf-mirror:local .
@@ -560,6 +578,16 @@ image:
 VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml --wait
 kubectl port-forward svc/km-kaf-mirror 8088:8088
+```
+
+On kind or k3s with the default `local-path` storage, which does not honor `fsGroup`, kaf-mirror refuses to start on the volume. Turn on the init container that gives the volume to the kaf-mirror user:
+
+```bash
+cat > volume-permissions-values.yaml <<'VALUES'
+volumePermissions:
+  enabled: true
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f volume-permissions-values.yaml --wait
 ```
 
 Pass `-f km-values.yaml` first on every later `helm upgrade`, followed by the values files of the other settings you use. Helm does not keep values from an earlier upgrade, so an upgrade without `km-values.yaml` goes back to the default image.

@@ -75,6 +75,23 @@ type JobManager struct {
 	clusterProbeJoin     func()
 	bgCtx                context.Context
 	bgCancel             context.CancelFunc
+	incidentMu           sync.Mutex
+	incidents            map[string]incidentSample
+}
+
+type IncidentFlags struct {
+	SourceStalled bool
+	TargetStalled bool
+	CriticalLag   bool
+	HighErrorRate bool
+	ErrorSpike    bool
+	Recreations   int64
+	MissingTopics []string
+}
+
+type incidentSample struct {
+	mirror kafka.KafMirror
+	flags  IncidentFlags
 }
 
 var ErrShuttingDown = errors.New("kaf-mirror is shutting down")
@@ -106,6 +123,7 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		Protection:           protection.New(db, cfg.Protection),
 		clusterProbeSem:      make(chan struct{}, clusterStatusConcurrency),
 		clusterProbes:        make(map[string]*clusterProbeMeta),
+		incidents:            make(map[string]incidentSample),
 	}
 	jm.shutdownCtx, jm.shutdownCancel = context.WithCancel(context.Background())
 	jm.bgCtx, jm.bgCancel = context.WithCancel(jm.shutdownCtx)
@@ -739,7 +757,7 @@ func (jm *JobManager) StartJob(jobID string) error {
 	}
 
 	logger.Info("Starting job '%s' (%s)", job.Name, jobID)
-	kafMirror.Start(jobID, jm.metricsHandler(), jm.failureHandler(kafMirror))
+	kafMirror.Start(jobID, jm.metricsHandler(kafMirror), jm.failureHandler(kafMirror))
 	jm.KafMirrors[jobID] = kafMirror
 
 	job.Status = "active"
@@ -767,11 +785,53 @@ func (jm *JobManager) StartJob(jobID string) error {
 	return nil
 }
 
-func (jm *JobManager) metricsHandler() func(database.ReplicationMetric) {
+func (jm *JobManager) metricsHandler(mirror kafka.KafMirror) func(database.ReplicationMetric) {
 	recorder := database.NewMetricsRecorder()
 	return func(metric database.ReplicationMetric) {
+		jm.recordIncidents(mirror, metric)
 		jm.processMetrics(recorder, metric)
 	}
+}
+
+func (jm *JobManager) recordIncidents(mirror kafka.KafMirror, metric database.ReplicationMetric) {
+	jm.incidentMu.Lock()
+	defer jm.incidentMu.Unlock()
+	if jm.incidents == nil {
+		jm.incidents = make(map[string]incidentSample)
+	}
+	jm.incidents[metric.JobID] = incidentSample{mirror: mirror, flags: IncidentFlags{
+		SourceStalled: metric.SourceStalled,
+		TargetStalled: metric.TargetStalled,
+		CriticalLag:   metric.CriticalLag,
+		HighErrorRate: metric.HighErrorRate,
+		ErrorSpike:    metric.ErrorSpike,
+		Recreations:   metric.TopicRecreations,
+		MissingTopics: metric.MissingTopics,
+	}}
+}
+
+func (jm *JobManager) forgetIncidents(jobID string, mirror kafka.KafMirror) {
+	jm.incidentMu.Lock()
+	defer jm.incidentMu.Unlock()
+	if sample, ok := jm.incidents[jobID]; ok && sample.mirror == mirror {
+		delete(jm.incidents, jobID)
+	}
+}
+
+func (jm *JobManager) IncidentFlags(jobID string) (IncidentFlags, bool) {
+	jm.Mu.Lock()
+	running, ok := jm.KafMirrors[jobID]
+	jm.Mu.Unlock()
+	if !ok {
+		return IncidentFlags{}, false
+	}
+	jm.incidentMu.Lock()
+	defer jm.incidentMu.Unlock()
+	sample, ok := jm.incidents[jobID]
+	if !ok || sample.mirror != running {
+		return IncidentFlags{}, false
+	}
+	return sample.flags, true
 }
 
 func (jm *JobManager) processMetrics(recorder *database.MetricsRecorder, metric database.ReplicationMetric) {
@@ -781,7 +841,7 @@ func (jm *JobManager) processMetrics(recorder *database.MetricsRecorder, metric 
 			Consumed:   int64(metric.MessagesConsumed),
 			Produced:   int64(metric.MessagesReplicated),
 			Bytes:      int64(metric.BytesTransferred),
-			Errors:     int64(metric.ErrorCount),
+			Errors:     int64(metric.ErrorCount - metric.FetchErrorCount),
 			Tombstones: metric.TombstoneCount,
 			Lag:        int64(metric.CurrentLag),
 		}); reason != "" {
@@ -825,6 +885,7 @@ func (jm *JobManager) StopJob(jobID string) error {
 
 	logger.Info("Stopping job '%s'", jobID)
 	kafMirror.Stop()
+	jm.forgetIncidents(jobID, kafMirror)
 
 	// Update job status in database synchronously to avoid race conditions
 	job, err := database.GetJob(jm.Db, jobID)
@@ -865,6 +926,7 @@ func (jm *JobManager) handleJobFailure(jobID string, kafMirror kafka.KafMirror, 
 	}
 	delete(jm.KafMirrors, jobID)
 	kafMirror.Stop()
+	jm.forgetIncidents(jobID, kafMirror)
 
 	job, err := database.GetJob(jm.Db, jobID)
 	if err != nil {
@@ -2057,7 +2119,7 @@ func (jm *JobManager) startJobWithNewConfig(jobID string, job *database.Replicat
 		return fmt.Errorf("failed to create KafMirror: %v", err)
 	}
 
-	kafMirror.Start(jobID, jm.metricsHandler(), jm.failureHandler(kafMirror))
+	kafMirror.Start(jobID, jm.metricsHandler(kafMirror), jm.failureHandler(kafMirror))
 	jm.KafMirrors[jobID] = kafMirror
 
 	job.Status = "active"

@@ -25,6 +25,7 @@ type MockKgoClient struct {
 	ProduceFunc          func(context.Context, *kgo.Record, func(*kgo.Record, error))
 	CommitRecordsFunc    func(context.Context, ...*kgo.Record) error
 	AddConsumeTopicsFunc func(...string)
+	PurgeTopicsFunc      func(...string)
 	CloseFunc            func()
 }
 
@@ -58,6 +59,12 @@ func (m *MockKgoClient) CommitRecords(ctx context.Context, rs ...*kgo.Record) er
 func (m *MockKgoClient) AddConsumeTopics(topics ...string) {
 	if m.AddConsumeTopicsFunc != nil {
 		m.AddConsumeTopicsFunc(topics...)
+	}
+}
+
+func (m *MockKgoClient) PurgeTopicsFromConsuming(topics ...string) {
+	if m.PurgeTopicsFunc != nil {
+		m.PurgeTopicsFunc(topics...)
 	}
 }
 

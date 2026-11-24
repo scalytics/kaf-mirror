@@ -19,6 +19,7 @@ import (
 	"kaf-mirror/internal/database"
 	"kaf-mirror/internal/egress"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -50,7 +51,7 @@ func (s *LokiSink) Send(metric database.ReplicationMetric) error {
 				"values": [][]string{
 					{
 						fmt.Sprintf("%d", time.Now().UnixNano()),
-						fmt.Sprintf("messages_replicated=%d bytes_transferred=%d messages_consumed=%d bytes_consumed=%d current_lag=%d error_count=%d source_stalled=%t target_stalled=%t critical_lag=%t high_error_rate=%t error_spike=%t",
+						fmt.Sprintf("messages_replicated=%d bytes_transferred=%d messages_consumed=%d bytes_consumed=%d current_lag=%d error_count=%d source_stalled=%t target_stalled=%t critical_lag=%t high_error_rate=%t error_spike=%t source_topic_recreations=%d missing_source_topics=%s",
 							metric.MessagesReplicated,
 							metric.BytesTransferred,
 							metric.MessagesConsumed,
@@ -62,6 +63,8 @@ func (s *LokiSink) Send(metric database.ReplicationMetric) error {
 							metric.CriticalLag,
 							metric.HighErrorRate,
 							metric.ErrorSpike,
+							metric.TopicRecreations,
+							strings.Join(metric.MissingTopics, ","),
 						),
 					},
 				},

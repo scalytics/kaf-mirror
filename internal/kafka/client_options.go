@@ -129,6 +129,10 @@ func ValidateSecurity(cfg config.ClusterConfig) error {
 	return err
 }
 
+func HasBrokers(brokers string) bool {
+	return len(splitBrokers(brokers)) > 0
+}
+
 func splitBrokers(brokers string) []string {
 	var out []string
 	for _, b := range strings.Split(brokers, ",") {

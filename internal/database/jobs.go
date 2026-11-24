@@ -59,14 +59,29 @@ func CreateJob(db *sqlx.DB, job *ReplicationJob) error {
 		return err
 	}
 	if count > 0 {
-		return errors.New("a job with this name already exists")
+		return ErrJobExists
 	}
 
+	if beforeCreateInsert != nil {
+		beforeCreateInsert()
+	}
+	now := time.Now()
 	query := `INSERT INTO replication_jobs (id, name, source_cluster_name, target_cluster_name, status, batch_size, compression, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err = db.Exec(query, job.ID, job.Name, job.SourceClusterName, job.TargetClusterName, job.Status, job.BatchSize, job.Compression, time.Now(), time.Now())
-	return err
+              SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+              WHERE NOT EXISTS (SELECT 1 FROM replication_jobs WHERE name = ?)`
+	res, err := db.Exec(query, job.ID, job.Name, job.SourceClusterName, job.TargetClusterName, job.Status, job.BatchSize, job.Compression, now, now, job.Name)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrJobExists
+	}
+	job.CreatedAt = now
+	job.UpdatedAt = now
+	return nil
 }
+
+var ErrJobExists = errors.New("a job with this name already exists")
 
 // UpdateJob updates an existing replication job in the database.
 func UpdateJob(db *sqlx.DB, job *ReplicationJob) error {
@@ -77,7 +92,7 @@ func UpdateJob(db *sqlx.DB, job *ReplicationJob) error {
 		return err
 	}
 	if count > 0 {
-		return errors.New("a job with this name already exists")
+		return ErrJobExists
 	}
 
 	query := `UPDATE replication_jobs 

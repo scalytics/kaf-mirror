@@ -32,6 +32,29 @@ spec:
       terminationGracePeriodSeconds: {{ int .Values.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.volumePermissions.enabled }}
+      initContainers:
+        - name: volume-permissions
+          image: "{{ .Values.volumePermissions.image.repository }}:{{ .Values.volumePermissions.image.tag }}"
+          imagePullPolicy: {{ .Values.volumePermissions.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - chown 100:101 /app/data && chmod 0770 /app/data
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      {{- end }}
       containers:
         - name: kaf-mirror
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

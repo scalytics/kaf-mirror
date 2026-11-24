@@ -64,11 +64,14 @@ type ReplicationMetric struct {
 	BytesConsumed      int       `db:"bytes_consumed" json:"bytes_consumed"`
 	CurrentLag         int       `db:"current_lag" json:"current_lag"`
 	ErrorCount         int       `db:"error_count" json:"error_count"`
+	FetchErrorCount    int       `db:"-" json:"-"`
 	SourceStalled      bool      `db:"-" json:"source_stalled"`
 	TargetStalled      bool      `db:"-" json:"target_stalled"`
 	CriticalLag        bool      `db:"-" json:"critical_lag"`
 	HighErrorRate      bool      `db:"-" json:"high_error_rate"`
 	ErrorSpike         bool      `db:"-" json:"error_spike"`
+	TopicRecreations   int64     `db:"-" json:"source_topic_recreations"`
+	MissingTopics      []string  `db:"-" json:"missing_source_topics"`
 	TombstoneCount     int64     `db:"tombstone_count" json:"tombstone_count"`
 	Timestamp          time.Time `db:"timestamp" json:"timestamp"`
 }

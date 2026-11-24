@@ -293,7 +293,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Create a new Kafka cluster. Optional role is prod, dr, or other (default other).",
+                "description": "Create a new Kafka cluster. Optional role is prod, dr, or other (default other). name and brokers are required, and name must not contain a slash; otherwise the answer is 400. Leading and trailing spaces of name are removed. A name that another cluster has answers 409, also when two requests create it at the same time.",
                 "consumes": [
                     "application/json"
                 ],
@@ -321,6 +321,20 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/database.KafkaCluster"
                         }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -332,7 +346,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Permanently delete all archived Kafka clusters.",
+                "description": "Permanently delete all archived Kafka clusters, and a cluster with an empty name that no job uses, which earlier versions accepted.",
                 "tags": [
                     "clusters"
                 ],
@@ -437,7 +451,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Update an existing Kafka cluster.",
+                "description": "Update an existing Kafka cluster. brokers is required; without it the answer is 400.",
                 "consumes": [
                     "application/json"
                 ],
@@ -472,6 +486,27 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/database.KafkaCluster"
                         }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             },
@@ -481,7 +516,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Mark a Kafka cluster as inactive. It will be archived after 72 hours and then can be purged.",
+                "description": "Mark a Kafka cluster as inactive. It will be archived after 72 hours and then can be purged. An unknown cluster answers 404.",
                 "tags": [
                     "clusters"
                 ],
@@ -498,6 +533,20 @@ const docTemplate = `{
                 "responses": {
                     "202": {
                         "description": "Accepted"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -1157,7 +1206,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Create a new replication job. batch_size is in KB. A missing or 0 batch_size uses 1000. A value below 0 or above 102400 KB is rejected with 400.",
+                "description": "Create a new replication job. name, source_cluster_name, target_cluster_name and at least one topic mapping are required; otherwise the answer is 400. An unknown source or target cluster answers 404. A name that another job has answers 409. batch_size is in KB. A missing or 0 batch_size uses 1000. A value below 0 or above 102400 KB is rejected with 400.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1188,6 +1237,20 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1313,7 +1376,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Update an existing replication job. Empty fields keep their stored value. A missing or 0 batch_size keeps the stored value, and a stored 0 becomes 1000. A batch_size below 0 or above 102400 KB is rejected with 400.",
+                "description": "Update an existing replication job. Empty fields, including a field that is only spaces, keep their stored value. An unknown source or target cluster answers 404, and a name that another job has answers 409. A missing or 0 batch_size keeps the stored value, and a stored 0 becomes 1000. A batch_size below 0 or above 102400 KB is rejected with 400.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1351,6 +1414,20 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1732,7 +1809,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get the totals of a job since it was created (messages, bytes, errors, tombstones) and the lag of the last sample.",
+                "description": "Get the totals of a job since it was created (messages, bytes, errors, tombstones) and the lag of the last sample. source_stalled, target_stalled, critical_lag, high_error_rate and error_spike are the incident flags of the last sample of the running job. They are false when the job is not running or has not sent a sample since it started. source_topic_recreations counts the source topics that were deleted and created again since the job started, which kaf-mirror noticed by a new Kafka topic ID and then copied from their earliest offsets. missing_source_topics lists the source topics that were deleted and do not exist yet. Both come from the last sample of the running job and are 0 and empty otherwise.",
                 "produces": [
                     "application/json"
                 ],
@@ -3800,8 +3877,17 @@ const docTemplate = `{
                 "messages_replicated": {
                     "type": "integer"
                 },
+                "missing_source_topics": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "source_stalled": {
                     "type": "boolean"
+                },
+                "source_topic_recreations": {
+                    "type": "integer"
                 },
                 "target_stalled": {
                     "type": "boolean"

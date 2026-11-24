@@ -198,12 +198,14 @@ func (s *Server) handleListClusters(c *fiber.Ctx) error {
 
 // handleCreateCluster godoc
 // @Summary Create a new Kafka cluster
-// @Description Create a new Kafka cluster. Optional role is prod, dr, or other (default other).
+// @Description Create a new Kafka cluster. Optional role is prod, dr, or other (default other). name and brokers are required, and name must not contain a slash; otherwise the answer is 400. Leading and trailing spaces of name are removed. A name that another cluster has answers 409, also when two requests create it at the same time.
 // @Tags clusters
 // @Accept json
 // @Produce json
 // @Param cluster body database.KafkaCluster true "Kafka Cluster"
 // @Success 201 {object} database.KafkaCluster
+// @Failure 400 {object} map[string]interface{}
+// @Failure 409 {object} map[string]interface{}
 // @Router /clusters [post]
 // @Security ApiKeyAuth
 func (s *Server) handleCreateCluster(c *fiber.Ctx) error {
@@ -212,11 +214,15 @@ func (s *Server) handleCreateCluster(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	cluster.Name = strings.TrimSpace(cluster.Name)
 	cluster.Role = protection.NormalizeRole(cluster.Role)
 	if err := validateClusterRow(cluster); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 	if err := database.CreateCluster(s.Db, &cluster); err != nil {
+		if isConflict(err) {
+			return fiber.NewError(fiber.StatusConflict, err.Error())
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create cluster")
 	}
 	if created, err := database.GetCluster(s.Db, cluster.Name); err == nil {
@@ -247,13 +253,16 @@ func (s *Server) handleGetCluster(c *fiber.Ctx) error {
 
 // handleUpdateCluster godoc
 // @Summary Update a Kafka cluster
-// @Description Update an existing Kafka cluster.
+// @Description Update an existing Kafka cluster. brokers is required; without it the answer is 400.
 // @Tags clusters
 // @Accept json
 // @Produce json
 // @Param name path string true "Cluster Name"
 // @Param cluster body database.KafkaCluster true "Kafka Cluster"
 // @Success 200 {object} database.KafkaCluster
+// @Failure 400 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Failure 409 {object} map[string]interface{}
 // @Router /clusters/{name} [put]
 // @Security ApiKeyAuth
 func (s *Server) handleUpdateCluster(c *fiber.Ctx) error {
@@ -276,6 +285,9 @@ func (s *Server) handleUpdateCluster(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 	if err := database.UpdateCluster(s.Db, &cluster); err != nil {
+		if isConflict(err) {
+			return fiber.NewError(fiber.StatusConflict, err.Error())
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update cluster")
 	}
 	cluster.Status = existing.Status
@@ -287,14 +299,19 @@ func (s *Server) handleUpdateCluster(c *fiber.Ctx) error {
 
 // handleDeleteCluster godoc
 // @Summary Mark a Kafka cluster for deletion
-// @Description Mark a Kafka cluster as inactive. It will be archived after 72 hours and then can be purged.
+// @Description Mark a Kafka cluster as inactive. It will be archived after 72 hours and then can be purged. An unknown cluster answers 404.
 // @Tags clusters
 // @Param name path string true "Cluster Name"
 // @Success 202
+// @Failure 404 {object} map[string]interface{}
+// @Failure 409 {object} map[string]interface{}
 // @Router /clusters/{name} [delete]
 // @Security ApiKeyAuth
 func (s *Server) handleDeleteCluster(c *fiber.Ctx) error {
 	clusterName := c.Params("name")
+	if _, err := s.clusterByName(clusterName, ""); err != nil {
+		return err
+	}
 
 	// Check if any jobs are running on the cluster
 	jobs, err := database.ListJobs(s.Db)
@@ -343,7 +360,7 @@ func (s *Server) handleRestoreCluster(c *fiber.Ctx) error {
 
 // handlePurgeClusters godoc
 // @Summary Purge archived Kafka clusters
-// @Description Permanently delete all archived Kafka clusters.
+// @Description Permanently delete all archived Kafka clusters, and a cluster with an empty name that no job uses, which earlier versions accepted.
 // @Tags clusters
 // @Success 204
 // @Router /clusters/purge [delete]
@@ -503,10 +520,40 @@ func (s *Server) handleTestClusterConnection(c *fiber.Ctx) error {
 }
 
 func validateClusterRow(cluster database.KafkaCluster) error {
+	if strings.TrimSpace(cluster.Name) == "" {
+		return errors.New("name is required")
+	}
+	if strings.Contains(cluster.Name, "/") {
+		return errors.New("name must not contain /")
+	}
+	if !kafka.HasBrokers(cluster.Brokers) {
+		return errors.New("brokers is required")
+	}
 	if err := database.ParseSecurityConfig(cluster.SecurityConfig); err != nil {
 		return err
 	}
 	return kafka.ValidateSecurity(database.ClusterConfigFromRow(cluster))
+}
+
+func isConflict(err error) bool {
+	return errors.Is(err, database.ErrClusterExists) || errors.Is(err, database.ErrConfluentClusterExists) || errors.Is(err, database.ErrJobExists)
+}
+
+func validateCreateJob(req *CreateJobRequest) error {
+	req.Name = strings.TrimSpace(req.Name)
+	req.SourceClusterName = strings.TrimSpace(req.SourceClusterName)
+	req.TargetClusterName = strings.TrimSpace(req.TargetClusterName)
+	switch {
+	case req.Name == "":
+		return errors.New("name is required")
+	case req.SourceClusterName == "":
+		return errors.New("source_cluster_name is required")
+	case req.TargetClusterName == "":
+		return errors.New("target_cluster_name is required")
+	case len(req.TopicMappings) == 0:
+		return errors.New("topic_mappings needs at least one mapping")
+	}
+	return nil
 }
 
 func (s *Server) jobByID(c *fiber.Ctx) (*database.ReplicationJob, error) {
@@ -565,13 +612,15 @@ type HaltProtectionRequest struct {
 
 // handleCreateJob godoc
 // @Summary Create a new replication job
-// @Description Create a new replication job. batch_size is in KB. A missing or 0 batch_size uses 1000. A value below 0 or above 102400 KB is rejected with 400.
+// @Description Create a new replication job. name, source_cluster_name, target_cluster_name and at least one topic mapping are required; otherwise the answer is 400. An unknown source or target cluster answers 404. A name that another job has answers 409. batch_size is in KB. A missing or 0 batch_size uses 1000. A value below 0 or above 102400 KB is rejected with 400.
 // @Tags jobs
 // @Accept json
 // @Produce json
 // @Param job body server.CreateJobRequest true "Replication Job"
 // @Success 201 {object} database.ReplicationJob
 // @Failure 400 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Failure 409 {object} map[string]interface{}
 // @Router /jobs [post]
 // @Security ApiKeyAuth
 func (s *Server) handleCreateJob(c *fiber.Ctx) error {
@@ -580,6 +629,9 @@ func (s *Server) handleCreateJob(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	if err := validateCreateJob(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
 	if _, err := kafka.NewTopicRules(database.ConfigTopicMappings(req.TopicMappings)); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid topic mapping: "+err.Error())
 	}
@@ -589,7 +641,14 @@ func (s *Server) handleCreateJob(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	if target, err := database.GetCluster(s.Db, req.TargetClusterName); err == nil && s.manager.Protection != nil {
+	if _, err := s.clusterByName(req.SourceClusterName, "Source cluster not found"); err != nil {
+		return err
+	}
+	target, err := s.clusterByName(req.TargetClusterName, "Target cluster not found")
+	if err != nil {
+		return err
+	}
+	if s.manager.Protection != nil {
 		if err := s.manager.Protection.GuardStart(target.Role); err != nil {
 			return fiber.NewError(fiber.StatusConflict, err.Error())
 		}
@@ -606,6 +665,9 @@ func (s *Server) handleCreateJob(c *fiber.Ctx) error {
 	}
 
 	if err := database.CreateJob(s.Db, job); err != nil {
+		if isConflict(err) {
+			return fiber.NewError(fiber.StatusConflict, err.Error())
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create job")
 	}
 
@@ -647,7 +709,7 @@ func (s *Server) handleGetJob(c *fiber.Ctx) error {
 
 // handleUpdateJob godoc
 // @Summary Update a replication job
-// @Description Update an existing replication job. Empty fields keep their stored value. A missing or 0 batch_size keeps the stored value, and a stored 0 becomes 1000. A batch_size below 0 or above 102400 KB is rejected with 400.
+// @Description Update an existing replication job. Empty fields, including a field that is only spaces, keep their stored value. An unknown source or target cluster answers 404, and a name that another job has answers 409. A missing or 0 batch_size keeps the stored value, and a stored 0 becomes 1000. A batch_size below 0 or above 102400 KB is rejected with 400.
 // @Tags jobs
 // @Accept json
 // @Produce json
@@ -655,6 +717,8 @@ func (s *Server) handleGetJob(c *fiber.Ctx) error {
 // @Param job body server.CreateJobRequest true "Replication Job"
 // @Success 200 {object} database.ReplicationJob
 // @Failure 400 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Failure 409 {object} map[string]interface{}
 // @Router /jobs/{id} [put]
 // @Security ApiKeyAuth
 func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
@@ -681,13 +745,22 @@ func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
 		job.BatchSize = batchSize
 	}
 
+	req.Name = strings.TrimSpace(req.Name)
+	req.SourceClusterName = strings.TrimSpace(req.SourceClusterName)
+	req.TargetClusterName = strings.TrimSpace(req.TargetClusterName)
 	if req.Name != "" {
 		job.Name = req.Name
 	}
 	if req.SourceClusterName != "" {
+		if _, err := s.clusterByName(req.SourceClusterName, "Source cluster not found"); err != nil {
+			return err
+		}
 		job.SourceClusterName = req.SourceClusterName
 	}
 	if req.TargetClusterName != "" {
+		if _, err := s.clusterByName(req.TargetClusterName, "Target cluster not found"); err != nil {
+			return err
+		}
 		job.TargetClusterName = req.TargetClusterName
 	}
 	if req.Compression != "" {
@@ -695,6 +768,9 @@ func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
 	}
 
 	if err := database.UpdateJob(s.Db, job); err != nil {
+		if isConflict(err) {
+			return fiber.NewError(fiber.StatusConflict, err.Error())
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update job")
 	}
 
@@ -1004,7 +1080,7 @@ func (s *Server) handleUpdateMappings(c *fiber.Ctx) error {
 
 // handleGetCurrentMetrics godoc
 // @Summary Get current metrics for a job
-// @Description Get the totals of a job since it was created (messages, bytes, errors, tombstones) and the lag of the last sample.
+// @Description Get the totals of a job since it was created (messages, bytes, errors, tombstones) and the lag of the last sample. source_stalled, target_stalled, critical_lag, high_error_rate and error_spike are the incident flags of the last sample of the running job. They are false when the job is not running or has not sent a sample since it started. source_topic_recreations counts the source topics that were deleted and created again since the job started, which kaf-mirror noticed by a new Kafka topic ID and then copied from their earliest offsets. missing_source_topics lists the source topics that were deleted and do not exist yet. Both come from the last sample of the running job and are 0 and empty otherwise.
 // @Tags jobs
 // @Produce json
 // @Param id path string true "Job ID"
@@ -1014,13 +1090,22 @@ func (s *Server) handleUpdateMappings(c *fiber.Ctx) error {
 // @Router /jobs/{id}/metrics/current [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetCurrentMetrics(c *fiber.Ctx) error {
-	if _, err := s.jobByID(c); err != nil {
+	job, err := s.jobByID(c)
+	if err != nil {
 		return err
 	}
-	jobID := c.Params("id")
-	metrics, err := database.GetLatestMetrics(s.Db, jobID)
+	metrics, err := database.GetLatestMetrics(s.Db, job.ID)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get current metrics")
+	}
+	if flags, ok := s.manager.IncidentFlags(job.ID); ok {
+		metrics.SourceStalled = flags.SourceStalled
+		metrics.TargetStalled = flags.TargetStalled
+		metrics.CriticalLag = flags.CriticalLag
+		metrics.HighErrorRate = flags.HighErrorRate
+		metrics.ErrorSpike = flags.ErrorSpike
+		metrics.TopicRecreations = flags.Recreations
+		metrics.MissingTopics = flags.MissingTopics
 	}
 	return c.JSON(metrics)
 }

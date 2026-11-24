@@ -61,7 +61,7 @@ func TestCreateJobWithoutBatchSizeUsesTheDefault(t *testing.T) {
 func TestCreateJobRejectsInvalidBatchSize(t *testing.T) {
 	ctx := setupJobServer(t)
 	for _, size := range []string{"-1", "102401", "2147483647"} {
-		status, body := sendJobRequest(t, ctx, http.MethodPost, "/api/v1/jobs", `{"name":"bad-`+size+`","source_cluster_name":"src","target_cluster_name":"tgt","batch_size":`+size+`}`)
+		status, body := sendJobRequest(t, ctx, http.MethodPost, "/api/v1/jobs", `{"name":"bad-`+size+`","source_cluster_name":"src","target_cluster_name":"tgt","topic_mappings":[{"source_topic_pattern":"orders","target_topic_pattern":"orders","enabled":true}],"batch_size":`+size+`}`)
 		assert.Equal(t, http.StatusBadRequest, status, size)
 		assert.Contains(t, body, "batch_size must be between 1 and 102400 KB", size)
 	}

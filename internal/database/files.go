@@ -12,8 +12,13 @@
 package database
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+
+	"kaf-mirror/pkg/logger"
 )
 
 const (
@@ -33,10 +38,50 @@ func EnsurePrivateDir(dir string) error {
 	if err := os.MkdirAll(dir, privateDirMode); err != nil {
 		return err
 	}
-	if created || shouldTightenDir(dir) {
+	if created {
 		return os.Chmod(dir, privateDirMode)
 	}
-	return nil
+	if !shouldTightenDir(dir) {
+		return nil
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !ownedByProcess(info) {
+		if err := unsafeForeignDir(dir, info); err != nil {
+			return err
+		}
+		warnForeignDir(dir, info)
+		return nil
+	}
+	return os.Chmod(dir, privateDirMode)
+}
+
+var ErrUnsafeDataDir = errors.New("unsafe data directory")
+
+func unsafeForeignDir(dir string, info os.FileInfo) error {
+	mode := info.Mode()
+	if mode.Perm()&0002 == 0 || mode&os.ModeSticky != 0 {
+		return nil
+	}
+	owner := "another user"
+	if uid, gid, ok := fileOwner(info); ok {
+		owner = fmt.Sprintf("UID %d and GID %d", uid, gid)
+	}
+	return fmt.Errorf("%w: %s has mode %04o, belongs to %s and every user can write to it, so another user could replace the database files in it. To fix it, use storage that honors fsGroup, or set volumePermissions.enabled: true in the Helm values, or chown the directory to the kaf-mirror user outside Helm (chown %d %s). Setting the sticky bit (chmod +t %s) also works", ErrUnsafeDataDir, dir, mode.Perm(), owner, processUID(), dir, dir)
+}
+
+var warnedDirs sync.Map
+
+func warnForeignDir(dir string, info os.FileInfo) {
+	if info.Mode().Perm()&0077 == 0 {
+		return
+	}
+	if _, loaded := warnedDirs.LoadOrStore(dir, true); loaded {
+		return
+	}
+	logger.Warn("Data directory %s has mode %04o and belongs to another user, so kaf-mirror leaves its mode alone. The database files in it are still created with mode 0600.", dir, info.Mode().Perm())
 }
 
 func shouldTightenDir(dir string) bool {
@@ -92,13 +137,34 @@ func prepareDBFile(dbPath string) error {
 	if info.IsDir() {
 		return os.ErrInvalid
 	}
-	return os.Chmod(dbPath, privateFileMode)
+	return tightenExistingFile(dbPath, info)
+}
+
+func tightenExistingFile(path string, info os.FileInfo) error {
+	if ownedByProcess(info) {
+		return os.Chmod(path, privateFileMode)
+	}
+	if info.Mode().Perm()&0077 != 0 {
+		return fmt.Errorf("%s has mode %04o and belongs to another user, so kaf-mirror cannot make it private; change its owner to the kaf-mirror user or its mode to 0600", path, info.Mode().Perm())
+	}
+	return nil
+}
+
+func tightenOpenFile(f *os.File) error {
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !ownedByProcess(info) {
+		return nil
+	}
+	return f.Chmod(privateFileMode)
 }
 
 func tightenDBSidecars(dbPath string) {
 	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
 		path := dbPath + suffix
-		if _, err := os.Stat(path); err == nil {
+		if info, err := os.Stat(path); err == nil && ownedByProcess(info) {
 			_ = os.Chmod(path, privateFileMode)
 		}
 	}

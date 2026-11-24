@@ -103,25 +103,49 @@ Jobs use the clusters stored in the database, not the `clusters` section of the 
 | `KAF_MIRROR_HALT` | Default name of the halt variable, see `protection.halt_env`. |
 | `EDITOR` | Editor that `mirror-cli config edit <section>` opens. Default `vim`. |
 
+## Data directory
+
+kaf-mirror refuses to start when the directory of the database belongs to another user and every user can write to it without the sticky bit, for example `root:root` with mode `0777`, because any user could replace the database files in it. A directory it can write to as the owner or through the group works, and so does a world-writable directory with the sticky bit. The error names the directory, its mode and its owner, and says: use storage that honors fsGroup, or set volumePermissions.enabled: true in the Helm values, or chown the directory to the kaf-mirror user outside Helm. On kind or k3s with the default `local-path` storage, which does not honor `fsGroup`, install the Helm chart with this values file:
+
+```bash
+cat > volume-permissions-values.yaml <<'VALUES'
+volumePermissions:
+  enabled: true
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f volume-permissions-values.yaml --wait
+```
+
+`km-values.yaml` is the image values file from the chart README. See "Storage permissions" in `deploy/helm/kaf-mirror/README.md`.
+
 ## Cluster API fields
 
 `POST /api/v1/clusters` and `PUT /api/v1/clusters/{name}` take these fields:
 
 | Field | Description |
 |---|---|
-| `name` | Cluster name. Jobs refer to it. |
+| `name` | Cluster name. Jobs refer to it. Required. It must not be empty or only spaces and must not contain `/`, because it is part of the URL of the cluster. `POST /api/v1/clusters` removes leading and trailing spaces, the same as job fields. |
 | `provider` | `plain`, `confluent`, `redpanda` or `azure`. |
-| `brokers` | Comma-separated broker list. |
+| `brokers` | Comma-separated broker list. Required, also for `PUT`. |
 | `cluster_id` | Cluster ID, for `confluent`. |
 | `api_key`, `api_secret` | Credentials of the `confluent` provider. |
 | `connection_string` | Connection string of the `azure` provider. |
 | `role` | `prod`, `dr` or `other`. Default `other`. See [protection.md](protection.md). |
 | `security_config` | A JSON object written as a string, with the keys `enabled`, `protocol`, `sasl_mechanism`, `username`, `password`, `ca_file`, `cert_file`, `key_file` and `kerberos` (`service_name`, `principal`, `keytab_path`, `krb5_conf_path`). |
 
+A missing `name` or `brokers` answers HTTP 400. A `name` that another cluster already has answers HTTP 409. `DELETE /api/v1/clusters/{name}` of an unknown cluster answers HTTP 404.
+
+Earlier versions accepted a cluster with an empty name, which no URL can reach. `DELETE /api/v1/clusters/purge` removes such a cluster when no job uses it. Delete the jobs that use it first, with `DELETE /api/v1/jobs/{id}`.
+
 An example `security_config` value:
 ```json
 {"enabled":true,"protocol":"SASL_SSL","sasl_mechanism":"SCRAM-SHA-512","username":"kaf-mirror","password":"<password>"}
 ```
+
+## Job API fields
+
+`POST /api/v1/jobs` needs `name`, `source_cluster_name`, `target_cluster_name` and at least one entry in `topic_mappings`, otherwise it answers HTTP 400. A field that is only spaces counts as empty. A source or target cluster that does not exist answers HTTP 404 with `Source cluster not found` or `Target cluster not found`, also for `PUT /api/v1/jobs/{id}`. `PUT /api/v1/jobs/{id}` keeps the stored value of a field that is omitted, empty or only spaces. A `name` that another job already has answers HTTP 409. The response has the stored `created_at` and `updated_at`.
+
+When a source topic is deleted and created again, kaf-mirror switches to the new Kafka topic ID and copies the new topic from its earliest offsets. It notes topic IDs from the source metadata when the job starts, when a topic is added, and from any successful fetch, including an empty one. It checks those IDs every 10 seconds and when a fetch answers `UNKNOWN_TOPIC_ID`. After a switch it waits until the consumer group has revoked that topic, at most 30 seconds, before it subscribes again, and it does not subscribe again if the job stops during the wait. `GET /api/v1/jobs/{id}/metrics/current` reports `source_topic_recreations`, the number of switches since the job started, and `missing_source_topics`, the source topics that were deleted and do not exist yet. Both come from the last sample of the running job and are 0 and empty when the job is not running. The Prometheus gauges `kaf_mirror_source_topic_recreations` and `kaf_mirror_incident_source_topic_missing` report the same values.
 
 ## AI analysis
 

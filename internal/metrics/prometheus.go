@@ -36,6 +36,8 @@ type PrometheusSink struct {
 	criticalLag        *prometheus.GaugeVec
 	highErrorRate      *prometheus.GaugeVec
 	errorSpike         *prometheus.GaugeVec
+	topicRecreations   *prometheus.GaugeVec
+	topicMissing       *prometheus.GaugeVec
 }
 
 // NewPrometheusSink creates a new Prometheus sink.
@@ -85,6 +87,14 @@ func NewPrometheusSink(cfg config.PrometheusConfig, allowedHosts []string) (*Pro
 		Name: "kaf_mirror_incident_error_spike",
 		Help: "Error spike detected (1=true).",
 	}, labels)
+	topicRecreations := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "kaf_mirror_source_topic_recreations",
+		Help: "Source topics deleted and created again since the job started.",
+	}, labels)
+	topicMissing := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "kaf_mirror_incident_source_topic_missing",
+		Help: "A source topic was deleted and does not exist (1=true).",
+	}, labels)
 
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(
@@ -99,6 +109,8 @@ func NewPrometheusSink(cfg config.PrometheusConfig, allowedHosts []string) (*Pro
 		criticalLag,
 		highErrorRate,
 		errorSpike,
+		topicRecreations,
+		topicMissing,
 	)
 
 	if err := egress.Check(cfg.PushGateway, allowedHosts); err != nil {
@@ -119,6 +131,8 @@ func NewPrometheusSink(cfg config.PrometheusConfig, allowedHosts []string) (*Pro
 		criticalLag:        criticalLag,
 		highErrorRate:      highErrorRate,
 		errorSpike:         errorSpike,
+		topicRecreations:   topicRecreations,
+		topicMissing:       topicMissing,
 	}, nil
 }
 
@@ -136,6 +150,8 @@ func (s *PrometheusSink) Send(metric database.ReplicationMetric) error {
 	s.criticalLag.WithLabelValues(id).Set(boolToFloat(metric.CriticalLag))
 	s.highErrorRate.WithLabelValues(id).Set(boolToFloat(metric.HighErrorRate))
 	s.errorSpike.WithLabelValues(id).Set(boolToFloat(metric.ErrorSpike))
+	s.topicRecreations.WithLabelValues(id).Set(float64(metric.TopicRecreations))
+	s.topicMissing.WithLabelValues(id).Set(boolToFloat(len(metric.MissingTopics) > 0))
 
 	return s.pusher.Push()
 }
