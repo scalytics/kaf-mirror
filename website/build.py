@@ -26,11 +26,37 @@ CLI_SRC = ROOT / "web" / "docu" / "cli-commands.html"
 CLI_EXTRA_CSS = """
     /* Site chrome added by website/build.py around the generated CLI docs. */
     body { padding-top: 0 !important; }
-    html, body { overflow-x: hidden; max-width: 100%; }
-    .sidebar { top: 64px; height: calc(100vh - 64px); }
+    html, body { overflow-x: hidden; }
+    /* Cap and center the CLI column the same way as the rest of the site.
+       The generated sidebar is position: fixed, which would stick to the
+       left of the viewport on a wide screen. Make it sticky inside the cap. */
+    #content {
+      max-width: var(--content);
+      margin-inline: auto;
+    }
+    .container-fluid {
+      display: flex;
+      align-items: flex-start;
+      max-width: 100%;
+      min-width: 0;
+    }
+    .sidebar {
+      position: sticky;
+      top: 64px;
+      left: auto;
+      height: calc(100vh - 64px);
+      flex: 0 0 300px;
+      width: 300px;
+      align-self: flex-start;
+    }
+    .content {
+      flex: 1 1 auto;
+      margin-left: 0;
+      max-width: 100%;
+      min-width: 0;
+    }
     pre { max-width: 100%; overflow-x: auto; white-space: pre-wrap; overflow-wrap: break-word; }
     pre code { display: block; white-space: inherit; max-width: 100%; }
-    .container-fluid, .content, #content { min-width: 0; }
     @media (max-width: 900px) {
       .sidebar { display: none; }
       .content { margin-left: 0; max-width: 100%; padding: 20px; }
