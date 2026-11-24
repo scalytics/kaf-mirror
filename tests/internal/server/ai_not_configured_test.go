@@ -19,16 +19,28 @@ import (
 	"testing"
 
 	"kaf-mirror/internal/database"
+
+	"github.com/google/uuid"
 )
 
 func TestAIEndpointsAnswer503WhenAIIsNotConfigured(t *testing.T) {
 	ctx := setupTestServer(t)
+	jobID := uuid.NewString()
+	if err := database.CreateCluster(ctx.Server.Db, &database.KafkaCluster{Name: "ai-src", Brokers: "localhost:1", SecurityConfig: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateCluster(ctx.Server.Db, &database.KafkaCluster{Name: "ai-tgt", Brokers: "localhost:2", SecurityConfig: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateJob(ctx.Server.Db, &database.ReplicationJob{ID: jobID, Name: "ai-off", SourceClusterName: "ai-src", TargetClusterName: "ai-tgt", Status: "paused"}); err != nil {
+		t.Fatal(err)
+	}
 	paths := []string{
 		"/api/v1/ai/test",
 		"/api/v1/ai/explain/lag",
 		"/api/v1/ai/incidents/1/analyze",
-		"/api/v1/jobs/job-1/ai/analyze",
-		"/api/v1/jobs/job-1/ai/historical-analysis",
+		"/api/v1/jobs/" + jobID + "/ai/analyze",
+		"/api/v1/jobs/" + jobID + "/ai/historical-analysis",
 	}
 	for _, path := range paths {
 		req := httptest.NewRequest(http.MethodPost, path, nil)

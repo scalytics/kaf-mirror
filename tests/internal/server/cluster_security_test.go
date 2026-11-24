@@ -16,8 +16,14 @@ import (
 	"encoding/json"
 	"io"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
+
+	"kaf-mirror/internal/kafka"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -147,4 +153,62 @@ func TestClusterSaveValidatesGSSAPIWhenEnabledOmitted(t *testing.T) {
 	}
 	status, body = postJSON(t, ctx, "POST", "/api/v1/clusters", complete)
 	assert.Equal(t, 201, status, body)
+}
+
+func TestClusterSaveValidatesTLSFiles(t *testing.T) {
+	ctx := setupTestServer(t)
+	cases := map[string]string{
+		`{"protocol":"SSL","cert_file":"/app/kafka-tls/tls.crt"}`:    "cert_file and key_file must be set together",
+		`{"protocol":"SSL","key_file":"/app/kafka-tls/tls.key"}`:     "cert_file and key_file must be set together",
+		`{"protocol":"PLAINTEXT","ca_file":"/app/kafka-tls/ca.crt"}`: "need protocol SSL or SASL_SSL",
+	}
+	for sec, want := range cases {
+		body := map[string]interface{}{"name": "tls", "provider": "plain", "brokers": "broker-1:9093", "security_config": sec}
+		status, out := postJSON(t, ctx, "POST", "/api/v1/clusters", body)
+		assert.Equal(t, 400, status, out)
+		assert.Contains(t, out, want)
+	}
+	ok := map[string]interface{}{"name": "tls", "provider": "plain", "brokers": "broker-1:9093", "security_config": `{"protocol":"SSL","ca_file":"/app/kafka-tls/ca.crt","cert_file":"/app/kafka-tls/tls.crt","key_file":"/app/kafka-tls/tls.key"}`}
+	status, out := postJSON(t, ctx, "POST", "/api/v1/clusters", ok)
+	assert.Equal(t, 201, status, out)
+}
+
+func TestClusterSaveRejectsNonRegularOrOversizedTLSFiles(t *testing.T) {
+	ctx := setupTestServer(t)
+	fifo := filepath.Join(t.TempDir(), "ca.fifo")
+	require.NoError(t, syscall.Mkfifo(fifo, 0600))
+	sec, err := json.Marshal(map[string]string{"protocol": "SSL", "ca_file": fifo})
+	require.NoError(t, err)
+	done := make(chan struct {
+		status int
+		body   string
+	}, 1)
+	go func() {
+		status, body := postJSON(t, ctx, "POST", "/api/v1/clusters", map[string]interface{}{
+			"name": "tls-fifo", "provider": "plain", "brokers": "broker-1:9093", "security_config": string(sec),
+		})
+		done <- struct {
+			status int
+			body   string
+		}{status, body}
+	}()
+	select {
+	case got := <-done:
+		assert.Equal(t, 400, got.status, got.body)
+		assert.Contains(t, got.body, "ca_file")
+		assert.Contains(t, got.body, "not a regular file")
+	case <-time.After(time.Second):
+		t.Fatal("POST /clusters blocked on a FIFO ca_file")
+	}
+
+	over := filepath.Join(t.TempDir(), "ca.crt")
+	require.NoError(t, os.WriteFile(over, make([]byte, kafka.MaxTLSFileSize+1), 0600))
+	sec, err = json.Marshal(map[string]string{"protocol": "SSL", "ca_file": over})
+	require.NoError(t, err)
+	status, body := postJSON(t, ctx, "POST", "/api/v1/clusters", map[string]interface{}{
+		"name": "tls-huge", "provider": "plain", "brokers": "broker-1:9093", "security_config": string(sec),
+	})
+	assert.Equal(t, 400, status, body)
+	assert.Contains(t, body, "ca_file")
+	assert.Contains(t, body, "1 MiB")
 }

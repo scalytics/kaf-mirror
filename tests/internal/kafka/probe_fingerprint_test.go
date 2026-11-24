@@ -12,6 +12,8 @@
 package kafka_test
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -36,6 +38,9 @@ var probeFingerprintFields = []string{
 	"Security.APIKey",
 	"Security.APISecret",
 	"Security.ConnectionString",
+	"Security.CAFile",
+	"Security.CertFile",
+	"Security.KeyFile",
 	"Security.Kerberos.ServiceName",
 	"Security.Kerberos.Principal",
 	"Security.Kerberos.KeytabPath",
@@ -133,11 +138,17 @@ func TestProbeFingerprintCoversEveryClusterConfigField(t *testing.T) {
 	for _, path := range got {
 		cfg := baseClusterConfig()
 		secret := "fp-secret-value/" + path
-		setClusterConfigPath(&cfg, path, secret)
+		value := secret
+		if path == "Security.CAFile" || path == "Security.CertFile" || path == "Security.KeyFile" {
+			value = filepath.Join(t.TempDir(), strings.ReplaceAll(path, ".", "-"))
+			require.NoError(t, os.WriteFile(value, []byte(secret), 0600))
+		}
+		setClusterConfigPath(&cfg, path, value)
 		fp := probeFP(t, cfg)
 		assert.NotEqual(t, baseFP, fp, "%s must change the probe fingerprint", path)
 		assert.NotContains(t, fp, secret, "%s must not appear in the fingerprint", path)
 		assert.NotContains(t, fp, "fp-secret-value")
+		assert.NotContains(t, fp, value)
 	}
 }
 
@@ -198,3 +209,35 @@ func TestProbeFingerprintFollowsClusterConfigFromRow(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestProbeFingerprintUsesTLSFileContents(t *testing.T) {
+	dir := t.TempDir()
+	ca := filepath.Join(dir, "ca.crt")
+	cert := filepath.Join(dir, "tls.crt")
+	key := filepath.Join(dir, "tls.key")
+	require.NoError(t, os.WriteFile(ca, []byte("-----BEGIN CERTIFICATE-----\nCA-ONE\n-----END CERTIFICATE-----\n"), 0600))
+	require.NoError(t, os.WriteFile(cert, []byte("-----BEGIN CERTIFICATE-----\nCERT-ONE\n-----END CERTIFICATE-----\n"), 0600))
+	require.NoError(t, os.WriteFile(key, []byte("-----BEGIN PRIVATE KEY-----\nKEY-ONE\n-----END PRIVATE KEY-----\n"), 0600))
+
+	cfg := config.ClusterConfig{
+		Provider: "plain",
+		Brokers:  "broker.example:9093",
+		Security: config.SecurityConfig{Protocol: "SSL", CAFile: ca, CertFile: cert, KeyFile: key},
+	}
+	first := probeFP(t, cfg)
+	second := probeFP(t, cfg)
+	require.Equal(t, first, second)
+	for _, secret := range []string{"CA-ONE", "CERT-ONE", "KEY-ONE", "BEGIN CERTIFICATE", "BEGIN PRIVATE KEY", ca, cert, key} {
+		require.NotContains(t, first, secret)
+	}
+
+	require.NoError(t, os.WriteFile(ca, []byte("-----BEGIN CERTIFICATE-----\nCA-TWO\n-----END CERTIFICATE-----\n"), 0600))
+	rotated := probeFP(t, cfg)
+	require.NotEqual(t, first, rotated)
+	require.NotContains(t, rotated, "CA-TWO")
+
+	require.NoError(t, os.Remove(ca))
+	fp, ok := kafka.ProbeFingerprint(cfg)
+	require.False(t, ok)
+	require.Empty(t, fp)
+}

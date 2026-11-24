@@ -12,6 +12,7 @@
 package kafka
 
 import (
+	"errors"
 	"testing"
 
 	"kaf-mirror/internal/config"
@@ -43,9 +44,12 @@ func TestProbeFingerprintStableInProcessAndDiffersAcrossKeys(t *testing.T) {
 
 	key1 := bytesOf(1)
 	key2 := bytesOf(2)
-	acrossOne := probeFingerprintWithKey(cfg, key1)
-	acrossOneAgain := probeFingerprintWithKey(cfg, key1)
-	acrossTwo := probeFingerprintWithKey(cfg, key2)
+	acrossOne, ok := probeFingerprintWithKey(cfg, key1)
+	require.True(t, ok)
+	acrossOneAgain, ok := probeFingerprintWithKey(cfg, key1)
+	require.True(t, ok)
+	acrossTwo, ok := probeFingerprintWithKey(cfg, key2)
+	require.True(t, ok)
 	require.Equal(t, acrossOne, acrossOneAgain)
 	require.NotEqual(t, acrossOne, acrossTwo)
 	require.NotEqual(t, first, acrossOne)
@@ -90,4 +94,15 @@ func bytesOf(b byte) []byte {
 		key[i] = b
 	}
 	return key
+}
+
+func TestProbeFingerprintFailsClosedWhenCanonicalJSONCannotBeMarshaled(t *testing.T) {
+	orig := marshalClusterConfig
+	t.Cleanup(func() { marshalClusterConfig = orig })
+	marshalClusterConfig = func(any) ([]byte, error) {
+		return nil, errors.New("marshal failed")
+	}
+	fp, ok := probeFingerprintWithKey(config.ClusterConfig{Brokers: "broker-1:9092"}, bytesOf(1))
+	require.False(t, ok)
+	require.Empty(t, fp)
 }

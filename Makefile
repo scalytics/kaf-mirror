@@ -107,13 +107,21 @@ all: build
 # to avoid issues with the swag tool parsing non-application Go files.
 docs:
 	@echo "Generating Swagger docs..."
-	@GOPATH=$(shell go env GOPATH); \
-	if [ -z "$$GOPATH" ]; then \
-		echo "GOPATH is not set. Please set it and try again."; \
-		exit 1; \
+	@SWAG_VER=$$(go list -m -f '{{.Version}}' github.com/swaggo/swag); \
+	go install github.com/swaggo/swag/cmd/swag@$$SWAG_VER; \
+	GOBIN_DIR=$$(go env GOBIN); \
+	if [ -n "$$GOBIN_DIR" ]; then \
+	  SWAG_BIN="$$GOBIN_DIR/swag"; \
+	else \
+	  GOPATH_DIR=$$(go env GOPATH); \
+	  GOPATH_DIR=$${GOPATH_DIR%%:*}; \
+	  if [ -z "$$GOPATH_DIR" ]; then \
+	    echo "GOPATH is not set. Please set it and try again."; \
+	    exit 1; \
+	  fi; \
+	  SWAG_BIN="$$GOPATH_DIR/bin/swag"; \
 	fi; \
-	go install github.com/swaggo/swag/cmd/swag@latest; \
-	$$GOPATH/bin/swag init -g cmd/kaf-mirror/main.go --output web/docu/swagger --exclude scripts
+	"$$SWAG_BIN" init -g cmd/kaf-mirror/main.go --output web/docu/swagger --exclude scripts
 
 build: docs docs-cli docs-html binaries
 
@@ -229,8 +237,8 @@ docs-cli:
 	@echo "Generating CLI documentation (Markdown)..."
 	@go run ./cmd/mirror-cli docs generate
 
-docs-check: docs-cli docs-html
-	@git diff --exit-code -- docs web/docu || { echo "Generated docs are out of date. Run 'make docs-cli docs-html' and commit the result."; exit 1; }
+docs-check: docs docs-cli docs-html
+	@git diff --exit-code -- docs web/docu || { echo "Generated docs are out of date. Run 'make docs docs-cli docs-html' and commit the result."; exit 1; }
 
 # Detect docker compose command (plugin or standalone)
 COMPOSE ?= $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo ""; fi)

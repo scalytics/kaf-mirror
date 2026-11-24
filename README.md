@@ -303,7 +303,7 @@ Before you can use the `mirror-cli`, you need to log in to the backend:
 ./mirror-cli login <username>
 ```
 
-It asks for the password without echo. Do not pass `--password`, because the password then ends up in the shell history and the process list. This will authenticate with the API and store a session token in `~/.kaf-mirror/token` with mode `0600`.
+It asks for the password without echo. Breaking: the `--password` flag is removed, so the password never ends up in the shell history or the process list. This will authenticate with the API and store a session token in `~/.kaf-mirror/token` with mode `0600`.
 
 Without a terminal, for example in a script, `login` reads the password from the first line of stdin:
 
@@ -339,7 +339,7 @@ Each cluster has a stored status, shown in `GET /api/v1/clusters`, `mirror-cli c
 *   `inactive`: removed with `clusters remove`. It is not checked, and it is archived after 72 hours.
 *   `archived`: inactive for more than 72 hours. `clusters purge` deletes archived clusters.
 
-kaf-mirror checks every cluster that is not `inactive` or `archived` when it starts and then every 60 seconds. Each check connects to the cluster with the same client options a job uses, has a 10 second timeout, and at most 4 probes run at a time in the whole process. That cap covers the background loop, `GET /api/v1/clusters/{name}/status`, checks after create, update or restore, and the pre-flight check of a job restart. Concurrent checks of the same cluster share one probe only when the connection settings still match, including provider, brokers, SASL and TLS settings, API key and secret, and the connection string. The probe fingerprint is an HMAC-SHA256 of the connection settings, keyed with a random key that exists only in this process, so the secrets are never stored or logged in plain text. If that key cannot be created, a check is never shared and the cluster is probed again. A slower check does not overwrite a later result or a result from a newer cluster configuration, and a cluster that is deleted and created again under the same name is treated as a new check. A cluster that comes back is `active` again after the next check. The interval and the timeout have no config key.
+kaf-mirror checks every cluster that is not `inactive` or `archived` when it starts and then every 60 seconds. Each check connects to the cluster with the same client options a job uses, has a 10 second timeout, and at most 4 probes run at a time in the whole process. That cap covers the background loop, `GET /api/v1/clusters/{name}/status`, checks after create, update or restore, and the pre-flight check of a job restart. Concurrent checks of the same cluster share one probe only when the connection settings still match, including provider, brokers, SASL and TLS settings, API key and secret, and the connection string. The probe fingerprint is an HMAC-SHA256 of the connection settings, keyed with a random key that exists only in this process, and includes an HMAC of the contents of `ca_file`, `cert_file` and `key_file`. The secrets and the file contents are never stored or logged in plain text. If that key cannot be created, or a TLS file cannot be read, a check is never shared and the cluster is probed again. A slower check does not overwrite a later result or a result from a newer cluster configuration, and a cluster that is deleted and created again under the same name is treated as a new check. A cluster that comes back is `active` again after the next check. The interval and the timeout have no config key.
 
 `GET /api/v1/clusters/{name}/status` runs one of those checks now. It answers HTTP 200 with `{"status":"active","message":"Cluster is reachable"}` when the cluster is reached. When the check fails or times out, it stores `unreachable` and answers HTTP 503. If the request is cancelled while it waits for a free probe slot, the stored status is left alone. Concurrent requests for the same cluster share the in-flight probe. Inactive and archived clusters are not probed; the call answers HTTP 200 with their stored status.
 
@@ -354,16 +354,16 @@ kaf-mirror checks every cluster that is not `inactive` or `archived` when it sta
 - `./mirror-cli jobs start [job-id]`: Start paused or stopped replication jobs with interactive selection.
 - `./mirror-cli jobs stop [job-id]`: Stop running replication jobs with interactive selection.
 - `./mirror-cli jobs pause [job-id]`: Pause running replication jobs (resumable) with interactive selection.
-- `./mirror-cli jobs delete [job-id]`: Delete replication jobs with confirmation (admin only).
+- `./mirror-cli jobs delete [job-id]`: Delete replication jobs with confirmation (admin only). The API call `DELETE /api/v1/jobs/{id}` answers HTTP 204 when the job is deleted, and HTTP 404 with `Job not found` when it does not exist.
 - `./mirror-cli jobs status metrics [job-id]`: Show detailed job status and metrics.
 - `./mirror-cli jobs status full [job-id]`: Show full mirror state (progress, gaps, resume points).
 
 **User Management**
 
 - `./mirror-cli users list`: Lists all users. Requires `users:list` permission.
-- `./mirror-cli users add`: Adds a new user with interactive prompts and a generated password. The password is written to a new mode `0600` file in the temp directory, and only the file path is printed. Breaking: the unread `--password` flag is removed. Requires `users:create` permission. Operators can only create users with the `monitoring` role.
+- `./mirror-cli users add`: Adds a new user with interactive prompts and a generated password. The password is written to a new mode `0600` file in the temp directory, and only the file path is printed. Breaking: the unread `--password` flag is removed. Requires `users:create` permission, which only the `admin` role has.
 - `./mirror-cli users set-role <username> <role>`: Sets a user's role. Requires `users:assign-roles` permission. Users cannot change their own role.
-- `./mirror-cli users reset-password [username]`: Reset another user's password and generate a new secure password. **Admin only**. Cannot reset own password. The new password is written to a mode `0600` file (temp by default or `--password-file`), and the file path is printed.
+- `./mirror-cli users reset-password [username]`: Reset another user's password and generate a new secure password. **Admin only**. Cannot reset own password. The new password is written to a mode `0600` file. Without `--password-file`, it is a new file in the temp directory and its path is printed. With `--password-file`, the command does not print the path again, also not in an error.
 - `./mirror-cli users delete <username>`: Delete a user account. Requires `users:delete` permission.
 - `./mirror-cli whoami`: Displays the username and role of the current user. Breaking: it no longer prints the API token.
 - `./mirror-cli change-password`: Changes the current user's password.
@@ -439,7 +439,7 @@ Automated scheduling is controlled by `compliance.schedule` (daily/weekly/monthl
 - `./admin-cli repair`: Reseed default roles/permissions; if no users exist, create `admin@localhost` with a random password.
 - `./admin-cli reset-admin-password <username>`: Reset the password for the initial admin user (the one marked `is_initial`).
 - `./admin-cli users list`: List users directly from the database.
-- `./admin-cli users add <username>`: Adds a new user directly to the database. It asks for the password without echo.
+- `./admin-cli users add <username>`: Adds a new user directly to the database. It asks for the password without echo, or reads the first line of stdin when there is no terminal. Breaking: the `--password` flag is removed.
 
 **d) Backup and Data Management**
 
@@ -552,15 +552,20 @@ The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answ
 
 ```bash
 docker build -t kaf-mirror:local .
-helm install km deploy/helm/kaf-mirror \
-  --set image.repository=kaf-mirror \
-  --set image.tag=local \
-  --set image.pullPolicy=IfNotPresent \
-  --wait
+cat > km-values.yaml <<'VALUES'
+image:
+  repository: kaf-mirror
+  tag: local
+  pullPolicy: IfNotPresent
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml --wait
 kubectl port-forward svc/km-kaf-mirror 8088:8088
 ```
 
+Pass `-f km-values.yaml` first on every later `helm upgrade`, followed by the values files of the other settings you use. Helm does not keep values from an earlier upgrade, so an upgrade without `km-values.yaml` goes back to the default image.
+
 *   **TLS:** by default the server runs without TLS (`config.server.allowInsecure: true`). For production, create a TLS Secret, set `config.server.tls.existingSecret` to its name and `config.server.allowInsecure` to `false`. The Secret is mounted at `/app/tls`, the probes use HTTPS, and the ServiceMonitor scrapes HTTPS.
+*   **Kafka TLS:** for a private CA or mTLS to the brokers, put the files in a Secret and set `kafkaTLS.existingSecret`. The Secret is mounted at `/app/kafka-tls`.
 *   **Tokens:** `secretEnv` sets `KAF_MIRROR_AI_TOKEN`, `KAF_MIRROR_AI_API_SECRET` or `KAF_MIRROR_MONITORING_SPLUNK_HEC_TOKEN` from a Secret key. Do not pass secrets with `--set`.
 *   **Metrics:** the ServiceMonitor scrapes `/metrics`, which serves only the Go runtime metrics of the process. Job metrics are not on `/metrics`. They are stored in SQLite, returned by `GET /api/v1/jobs/{id}/metrics/current` and pushed to a Prometheus Pushgateway when `monitoring.platform` is `prometheus`.
 *   **AI:** off by default. Set `config.ai.provider` to turn it on. See [deploy/helm/kaf-mirror/README.md](deploy/helm/kaf-mirror/README.md#ai-analysis).
@@ -576,10 +581,10 @@ All values are listed in [deploy/helm/kaf-mirror/README.md](deploy/helm/kaf-mirr
 
 The consumer, the producer, the admin client, `POST /api/v1/clusters/test`, the topic list and detail views, the cluster status check and the inventory snapshot all build their Kafka client options with one function, `kafka.ClientOptions`. A cluster that connects in the test also connects when a job runs.
 
-*   **TLS:** on when `security.protocol` is `SSL` or `SASL_SSL`, and always for the `confluent` and `azure` providers. The client checks the broker certificate against the system trust store and needs TLS 1.2 or newer.
+*   **TLS:** on when `security.protocol` is `SSL` or `SASL_SSL`, and always for the `confluent` and `azure` providers. The client checks the broker certificate against the system trust store, or against `ca_file` when it is set, and needs TLS 1.2 or newer. `cert_file` and `key_file` send a client certificate for mTLS. See "TLS with a private CA or mTLS" below.
 *   **Generic SASL:** used when `security.enabled` is `true` and `security.sasl_mechanism` is set. `PLAIN`, `SCRAM-SHA-256` and `SCRAM-SHA-512` need `username` and `password`. `GSSAPI` needs the Kerberos settings below. Any other mechanism is an error.
 *   **Provider presets:** `confluent` uses SASL PLAIN with `api_key` and `api_secret`. `azure` uses SASL PLAIN with the user `$ConnectionString` and `connection_string`. `redpanda` with `username` and `password` and no `sasl_mechanism` uses TLS and SCRAM-SHA-256. With an explicit `sasl_mechanism`, a `redpanda` cluster uses the generic settings.
-*   **Validation:** creating or updating a cluster and `POST /api/v1/clusters/test` answer HTTP 400 when `security_config` is not a JSON object, a mechanism is unknown, a password is missing or a GSSAPI path is missing.
+*   **Validation:** creating or updating a cluster and `POST /api/v1/clusters/test` answer HTTP 400 when `security_config` is not a JSON object, a mechanism is unknown, a password is missing, a GSSAPI path is missing, only one of `cert_file` and `key_file` is set, `ca_file`, `cert_file` or `key_file` is set on a cluster without TLS, or a set `ca_file`, `cert_file` or `key_file` exists and is not a regular file or is larger than 1 MiB.
 *   **Logs:** kaf-mirror logs the provider, whether TLS is on and the mechanism name. It never logs a password, API secret or connection string.
 
 Jobs use the clusters stored in the database. Create them with `mirror-cli clusters add`, which asks for the password without echo, or with `POST /api/v1/clusters`. The security settings go in `security_config`, a JSON object written as a string. All fields are listed in [docs/configuration.md](docs/configuration.md#cluster-api-fields). The `clusters` section of the config file is only used by `GET /api/v1/topics/source` and `/target`, and for `disable_idempotent_writes`.
@@ -606,6 +611,38 @@ with this content in `scram-test.json`:
 ```json
 {"provider":"plain","brokers":"broker1:9093","security":{"enabled":true,"protocol":"SASL_SSL","sasl_mechanism":"SCRAM-SHA-512","username":"kaf-mirror","password":"<password>"}}
 ```
+
+### TLS with a private CA or mTLS
+
+Set these keys in `security_config` of the cluster, or in `security` of a cluster in the config file. They are file paths on the kaf-mirror host or in the container. No certificate or key goes into the database.
+
+| Key | Description |
+|---|---|
+| `ca_file` | PEM file with the CA certificates that sign the broker certificates. Without it, the system trust store is used. The file must be a regular file of at most 1 MiB. |
+| `cert_file` | PEM client certificate for mTLS. Set it together with `key_file`. The file must be a regular file of at most 1 MiB. |
+| `key_file` | PEM private key of `cert_file`. The file must be a regular file of at most 1 MiB. |
+
+They need a TLS connection: `protocol` `SSL` or `SASL_SSL`, or the `confluent` or `azure` provider. Each file must be a regular file of at most 1 MiB. A symlink to a regular file is accepted, including the `..data` symlinks used by Kubernetes Secret mounts. Paths are not limited to one directory, so a config file cluster and the Helm mount at `/app/kafka-tls` both work. A FIFO, device, directory or larger file is rejected. The files are read when a client is created. A path that does not exist yet is accepted when the cluster is saved, and a missing file, a `ca_file` without a PEM certificate, or a key that does not match the certificate fails the client. If a TLS file cannot be read during a cluster probe, the check is not shared and the cluster is probed again. They work with SASL on `SASL_SSL`. kaf-mirror does not read `SSL_CERT_FILE` for this. Use `ca_file`.
+
+A cluster with a private CA and a client certificate, created with the API:
+```bash
+curl -s -X POST "$KM/clusters" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"src","provider":"plain","brokers":"broker1.example.com:9093","security_config":"{\"protocol\":\"SSL\",\"ca_file\":\"/app/kafka-tls/ca.crt\",\"cert_file\":\"/app/kafka-tls/tls.crt\",\"key_file\":\"/app/kafka-tls/tls.key\"}"}'
+```
+
+In Docker, mount the files read-only. The container runs as UID 100 and GID 101, so give that group read access to the key:
+```bash
+chgrp 101 tls.key && chmod 0440 tls.key
+docker run -d --name kaf-mirror -p 8080:8080 \
+  -v kaf-mirror-data:/app/data \
+  -v kaf-mirror-logs:/app/logs \
+  -v "$PWD/ca.crt:/app/kafka-tls/ca.crt:ro" \
+  -v "$PWD/tls.crt:/app/kafka-tls/tls.crt:ro" \
+  -v "$PWD/tls.key:/app/kafka-tls/tls.key:ro" \
+  kaf-mirror:local
+```
+
+In Kubernetes with the Helm chart, keep the files in a Secret and set `kafkaTLS.existingSecret`. The chart mounts every key of the Secret at `/app/kafka-tls`. See "Kafka TLS" in [deploy/helm/kaf-mirror/README.md](deploy/helm/kaf-mirror/README.md).
 
 ### Kerberos (GSSAPI)
 

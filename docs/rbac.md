@@ -1,6 +1,8 @@
 # Role-Based Access Control (RBAC) Overview
 
-This document outlines the access levels for each API endpoint based on user roles.
+This page lists the roles that may call each API endpoint. Each route checks one permission in `internal/server/routes.go`, and the roles get their permissions in `SeedDefaultRolesAndPermissions` in `internal/database/rbac.go`. `tests/internal/server/rbac_doc_test.go` calls every endpoint in the tables below with a user of each role and fails when a role gets HTTP 403 where this page allows it, or gets through where this page does not list it.
+
+The `compliance` role has `jobs:view`, `clusters:view`, `metrics:view`, `inventory:view` and `events:view`, so it can read jobs, mirror state, metrics and inventory. It cannot change them.
 
 ## Public Endpoints
 
@@ -69,7 +71,7 @@ This document outlines the access levels for each API endpoint based on user rol
 | `POST /api/v1/jobs/restart-all` | `admin`, `operator` |
 | `GET /api/v1/jobs/:id/mappings` | `admin`, `operator`, `monitoring`, `compliance` |
 | `PUT /api/v1/jobs/:id/mappings` | `admin`, `operator` |
-| `GET /api/v1/jobs/:id/topic-health` | `admin`, `operator`, `monitoring` |
+| `GET /api/v1/jobs/:id/topic-health` | `admin`, `operator`, `monitoring`, `compliance` |
 
 ## Metrics
 
@@ -116,7 +118,7 @@ This document outlines the access levels for each API endpoint based on user rol
 
 | Endpoint | Role |
 |---|---|
-| `GET /api/v1/jobs/:id/inventory/snapshots` | `admin`, `operator` |
+| `GET /api/v1/jobs/:id/inventory/snapshots` | `admin`, `operator`, `monitoring`, `compliance` |
 | `POST /api/v1/jobs/:id/inventory/snapshots` | `admin`, `operator` |
 | `GET /api/v1/inventory/snapshots/:snapshot_id` | `admin`, `operator`, `monitoring`, `compliance` |
 | `GET /api/v1/inventory/snapshots/:snapshot_id/cluster` | `admin`, `operator`, `monitoring`, `compliance` |
@@ -128,11 +130,11 @@ This document outlines the access levels for each API endpoint based on user rol
 
 | Endpoint | Role |
 |---|---|
-| `GET /api/v1/jobs/:id/mirror/state` | `admin`, `operator`, `monitoring` |
-| `GET /api/v1/jobs/:id/mirror/progress` | `admin`, `operator`, `monitoring` |
-| `GET /api/v1/jobs/:id/mirror/resume-points` | `admin`, `operator`, `monitoring` |
+| `GET /api/v1/jobs/:id/mirror/state` | `admin`, `operator`, `monitoring`, `compliance` |
+| `GET /api/v1/jobs/:id/mirror/progress` | `admin`, `operator`, `monitoring`, `compliance` |
+| `GET /api/v1/jobs/:id/mirror/resume-points` | `admin`, `operator`, `monitoring`, `compliance` |
 | `POST /api/v1/jobs/:id/mirror/resume-points` | `admin`, `operator` |
-| `GET /api/v1/jobs/:id/mirror/gaps` | `admin`, `operator`, `monitoring` |
+| `GET /api/v1/jobs/:id/mirror/gaps` | `admin`, `operator`, `monitoring`, `compliance` |
 | `POST /api/v1/jobs/:id/mirror/validate-mirror` | `admin`, `operator` |
 | `POST /api/v1/jobs/:id/mirror/checkpoint` | `admin`, `operator` |
 

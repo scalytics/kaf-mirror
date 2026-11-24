@@ -6,14 +6,27 @@ The chart runs kaf-mirror as a single pod with a ConfigMap for its config, a Per
 
 The default image tag is `v1.3.1`. That published image does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, make it available to the cluster, and point the chart at it:
 
+The image settings go in `km-values.yaml`. Every `helm` command on this page passes `-f km-values.yaml` first, so an upgrade never drops them and the pod never goes back to the default image.
+
 ```bash
 docker build -t kaf-mirror:local .
-helm install km deploy/helm/kaf-mirror \
-  --set image.repository=kaf-mirror \
-  --set image.tag=local \
-  --set image.pullPolicy=IfNotPresent \
-  --wait
+cat > km-values.yaml <<'VALUES'
+image:
+  repository: kaf-mirror
+  tag: local
+  pullPolicy: IfNotPresent
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml --wait
+kubectl get deploy km-kaf-mirror -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 kubectl port-forward svc/km-kaf-mirror 8088:8088
+```
+
+The `kubectl get` line prints `kaf-mirror:local`.
+
+Each section below writes its own values file and adds it after `km-values.yaml`. Helm does not keep values from an earlier upgrade, so pass every values file you use on each upgrade, in the same order. For example, with TLS and the Secret example:
+
+```bash
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f tls-values.yaml -f secret-values.yaml --wait
 ```
 
 In another terminal:
@@ -67,7 +80,27 @@ config:
     tls:
       existingSecret: km-tls
 VALUES
-helm upgrade --install km deploy/helm/kaf-mirror -f tls-values.yaml --wait
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f tls-values.yaml --wait
+```
+
+## Kafka TLS
+
+For brokers with a private CA or mTLS, keep the CA certificate and the client certificate and key in a Secret and set `kafkaTLS.existingSecret`. The chart mounts every key of the Secret read-only at `/app/kafka-tls` with mode `0440`, readable by the pod group 101. Those files must be regular files of at most 1 MiB; a symlink to a regular file, as used by Kubernetes Secret mounts, is accepted. Then set `ca_file`, `cert_file` and `key_file` to those paths in `security_config` of the cluster you create with the API, or in `config.sourceSecurity` and `config.targetSecurity`. See "TLS with a private CA or mTLS" in the [main README](../../../README.md#tls-with-a-private-ca-or-mtls).
+
+```bash
+kubectl create secret generic km-kafka-tls --from-file=ca.crt=./ca.crt --from-file=tls.crt=./tls.crt --from-file=tls.key=./tls.key
+cat > kafka-tls-values.yaml <<'VALUES'
+kafkaTLS:
+  existingSecret: km-kafka-tls
+config:
+  sourceBrokers: "broker1.example.com:9093"
+  sourceSecurity:
+    protocol: SSL
+    ca_file: /app/kafka-tls/ca.crt
+    cert_file: /app/kafka-tls/tls.crt
+    key_file: /app/kafka-tls/tls.key
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f kafka-tls-values.yaml --wait
 ```
 
 ## Tokens from a Secret
@@ -95,7 +128,7 @@ secretEnv:
     secretName: km-secrets
     key: ai-token
 VALUES
-helm upgrade --install km deploy/helm/kaf-mirror -f secret-values.yaml --wait
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f secret-values.yaml --wait
 ```
 
 ## AI analysis
@@ -127,7 +160,7 @@ config:
       keytab_path: /app/kerberos/keytab/kafka.keytab
       krb5_conf_path: /app/kerberos/krb5/krb5.conf
 VALUES
-helm upgrade --install km deploy/helm/kaf-mirror -f kerberos-values.yaml --wait
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f kerberos-values.yaml --wait
 ```
 
 `config.sourceSecurity` and `config.targetSecurity` are written as `security` of the `source` and `target` clusters in the config file. For clusters you create with the API, use the same paths in `security_config`. For SASL PLAIN or SCRAM, keep `password: ""` in `config.sourceSecurity` and set `KAF_MIRROR_CLUSTERS_SOURCE_SECURITY_PASSWORD` with `secretEnv`, so the password stays in a Secret.
@@ -147,13 +180,15 @@ config:
   server:
     shutdownTimeoutSeconds: 60
 VALUES
-helm upgrade --install km deploy/helm/kaf-mirror -f shutdown-values.yaml --wait
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f shutdown-values.yaml --wait
 ```
 
 ## Values
 
 | Key | Default | Description |
 |---|---|---|
+| `nameOverride` | `""` | Replaces the chart name `kaf-mirror` in the `app.kubernetes.io/name` label and in the full object name `<release>-<name>`. |
+| `fullnameOverride` | `""` | Sets the full object name. Empty uses `<release>-kaf-mirror`, or `<release>` when the release name already contains the chart name. The commands on this page use the release `km`, so the objects are named `km-kaf-mirror`. |
 | `image.repository` | `ghcr.io/scalytics/kaf-mirror` | Image repository. |
 | `image.tag` | `v1.3.1` | Image tag. It follows `appVersion`. Until a newer tag is published, set this to an image built from this repository, as in the Install section. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
@@ -169,7 +204,7 @@ helm upgrade --install km deploy/helm/kaf-mirror -f shutdown-values.yaml --wait
 | `config.server.tls.existingSecret` | `""` | Name of a Secret with the certificate and key. When set, TLS is on and the probes use HTTPS. |
 | `config.server.tls.certKey` | `tls.crt` | Key of the certificate in the Secret. |
 | `config.server.tls.keyKey` | `tls.key` | Key of the private key in the Secret. |
-| `config.server.corsAllowedOrigins` | `["*"]` | `server.cors.allowed_origins`. |
+| `config.server.corsAllowedOrigins` | `["http://localhost:8080"]` | `server.cors.allowed_origins`. The web UI is served by kaf-mirror and does not need CORS. Add an origin only for a browser app on another origin. |
 | `config.logLevel` | `INFO` | `logging.level`. |
 | `config.sourceBrokers` | `kafka-source:9092` | Brokers of the `source` cluster in the config file. Only used by `GET /api/v1/topics/source`. Jobs use clusters stored in the database. |
 | `config.targetBrokers` | `kafka-target:9092` | Brokers of the `target` cluster in the config file. Only used by `GET /api/v1/topics/target`. |
@@ -184,6 +219,7 @@ helm upgrade --install km deploy/helm/kaf-mirror -f shutdown-values.yaml --wait
 | `config.protection.enabled` | `false` | `protection.enabled`. See [protection.md](../../../docs/protection.md). |
 | `config.protection.autoHalt.enabled` | `false` | `protection.auto_halt.enabled`. |
 | `config.egress.allowedHosts` | `[]` | `egress.allowed_hosts`. Empty allows any host except metadata addresses. |
+| `kafkaTLS.existingSecret` | `""` | Secret with Kafka client TLS files, such as `ca.crt`, `tls.crt` and `tls.key`. When set, every key is mounted at `/app/kafka-tls`. |
 | `kerberos.keytabSecret` | `""` | Secret with the Kerberos keytab. When set, it is mounted at `/app/kerberos/keytab`. |
 | `kerberos.keytabKey` | `kafka.keytab` | Key of the keytab in the Secret, and its file name in the mount. |
 | `kerberos.krb5ConfigMap` | `""` | ConfigMap with `krb5.conf`. When set, it is mounted at `/app/kerberos/krb5`. |
@@ -210,4 +246,4 @@ helm upgrade --install km deploy/helm/kaf-mirror -f shutdown-values.yaml --wait
 | `tolerations` | `[]` | Pod tolerations. |
 | `affinity` | `{}` | Pod affinity. |
 
-`make helm-check` lints the chart and renders the default, TLS, Secret, ServiceMonitor and Kerberos cases. `go test ./tests/deploy/` fails when a key in `values.yaml` is not read by any template.
+`make helm-check` lints the chart and renders the default, TLS, Secret, ServiceMonitor, Kafka TLS and Kerberos cases. `go test ./tests/deploy/` fails when a key in `values.yaml` is not read by any template, when a template reads a key that is not in `values.yaml` or in this table, or when a `helm` command on this page does not pass `-f km-values.yaml`.

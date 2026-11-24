@@ -83,6 +83,11 @@ spec:
               mountPath: /app/tls
               readOnly: true
             {{- end }}
+            {{- if .Values.kafkaTLS.existingSecret }}
+            - name: kafka-tls
+              mountPath: /app/kafka-tls
+              readOnly: true
+            {{- end }}
             {{- if .Values.kerberos.keytabSecret }}
             - name: kerberos-keytab
               mountPath: /app/kerberos/keytab
@@ -117,6 +122,12 @@ spec:
                 path: {{ .Values.config.server.tls.certKey }}
               - key: {{ .Values.config.server.tls.keyKey }}
                 path: {{ .Values.config.server.tls.keyKey }}
+        {{- end }}
+        {{- if .Values.kafkaTLS.existingSecret }}
+        - name: kafka-tls
+          secret:
+            secretName: {{ .Values.kafkaTLS.existingSecret }}
+            defaultMode: 288
         {{- end }}
         {{- if .Values.kerberos.keytabSecret }}
         - name: kerberos-keytab

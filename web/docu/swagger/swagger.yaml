@@ -191,12 +191,18 @@ definitions:
         type: string
       api_secret:
         type: string
+      ca_file:
+        type: string
+      cert_file:
+        type: string
       connection_string:
         type: string
       enabled:
         type: boolean
       kerberos:
         $ref: '#/definitions/config.KerberosConfig'
+      key_file:
+        type: string
       password:
         type: string
       protocol:
@@ -1570,7 +1576,8 @@ paths:
       - jobs
   /jobs/{id}:
     delete:
-      description: Delete a replication job by its ID.
+      description: Delete a replication job by its ID. An unknown job ID answers HTTP
+        404 with Job not found.
       parameters:
       - description: Job ID
         in: path
@@ -1580,6 +1587,11 @@ paths:
       responses:
         "204":
           description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Delete a replication job
@@ -1871,6 +1883,16 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/database.ReplicationMetric'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Get current metrics for a job
@@ -2274,6 +2296,11 @@ paths:
             items:
               $ref: '#/definitions/kafka.TopicHealth'
             type: array
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Get topic health for a job

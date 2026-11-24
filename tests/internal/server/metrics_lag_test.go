@@ -98,3 +98,26 @@ func TestCurrentMetricsReturnTombstoneCount(t *testing.T) {
 	assert.Equal(t, int64(200), history[0].TombstoneCountDelta)
 	assert.Equal(t, int64(73), history[1].TombstoneCountDelta)
 }
+
+func TestCurrentMetricsOfJobWithoutReportsAreZero(t *testing.T) {
+	ctx := setupTestServer(t)
+	db := ctx.Server.Db
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "a", Brokers: "localhost:9092", SecurityConfig: "{}"}))
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "b", Brokers: "localhost:9093", SecurityConfig: "{}"}))
+	jobID := uuid.NewString()
+	require.NoError(t, database.CreateJob(db, &database.ReplicationJob{ID: jobID, Name: "no-reports", SourceClusterName: "a", TargetClusterName: "b", Status: "paused"}))
+
+	req := httptest.NewRequest("GET", "/api/v1/jobs/"+jobID+"/metrics/current", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req)
+	require.NoError(t, err)
+	require.Equal(t, 200, resp.StatusCode)
+	var current database.ReplicationMetric
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&current))
+	assert.Equal(t, jobID, current.JobID)
+	assert.Equal(t, 0, current.MessagesReplicated)
+	assert.Equal(t, 0, current.BytesTransferred)
+	assert.Equal(t, 0, current.ErrorCount)
+	assert.Equal(t, int64(0), current.TombstoneCount)
+	assert.Equal(t, 0, current.CurrentLag)
+}

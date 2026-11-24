@@ -1364,7 +1364,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Delete a replication job by its ID.",
+                "description": "Delete a replication job by its ID. An unknown job ID answers HTTP 404 with Job not found.",
                 "tags": [
                     "jobs"
                 ],
@@ -1381,6 +1381,13 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -1747,6 +1754,20 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/database.ReplicationMetric"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -2352,6 +2373,13 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/kafka.TopicHealth"
                             }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -3080,6 +3108,12 @@ const docTemplate = `{
                 "api_secret": {
                     "type": "string"
                 },
+                "ca_file": {
+                    "type": "string"
+                },
+                "cert_file": {
+                    "type": "string"
+                },
                 "connection_string": {
                     "type": "string"
                 },
@@ -3088,6 +3122,9 @@ const docTemplate = `{
                 },
                 "kerberos": {
                     "$ref": "#/definitions/config.KerberosConfig"
+                },
+                "key_file": {
+                    "type": "string"
                 },
                 "password": {
                     "type": "string"

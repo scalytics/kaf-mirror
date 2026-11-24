@@ -223,7 +223,7 @@
 <br>
 <h2 id="global-options">Global Options</h2>
 <br>
-<pre><code>  -, --mirror-url string   URL of the kaf-mirror backend. (default &#34;http://localhost:8080&#34;)
+<pre><code>      --mirror-url string   URL of the kaf-mirror backend. (default &#34;http://localhost:8080&#34;)
   -v, --version   Print the version and exit
 </code></pre>
 <br>
@@ -307,7 +307,7 @@
 <br>
 <h3 id="options">Options</h3>
 <br>
-<pre><code>  -, --yes   Confirm without a prompt, for scripts and runs without a terminal
+<pre><code>      --yes   Confirm without a prompt, for scripts and runs without a terminal
 </code></pre>
 <br>
 <h4 id="mirror-cli-clusters-restore">mirror-cli clusters restore</h4>
@@ -763,7 +763,7 @@
 <br>
 <h3 id="options">Options</h3>
 <br>
-<pre><code>  -, --file string   Output file for documentation (default &#34;docs/cli-commands.md&#34;)
+<pre><code>      --file string   Output file for documentation (default &#34;docs/cli-commands.md&#34;)
 </code></pre>
 <br>
 </div><div class="command-card" id="mirror-cli-jobs"><h3 id="mirror-cli-jobs">mirror-cli jobs</h3>
@@ -815,7 +815,7 @@
 <br>
 <h3 id="options">Options</h3>
 <br>
-<pre><code>  -, --period string   Analysis period (e.g., 7d, 30d) (default &#34;7d&#34;)
+<pre><code>      --period string   Analysis period (e.g., 7d, 30d) (default &#34;7d&#34;)
 </code></pre>
 <br>
 <h4 id="mirror-cli-jobs-delete">mirror-cli jobs delete</h4>
@@ -831,7 +831,7 @@
 <br>
 <h3 id="options">Options</h3>
 <br>
-<pre><code>  -, --yes   Confirm without a prompt, for scripts and runs without a terminal
+<pre><code>      --yes   Confirm without a prompt, for scripts and runs without a terminal
 </code></pre>
 <br>
 <h4 id="mirror-cli-jobs-force-restart">mirror-cli jobs force-restart</h4>
@@ -955,12 +955,7 @@
 <br>
 <h3 id="usage">Usage</h3>
 <br>
-<pre><code>mirror-cli login [username] [flags]
-</code></pre>
-<br>
-<h3 id="options">Options</h3>
-<br>
-<pre><code>  -, --password string   User&#39;s password. Leave it out to be asked without echo, or pipe it on stdin when there is no terminal
+<pre><code>mirror-cli login [username]
 </code></pre>
 <br>
 </div><div class="command-card" id="mirror-cli-logout"><h3 id="mirror-cli-logout">mirror-cli logout</h3>
@@ -1174,8 +1169,8 @@
 <br>
 <h3 id="options">Options</h3>
 <br>
-<pre><code>  -, --password-file string   File for the new password, created with mode 0600. Default: a new file in the temp directory
-  -, --yes   Confirm without a prompt, for scripts and runs without a terminal
+<pre><code>      --password-file string   File for the new password, created with mode 0600. Default: a new file in the temp directory
+      --yes   Confirm without a prompt, for scripts and runs without a terminal
 </code></pre>
 <br>
 <h4 id="mirror-cli-users-reset-token">mirror-cli users reset-token</h4>

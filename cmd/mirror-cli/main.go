@@ -14,7 +14,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"io/ioutil"
 	"kaf-mirror/cmd/mirror-cli/dashboard"
 	"kaf-mirror/cmd/mirror-cli/dashboard/core"
@@ -215,13 +218,9 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				}
 			}
 
-			password, _ := cmd.Flags().GetString("password")
-			if password == "" {
-				var err error
-				password, err = readSecret("Password:")
-				if err != nil {
-					abortLogin(err)
-				}
+			password, err := readSecret("Password:")
+			if err != nil {
+				abortLogin(err)
 			}
 
 			loginURL := fmt.Sprintf("%s/auth/token", BackendURL)
@@ -257,7 +256,6 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			fmt.Println("Login successful. Token stored.")
 		},
 	}
-	loginCmd.Flags().String("password", "", "User's password. Leave it out to be asked without echo, or pipe it on stdin when there is no terminal")
 
 	var usersCmd = &cobra.Command{
 		Use:   "users",
@@ -643,17 +641,30 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			}
 
 			newPassword := resetResp["new_password"]
-			outputPath, err := writePasswordFile(passwordFile, newPassword)
-			if err != nil {
-				fmt.Printf("Error: Failed to write password file: %v\n", err)
-				return
+			fileLine := "  Password File: the file given with --password-file"
+			if passwordFile != "" {
+				if _, err := writePasswordFile(passwordFile, newPassword); err != nil {
+					var pathErr *fs.PathError
+					if errors.As(err, &pathErr) {
+						err = pathErr.Err
+					}
+					fmt.Printf("Error: Failed to write the file given with --password-file: %v\n", err)
+					return
+				}
+			} else {
+				tempPath, err := writePasswordFile("", newPassword)
+				if err != nil {
+					fmt.Printf("Error: Failed to write the password file in the temp directory: %v\n", err)
+					return
+				}
+				fileLine = "  Password File: " + tempPath
 			}
 			fmt.Println("=================================================================")
 			fmt.Println("  PASSWORD RESET SUCCESSFUL")
 			fmt.Println("=================================================================")
 			fmt.Printf("  Username: %s\n", username)
 			fmt.Println("  New Password: ********")
-			fmt.Printf("  Password File: %s\n", outputPath)
+			fmt.Println(fileLine)
 			fmt.Println("=================================================================")
 			fmt.Println("  Please provide this password to the user securely.")
 			fmt.Println("  Delete the password file after delivery.")
@@ -2694,7 +2705,26 @@ func createDocsCommand() *cobra.Command {
 }
 
 // generateConsolidatedDocs generates a single consolidated markdown file with all commands
-func generateConsolidatedDocs(cmd *cobra.Command, w *os.File) error {
+func writeFlagDoc(w io.Writer, flag *pflag.Flag) {
+	if flag.Hidden {
+		return
+	}
+	if flag.Shorthand != "" {
+		fmt.Fprintf(w, "  -%s, --%s", flag.Shorthand, flag.Name)
+	} else {
+		fmt.Fprintf(w, "      --%s", flag.Name)
+	}
+	if flag.Value.Type() != "bool" {
+		fmt.Fprintf(w, " %s", flag.Value.Type())
+	}
+	fmt.Fprintf(w, "   %s", flag.Usage)
+	if flag.DefValue != "" && flag.DefValue != "false" {
+		fmt.Fprintf(w, " (default %q)", flag.DefValue)
+	}
+	fmt.Fprintf(w, "\n")
+}
+
+func generateConsolidatedDocs(cmd *cobra.Command, w io.Writer) error {
 	fmt.Fprintf(w, "# %s\n\n", cmd.Name())
 	fmt.Fprintf(w, "%s\n\n", cmd.Short)
 
@@ -2711,30 +2741,10 @@ func generateConsolidatedDocs(cmd *cobra.Command, w *os.File) error {
 		fmt.Fprintf(w, "## Global Options\n\n")
 		fmt.Fprintf(w, "```\n")
 		cmd.InheritedFlags().VisitAll(func(flag *pflag.Flag) {
-			if !flag.Hidden {
-				fmt.Fprintf(w, "  -%s, --%s", flag.Shorthand, flag.Name)
-				if flag.Value.Type() != "bool" {
-					fmt.Fprintf(w, " %s", flag.Value.Type())
-				}
-				fmt.Fprintf(w, "   %s", flag.Usage)
-				if flag.DefValue != "" && flag.DefValue != "false" {
-					fmt.Fprintf(w, " (default %q)", flag.DefValue)
-				}
-				fmt.Fprintf(w, "\n")
-			}
+			writeFlagDoc(w, flag)
 		})
 		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
-			if !flag.Hidden {
-				fmt.Fprintf(w, "  -%s, --%s", flag.Shorthand, flag.Name)
-				if flag.Value.Type() != "bool" {
-					fmt.Fprintf(w, " %s", flag.Value.Type())
-				}
-				fmt.Fprintf(w, "   %s", flag.Usage)
-				if flag.DefValue != "" && flag.DefValue != "false" {
-					fmt.Fprintf(w, " (default %q)", flag.DefValue)
-				}
-				fmt.Fprintf(w, "\n")
-			}
+			writeFlagDoc(w, flag)
 		})
 		fmt.Fprintf(w, "```\n\n")
 	}
@@ -2758,7 +2768,7 @@ func generateConsolidatedDocs(cmd *cobra.Command, w *os.File) error {
 }
 
 // generateCommandDocs generates documentation for a command and its subcommands recursively
-func generateCommandDocs(cmd *cobra.Command, w *os.File, headerLevel int) error {
+func generateCommandDocs(cmd *cobra.Command, w io.Writer, headerLevel int) error {
 	// Generate header
 	headerPrefix := strings.Repeat("#", headerLevel)
 	fmt.Fprintf(w, "%s %s\n\n", headerPrefix, cmd.CommandPath())
@@ -2788,17 +2798,7 @@ func generateCommandDocs(cmd *cobra.Command, w *os.File, headerLevel int) error 
 		fmt.Fprintf(w, "### Options\n\n")
 		fmt.Fprintf(w, "```\n")
 		cmd.LocalFlags().VisitAll(func(flag *pflag.Flag) {
-			if !flag.Hidden {
-				fmt.Fprintf(w, "  -%s, --%s", flag.Shorthand, flag.Name)
-				if flag.Value.Type() != "bool" {
-					fmt.Fprintf(w, " %s", flag.Value.Type())
-				}
-				fmt.Fprintf(w, "   %s", flag.Usage)
-				if flag.DefValue != "" && flag.DefValue != "false" {
-					fmt.Fprintf(w, " (default %q)", flag.DefValue)
-				}
-				fmt.Fprintf(w, "\n")
-			}
+			writeFlagDoc(w, flag)
 		})
 		fmt.Fprintf(w, "```\n\n")
 	}

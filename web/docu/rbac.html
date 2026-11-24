@@ -102,7 +102,9 @@
     <div class="container">
         <h1 id="role-based-access-control-rbac-overview">Role-Based Access Control (RBAC) Overview</h1>
 
-<p>This document outlines the access levels for each API endpoint based on user roles.</p>
+<p>This page lists the roles that may call each API endpoint. Each route checks one permission in <code>internal/server/routes.go</code>, and the roles get their permissions in <code>SeedDefaultRolesAndPermissions</code> in <code>internal/database/rbac.go</code>. <code>tests/internal/server/rbac_doc_test.go</code> calls every endpoint in the tables below with a user of each role and fails when a role gets HTTP 403 where this page allows it, or gets through where this page does not list it.</p>
+
+<p>The <code>compliance</code> role has <code>jobs:view</code>, <code>clusters:view</code>, <code>metrics:view</code>, <code>inventory:view</code> and <code>events:view</code>, so it can read jobs, mirror state, metrics and inventory. It cannot change them.</p>
 
 <h2 id="public-endpoints">Public Endpoints</h2>
 
@@ -375,7 +377,7 @@
 
 <tr>
 <td><code>GET /api/v1/jobs/:id/topic-health</code></td>
-<td><code>admin</code>, <code>operator</code>, <code>monitoring</code></td>
+<td><code>admin</code>, <code>operator</code>, <code>monitoring</code>, <code>compliance</code></td>
 </tr>
 </tbody>
 </table>
@@ -550,7 +552,7 @@
 <tbody>
 <tr>
 <td><code>GET /api/v1/jobs/:id/inventory/snapshots</code></td>
-<td><code>admin</code>, <code>operator</code></td>
+<td><code>admin</code>, <code>operator</code>, <code>monitoring</code>, <code>compliance</code></td>
 </tr>
 
 <tr>
@@ -598,17 +600,17 @@
 <tbody>
 <tr>
 <td><code>GET /api/v1/jobs/:id/mirror/state</code></td>
-<td><code>admin</code>, <code>operator</code>, <code>monitoring</code></td>
+<td><code>admin</code>, <code>operator</code>, <code>monitoring</code>, <code>compliance</code></td>
 </tr>
 
 <tr>
 <td><code>GET /api/v1/jobs/:id/mirror/progress</code></td>
-<td><code>admin</code>, <code>operator</code>, <code>monitoring</code></td>
+<td><code>admin</code>, <code>operator</code>, <code>monitoring</code>, <code>compliance</code></td>
 </tr>
 
 <tr>
 <td><code>GET /api/v1/jobs/:id/mirror/resume-points</code></td>
-<td><code>admin</code>, <code>operator</code>, <code>monitoring</code></td>
+<td><code>admin</code>, <code>operator</code>, <code>monitoring</code>, <code>compliance</code></td>
 </tr>
 
 <tr>
@@ -618,7 +620,7 @@
 
 <tr>
 <td><code>GET /api/v1/jobs/:id/mirror/gaps</code></td>
-<td><code>admin</code>, <code>operator</code>, <code>monitoring</code></td>
+<td><code>admin</code>, <code>operator</code>, <code>monitoring</code>, <code>compliance</code></td>
 </tr>
 
 <tr>

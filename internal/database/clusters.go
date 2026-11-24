@@ -119,6 +119,15 @@ func MergeSecurity(dst *config.SecurityConfig, sec config.SecurityConfig) {
 	if sec.ConnectionString != nil {
 		dst.ConnectionString = sec.ConnectionString
 	}
+	if sec.CAFile != "" {
+		dst.CAFile = sec.CAFile
+	}
+	if sec.CertFile != "" {
+		dst.CertFile = sec.CertFile
+	}
+	if sec.KeyFile != "" {
+		dst.KeyFile = sec.KeyFile
+	}
 	if sec.Kerberos != (config.KerberosConfig{}) {
 		dst.Kerberos = sec.Kerberos
 	}

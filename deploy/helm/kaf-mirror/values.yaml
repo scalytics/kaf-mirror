@@ -1,3 +1,6 @@
+nameOverride: ""
+fullnameOverride: ""
+
 image:
   repository: ghcr.io/scalytics/kaf-mirror
   tag: "v1.3.1"
@@ -22,7 +25,7 @@ config:
       existingSecret: ""
       certKey: "tls.crt"
       keyKey: "tls.key"
-    corsAllowedOrigins: ["*"]
+    corsAllowedOrigins: ["http://localhost:8080"]
   logLevel: "INFO"
   sourceBrokers: "kafka-source:9092"
   targetBrokers: "kafka-target:9092"
@@ -45,6 +48,9 @@ config:
       enabled: false
   egress:
     allowedHosts: []
+
+kafkaTLS:
+  existingSecret: ""
 
 kerberos:
   keytabSecret: ""
