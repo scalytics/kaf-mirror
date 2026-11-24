@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -198,7 +199,7 @@ func TestDeletedSourceTopicIsReportedUntilItIsCreatedAgain(t *testing.T) {
 	assert.Empty(t, metrics.MissingTopics)
 }
 
-func TestRecreatedSourceTopicWithNoRecordsSwitchesToTheNewTopicID(t *testing.T) {
+func TestTopicIDFromMetadataAtStartFollowsARecreatedTopic(t *testing.T) {
 	r := newRecreateRig(t)
 	require.Eventually(t, func() bool {
 		_, ok := r.consumer.TopicIDForTest("kin")
@@ -207,6 +208,8 @@ func TestRecreatedSourceTopicWithNoRecordsSwitchesToTheNewTopicID(t *testing.T) 
 	oldID, ok := r.consumer.TopicIDForTest("kin")
 	require.True(t, ok)
 	assert.Equal(t, r.topicID(), oldID)
+	r.produce("old-0")
+	r.waitFor("old-0")
 
 	r.deleteTopic()
 	r.createTopic()
@@ -286,6 +289,12 @@ func scriptedTopicConsumer(script *pollScript, meta *metadataScript) *kafka.Cons
 			meta.mu.Lock()
 			meta.purged = append(meta.purged, topics...)
 			meta.mu.Unlock()
+		},
+		CommitRecordsFunc: func(_ context.Context, rs ...*kgo.Record) error {
+			meta.mu.Lock()
+			meta.committed = append(meta.committed, rs...)
+			meta.mu.Unlock()
+			return nil
 		},
 	}
 	consumer.SetSleepForTest((&sleepLog{}).sleep)
@@ -442,4 +451,89 @@ func TestMetadataAtStartNotesTheTopicID(t *testing.T) {
 	assert.GreaterOrEqual(t, meta.count(), 1)
 	assert.Equal(t, int64(0), consumer.GetMetrics().TopicRecreations)
 	assert.Empty(t, meta.purges())
+}
+
+var topicIDNew = [16]byte{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}
+
+func (m *metadataScript) commits() []*kgo.Record {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]*kgo.Record(nil), m.committed...)
+}
+
+func TestFetchOfTheNewTopicBeforeTheCheckSwitchesTheTopic(t *testing.T) {
+	meta := &metadataScript{answer: func(int) ([16]byte, int16) { return topicIDNew, 0 }}
+	script := &pollScript{next: func(n int) kgo.Fetches {
+		switch n {
+		case 1:
+			return recordsWithID(topicIDKin, 5)
+		case 2:
+			return recordsWithID(topicIDNew, 0)
+		default:
+			return nil
+		}
+	}}
+	consumer := scriptedTopicConsumer(script, meta)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
+
+	require.Eventually(t, func() bool { return consumer.GetMetrics().TopicRecreations == 1 }, 5*time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	assert.Equal(t, []string{"kin"}, meta.purges())
+	id, ok := consumer.TopicIDForTest("kin")
+	require.True(t, ok)
+	assert.Equal(t, base64.RawURLEncoding.EncodeToString(topicIDNew[:]), id)
+	var reset bool
+	for _, r := range meta.commits() {
+		if r.Offset == -1 {
+			reset = true
+		}
+	}
+	assert.True(t, reset, "the earliest offset of the new topic is committed")
+}
+
+func TestLateRecordsOfTheOldTopicDoNotCommitOverTheReset(t *testing.T) {
+	var blocked atomic.Bool
+	meta := &metadataScript{answer: func(int) ([16]byte, int16) {
+		if blocked.Load() {
+			return topicIDNew, 0
+		}
+		return topicIDKin, 0
+	}}
+	script := &pollScript{next: func(n int) kgo.Fetches {
+		switch n {
+		case 1:
+			return recordsWithID(topicIDKin, 0)
+		case 2:
+			return recordsWithID(topicIDKin, 7)
+		default:
+			return nil
+		}
+	}}
+	consumer := scriptedTopicConsumer(script, meta)
+	consumer.SetTopicCheckIntervalForTest(time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- consumer.Consume(ctx, func(_ context.Context, r *kgo.Record) error {
+			if r.Offset == 7 {
+				blocked.Store(true)
+				for len(meta.purges()) == 0 {
+					runtime.Gosched()
+				}
+			}
+			return nil
+		})
+	}()
+
+	require.Eventually(t, func() bool {
+		return consumer.GetMetrics().TopicRecreations == 1 && script.count() > 2
+	}, 5*time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	for _, r := range meta.commits() {
+		assert.NotEqual(t, int64(7), r.Offset, "a record of the deleted topic must not commit over the reset")
+	}
 }

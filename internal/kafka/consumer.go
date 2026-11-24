@@ -136,6 +136,7 @@ const (
 
 type partitionBatch struct {
 	tp            topicPartition
+	topicID       topicID
 	ctx           context.Context
 	records       []*kgo.Record
 	next          int
@@ -186,24 +187,27 @@ func (c *Consumer) ConsumeAsync(ctx context.Context, handler AsyncHandler) error
 
 		partCtxs := c.trackPartitions(ctx, fetches)
 		var batches []*partitionBatch
-		fetches.EachPartition(func(partition kgo.FetchTopicPartition) {
-			c.setHighWaterMark(partition.Topic, partition.Partition, partition.HighWatermark)
-			if len(partition.Records) == 0 {
-				return
+		fetches.EachTopic(func(topic kgo.FetchTopic) {
+			for _, partition := range topic.Partitions {
+				c.setHighWaterMark(topic.Topic, partition.Partition, partition.HighWatermark)
+				if len(partition.Records) == 0 {
+					continue
+				}
+				tp := topicPartition{topic: topic.Topic, partition: partition.Partition}
+				batches = append(batches, &partitionBatch{
+					tp:           tp,
+					topicID:      topic.TopicID,
+					ctx:          partCtxs[tp],
+					records:      partition.Records,
+					status:       make([]int, len(partition.Records)),
+					sends:        make([]int, len(partition.Records)),
+					failures:     make([]int, len(partition.Records)),
+					acked:        make([]bool, len(partition.Records)),
+					errs:         make([]error, len(partition.Records)),
+					failedAt:     -1,
+					isolateUntil: -1,
+				})
 			}
-			tp := topicPartition{topic: partition.Topic, partition: partition.Partition}
-			batches = append(batches, &partitionBatch{
-				tp:           tp,
-				ctx:          partCtxs[tp],
-				records:      partition.Records,
-				status:       make([]int, len(partition.Records)),
-				sends:        make([]int, len(partition.Records)),
-				failures:     make([]int, len(partition.Records)),
-				acked:        make([]bool, len(partition.Records)),
-				errs:         make([]error, len(partition.Records)),
-				failedAt:     -1,
-				isolateUntil: -1,
-			})
 		})
 		err := c.consumeBatches(ctx, batches, handler)
 		c.releasePartitions(partCtxs)
@@ -380,6 +384,7 @@ func (c *Consumer) recordDone(round *batchRound, b *partitionBatch, i int) func(
 
 func (c *Consumer) commitAcked(ctx context.Context, batches []*partitionBatch) {
 	var commits []*kgo.Record
+	var commitIDs []topicID
 	for _, b := range batches {
 		if c.isRevoked(b.tp) {
 			continue
@@ -396,6 +401,7 @@ func (c *Consumer) commitAcked(ctx context.Context, batches []*partitionBatch) {
 		}
 		if b.next > start {
 			commits = append(commits, b.records[b.next-1])
+			commitIDs = append(commitIDs, b.topicID)
 		}
 	}
 	if len(commits) == 0 {
@@ -409,9 +415,14 @@ func (c *Consumer) commitAcked(ctx context.Context, batches []*partitionBatch) {
 	}
 	c.topicCommitMu.Lock()
 	defer c.topicCommitMu.Unlock()
+	known := c.knownTopicIDs()
 	live := commits[:0]
-	for _, rec := range commits {
+	for i, rec := range commits {
 		if c.isRevoked(topicPartition{topic: rec.Topic, partition: rec.Partition}) {
+			continue
+		}
+		if current, ok := known[rec.Topic]; ok && commitIDs[i] != (topicID{}) && commitIDs[i] != current {
+			logger.Warn("Consumer: not committing offset %d of topic %s partition %d, the records came from topic ID %s and the topic now has %s, job=%s", rec.Offset+1, rec.Topic, rec.Partition, commitIDs[i], current, c.jobID)
 			continue
 		}
 		live = append(live, rec)
