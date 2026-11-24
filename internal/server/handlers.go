@@ -1009,6 +1009,8 @@ func (s *Server) handleUpdateMappings(c *fiber.Ctx) error {
 // @Produce json
 // @Param id path string true "Job ID"
 // @Success 200 {object} database.ReplicationMetric
+// @Failure 404 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
 // @Router /jobs/{id}/metrics/current [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetCurrentMetrics(c *fiber.Ctx) error {

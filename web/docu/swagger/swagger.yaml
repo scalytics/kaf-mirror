@@ -1883,6 +1883,16 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/database.ReplicationMetric'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Get current metrics for a job
