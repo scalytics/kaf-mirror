@@ -287,7 +287,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Create a new Kafka cluster. Optional role is prod, dr, or other (default other). name and brokers are required, and name must not contain a slash; otherwise the answer is 400. A name that another cluster has answers 409.",
+                "description": "Create a new Kafka cluster. Optional role is prod, dr, or other (default other). name and brokers are required, and name must not contain a slash; otherwise the answer is 400. Leading and trailing spaces of name are removed. A name that another cluster has answers 409, also when two requests create it at the same time.",
                 "consumes": [
                     "application/json"
                 ],

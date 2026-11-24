@@ -195,3 +195,41 @@ func TestUpdateJobWithABlankNameKeepsTheStoredName(t *testing.T) {
 	assert.Equal(t, "src", stored.SourceClusterName)
 	assert.Equal(t, "tgt", stored.TargetClusterName)
 }
+
+func TestCreateClusterTrimsTheName(t *testing.T) {
+	ctx := setupJobServer(t)
+	status, body := sendJobRequest(t, ctx, http.MethodPost, "/api/v1/clusters", `{"name":"  edge  ","brokers":"localhost:9094","security_config":"{}"}`)
+	require.Equal(t, http.StatusCreated, status, body)
+	stored, err := database.GetCluster(ctx.Server.Db, "edge")
+	require.NoError(t, err)
+	assert.Equal(t, "edge", stored.Name)
+
+	status, body = sendJobRequest(t, ctx, http.MethodPost, "/api/v1/clusters", `{"name":"edge ","brokers":"localhost:9094","security_config":"{}"}`)
+	assert.Equal(t, http.StatusConflict, status, body)
+
+	status, body = sendJobRequest(t, ctx, http.MethodPost, "/api/v1/jobs", `{"name":"j","source_cluster_name":" edge ","target_cluster_name":"tgt",`+ordersMapping+`}`)
+	assert.Equal(t, http.StatusCreated, status, body)
+}
+
+func TestDuplicateCreatesPastTheCheckAnswerConflict(t *testing.T) {
+	ctx := setupJobServer(t)
+	db := ctx.Server.Db
+	var restore func()
+	restore = database.SetBeforeCreateInsertForTest(func() {
+		restore()
+		require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "race", Brokers: "localhost:9095", SecurityConfig: "{}"}))
+	})
+	t.Cleanup(func() { restore() })
+	status, body := sendJobRequest(t, ctx, http.MethodPost, "/api/v1/clusters", `{"name":"race","brokers":"localhost:9096","security_config":"{}"}`)
+	assert.Equal(t, http.StatusConflict, status, body)
+
+	restore = database.SetBeforeCreateInsertForTest(func() {
+		restore()
+		require.NoError(t, database.CreateJob(db, &database.ReplicationJob{ID: uuid.NewString(), Name: "racer", SourceClusterName: "src", TargetClusterName: "tgt", Status: "paused", BatchSize: 1000}))
+	})
+	status, body = sendJobRequest(t, ctx, http.MethodPost, "/api/v1/jobs", `{"name":"racer","source_cluster_name":"src","target_cluster_name":"tgt",`+ordersMapping+`}`)
+	assert.Equal(t, http.StatusConflict, status, body)
+	var count int
+	require.NoError(t, db.Get(&count, "SELECT COUNT(*) FROM replication_jobs WHERE name = ?", "racer"))
+	assert.Equal(t, 1, count)
+}

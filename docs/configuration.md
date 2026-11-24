@@ -109,7 +109,7 @@ Jobs use the clusters stored in the database, not the `clusters` section of the 
 
 | Field | Description |
 |---|---|
-| `name` | Cluster name. Jobs refer to it. Required. It must not be empty or only spaces and must not contain `/`, because it is part of the URL of the cluster. |
+| `name` | Cluster name. Jobs refer to it. Required. It must not be empty or only spaces and must not contain `/`, because it is part of the URL of the cluster. `POST /api/v1/clusters` removes leading and trailing spaces, the same as job fields. |
 | `provider` | `plain`, `confluent`, `redpanda` or `azure`. |
 | `brokers` | Comma-separated broker list. Required, also for `PUT`. |
 | `cluster_id` | Cluster ID, for `confluent`. |

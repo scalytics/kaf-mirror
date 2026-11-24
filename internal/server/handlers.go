@@ -198,7 +198,7 @@ func (s *Server) handleListClusters(c *fiber.Ctx) error {
 
 // handleCreateCluster godoc
 // @Summary Create a new Kafka cluster
-// @Description Create a new Kafka cluster. Optional role is prod, dr, or other (default other). name and brokers are required, and name must not contain a slash; otherwise the answer is 400. A name that another cluster has answers 409.
+// @Description Create a new Kafka cluster. Optional role is prod, dr, or other (default other). name and brokers are required, and name must not contain a slash; otherwise the answer is 400. Leading and trailing spaces of name are removed. A name that another cluster has answers 409, also when two requests create it at the same time.
 // @Tags clusters
 // @Accept json
 // @Produce json
@@ -214,6 +214,7 @@ func (s *Server) handleCreateCluster(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	cluster.Name = strings.TrimSpace(cluster.Name)
 	cluster.Role = protection.NormalizeRole(cluster.Role)
 	if err := validateClusterRow(cluster); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
