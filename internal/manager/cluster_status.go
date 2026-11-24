@@ -49,7 +49,7 @@ func probeCluster(ctx context.Context, cluster database.KafkaCluster) error {
 }
 
 func clusterProbeFingerprint(cluster database.KafkaCluster) string {
-	return cluster.Brokers + "\x00" + cluster.SecurityConfig
+	return cluster.UID + ":" + kafka.ProbeFingerprint(database.ClusterConfigFromRow(cluster))
 }
 
 func (jm *JobManager) SetClusterProbeForTest(probe ClusterProbe) {

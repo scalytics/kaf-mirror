@@ -16,6 +16,7 @@ import "time"
 // KafkaCluster represents a Kafka cluster's connection details.
 type KafkaCluster struct {
 	Name             string    `db:"name" json:"name"`
+	UID              string    `db:"uid" json:"-"`
 	Provider         string    `db:"provider" json:"provider"`
 	ClusterID        string    `db:"cluster_id" json:"cluster_id"`
 	Brokers          string    `db:"brokers" json:"brokers"`

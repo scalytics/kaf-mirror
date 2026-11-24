@@ -15,6 +15,7 @@
 -- Kafka Clusters: Stores connection details for Kafka clusters
 CREATE TABLE IF NOT EXISTS kafka_clusters (
     name TEXT PRIMARY KEY,
+    uid TEXT NOT NULL DEFAULT '',
     provider TEXT NOT NULL,
     cluster_id TEXT NOT NULL DEFAULT '',
     brokers TEXT NOT NULL,

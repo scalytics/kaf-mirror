@@ -12,8 +12,10 @@
 package manager_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,6 +24,7 @@ import (
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
 	"kaf-mirror/internal/manager"
+	"kaf-mirror/pkg/logger"
 	"kaf-mirror/tests/mocks"
 
 	"github.com/stretchr/testify/assert"
@@ -502,4 +505,221 @@ func TestClusterStatusCheckCanBeCancelledWhileWaitingForSlot(t *testing.T) {
 
 	close(release)
 	holders.Wait()
+}
+
+func assertStaleProbeDroppedAfterUpdate(t *testing.T, setup, change func(*database.KafkaCluster), isOld func(database.KafkaCluster) bool) {
+	t.Helper()
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	jm := manager.New(db, &config.Config{Server: config.ServerConfig{Mode: "test"}}, &mocks.MockHub{})
+	t.Cleanup(func() {
+		jm.Close()
+		db.Close()
+	})
+	row := &database.KafkaCluster{Name: "c", Brokers: "localhost:1", SecurityConfig: "{}"}
+	setup(row)
+	require.NoError(t, database.CreateCluster(db, row))
+	require.NoError(t, database.RecordClusterHealth(db, "c", true))
+
+	oldStarted := make(chan struct{})
+	oldRelease := make(chan struct{})
+	newStarted := make(chan struct{})
+	jm.SetClusterProbeForTest(func(_ context.Context, cluster database.KafkaCluster) error {
+		if isOld(cluster) {
+			close(oldStarted)
+			<-oldRelease
+			return errors.New("old credentials rejected")
+		}
+		close(newStarted)
+		return nil
+	})
+
+	oldDone := make(chan struct{})
+	go func() {
+		defer close(oldDone)
+		_, _ = jm.CheckClusterStatus(context.Background(), "c")
+	}()
+	<-oldStarted
+
+	current, err := database.GetCluster(db, "c")
+	require.NoError(t, err)
+	change(current)
+	require.NoError(t, database.UpdateCluster(db, current))
+
+	newDone := make(chan struct{})
+	var newStatus string
+	var newErr error
+	go func() {
+		defer close(newDone)
+		newStatus, newErr = jm.CheckClusterStatus(context.Background(), "c")
+	}()
+	<-newStarted
+	close(oldRelease)
+	<-oldDone
+	<-newDone
+
+	require.NoError(t, newErr)
+	assert.Equal(t, database.ClusterStatusActive, newStatus)
+	assert.Equal(t, database.ClusterStatusActive, clusterStatus(t, jm, "c"))
+}
+
+func TestStaleProbeIsDroppedAfterConfluentCredentialRotation(t *testing.T) {
+	assertStaleProbeDroppedAfterUpdate(t,
+		func(row *database.KafkaCluster) {
+			row.Provider = "confluent"
+			row.APIKey = "confluent-api-key"
+			row.APISecret = "confluent-api-secret"
+		},
+		func(row *database.KafkaCluster) {
+			row.APIKey = "confluent-api-key-rotated"
+			row.APISecret = "confluent-api-secret-rotated"
+		},
+		func(cluster database.KafkaCluster) bool {
+			return cluster.APISecret == "confluent-api-secret"
+		},
+	)
+}
+
+func TestStaleProbeIsDroppedAfterAzureConnectionStringChange(t *testing.T) {
+	oldConn := "Endpoint=sb://hub.servicebus.windows.net/;SharedAccessKey=azure-secret-key"
+	newConn := "Endpoint=sb://hub.servicebus.windows.net/;SharedAccessKey=azure-secret-rotated"
+	assertStaleProbeDroppedAfterUpdate(t,
+		func(row *database.KafkaCluster) {
+			row.Provider = "azure"
+			row.ConnectionString = &oldConn
+		},
+		func(row *database.KafkaCluster) {
+			row.ConnectionString = &newConn
+		},
+		func(cluster database.KafkaCluster) bool {
+			return cluster.ConnectionString != nil && *cluster.ConnectionString == oldConn
+		},
+	)
+}
+
+func TestStaleProbeIsDroppedAfterProviderChange(t *testing.T) {
+	assertStaleProbeDroppedAfterUpdate(t,
+		func(row *database.KafkaCluster) {
+			row.Provider = "plain"
+		},
+		func(row *database.KafkaCluster) {
+			row.Provider = "redpanda"
+		},
+		func(cluster database.KafkaCluster) bool {
+			return cluster.Provider == "plain"
+		},
+	)
+}
+
+func TestStaleProbeIsDroppedAfterDeleteAndRecreate(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	jm := manager.New(db, &config.Config{Server: config.ServerConfig{Mode: "test"}}, &mocks.MockHub{})
+	t.Cleanup(func() {
+		jm.Close()
+		db.Close()
+	})
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{
+		Name:           "c",
+		Provider:       "confluent",
+		Brokers:        "pkc.example:9092",
+		APIKey:         "confluent-api-key",
+		APISecret:      "confluent-api-secret",
+		SecurityConfig: "{}",
+	}))
+	created, err := database.GetCluster(db, "c")
+	require.NoError(t, err)
+	require.NotEmpty(t, created.UID)
+	oldUID := created.UID
+	require.NoError(t, database.RecordClusterHealth(db, "c", true))
+
+	oldStarted := make(chan struct{})
+	oldRelease := make(chan struct{})
+	newStarted := make(chan struct{})
+	jm.SetClusterProbeForTest(func(_ context.Context, cluster database.KafkaCluster) error {
+		if cluster.UID == oldUID {
+			close(oldStarted)
+			<-oldRelease
+			return errors.New("old row unreachable")
+		}
+		close(newStarted)
+		return nil
+	})
+
+	oldDone := make(chan struct{})
+	go func() {
+		defer close(oldDone)
+		_, _ = jm.CheckClusterStatus(context.Background(), "c")
+	}()
+	<-oldStarted
+
+	require.NoError(t, database.DeleteCluster(db, "c"))
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{
+		Name:           "c",
+		Provider:       "confluent",
+		Brokers:        "pkc.example:9092",
+		APIKey:         "confluent-api-key",
+		APISecret:      "confluent-api-secret",
+		SecurityConfig: "{}",
+	}))
+	recreated, err := database.GetCluster(db, "c")
+	require.NoError(t, err)
+	require.NotEmpty(t, recreated.UID)
+	require.NotEqual(t, oldUID, recreated.UID)
+
+	newDone := make(chan struct{})
+	var newStatus string
+	var newErr error
+	go func() {
+		defer close(newDone)
+		newStatus, newErr = jm.CheckClusterStatus(context.Background(), "c")
+	}()
+	<-newStarted
+	close(oldRelease)
+	<-oldDone
+	<-newDone
+
+	require.NoError(t, newErr)
+	assert.Equal(t, database.ClusterStatusActive, newStatus)
+	assert.Equal(t, database.ClusterStatusActive, clusterStatus(t, jm, "c"))
+}
+
+func TestClusterStatusLogsAndFingerprintOmitSecrets(t *testing.T) {
+	var buf bytes.Buffer
+	logger.SetOutput(&buf)
+	t.Cleanup(func() { logger.SetOutput(io.Discard) })
+
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	jm := manager.New(db, &config.Config{Server: config.ServerConfig{Mode: "test"}}, &mocks.MockHub{})
+	t.Cleanup(func() {
+		jm.Close()
+		db.Close()
+	})
+	conn := "Endpoint=sb://hub.servicebus.windows.net/;SharedAccessKey=azure-secret-key"
+	require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{
+		Name:             "c",
+		Provider:         "azure",
+		Brokers:          "hub.servicebus.windows.net:9093",
+		SecurityConfig:   `{"username":"sasl-user","password":"sasl-password"}`,
+		APIKey:           "confluent-api-key",
+		APISecret:        "confluent-api-secret",
+		ConnectionString: &conn,
+	}))
+	jm.SetClusterProbeForTest(func(context.Context, database.KafkaCluster) error {
+		return errors.New("connection refused")
+	})
+	_, err = jm.CheckClusterStatus(context.Background(), "c")
+	require.Error(t, err)
+	logs := buf.String()
+	for _, secret := range []string{
+		"confluent-api-key",
+		"confluent-api-secret",
+		"sasl-user",
+		"sasl-password",
+		"azure-secret-key",
+		conn,
+	} {
+		assert.NotContains(t, logs, secret)
+	}
 }
