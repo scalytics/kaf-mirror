@@ -129,7 +129,7 @@ An example `security_config` value:
 
 ## Job API fields
 
-`POST /api/v1/jobs` needs `name`, `source_cluster_name`, `target_cluster_name` and at least one entry in `topic_mappings`, otherwise it answers HTTP 400. A source or target cluster that does not exist answers HTTP 404 with `Source cluster not found` or `Target cluster not found`, also for `PUT /api/v1/jobs/{id}`. A `name` that another job already has answers HTTP 409. The response has the stored `created_at` and `updated_at`.
+`POST /api/v1/jobs` needs `name`, `source_cluster_name`, `target_cluster_name` and at least one entry in `topic_mappings`, otherwise it answers HTTP 400. A field that is only spaces counts as empty. A source or target cluster that does not exist answers HTTP 404 with `Source cluster not found` or `Target cluster not found`, also for `PUT /api/v1/jobs/{id}`. A `name` that another job already has answers HTTP 409. The response has the stored `created_at` and `updated_at`.
 
 ## AI analysis
 

@@ -75,6 +75,8 @@ func TestCreateJobRejectsMissingRequiredFields(t *testing.T) {
 		{`{"name":" ","source_cluster_name":"src","target_cluster_name":"tgt",` + ordersMapping + `}`, "name is required"},
 		{`{"name":"x","target_cluster_name":"tgt",` + ordersMapping + `}`, "source_cluster_name is required"},
 		{`{"name":"x","source_cluster_name":"src",` + ordersMapping + `}`, "target_cluster_name is required"},
+		{`{"name":"x","source_cluster_name":"   ","target_cluster_name":"tgt",` + ordersMapping + `}`, "source_cluster_name is required"},
+		{`{"name":"x","source_cluster_name":"src","target_cluster_name":"  ",` + ordersMapping + `}`, "target_cluster_name is required"},
 		{`{"name":"x","source_cluster_name":"src","target_cluster_name":"tgt"}`, "topic_mappings needs at least one mapping"},
 		{`{"name":"x","source_cluster_name":"src","target_cluster_name":"tgt","topic_mappings":[]}`, "topic_mappings needs at least one mapping"},
 	}

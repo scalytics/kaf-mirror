@@ -538,9 +538,12 @@ func isConflict(err error) bool {
 	return errors.Is(err, database.ErrClusterExists) || errors.Is(err, database.ErrConfluentClusterExists) || errors.Is(err, database.ErrJobExists)
 }
 
-func validateCreateJob(req CreateJobRequest) error {
+func validateCreateJob(req *CreateJobRequest) error {
+	req.Name = strings.TrimSpace(req.Name)
+	req.SourceClusterName = strings.TrimSpace(req.SourceClusterName)
+	req.TargetClusterName = strings.TrimSpace(req.TargetClusterName)
 	switch {
-	case strings.TrimSpace(req.Name) == "":
+	case req.Name == "":
 		return errors.New("name is required")
 	case req.SourceClusterName == "":
 		return errors.New("source_cluster_name is required")
@@ -625,7 +628,7 @@ func (s *Server) handleCreateJob(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	if err := validateCreateJob(req); err != nil {
+	if err := validateCreateJob(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 	if _, err := kafka.NewTopicRules(database.ConfigTopicMappings(req.TopicMappings)); err != nil {
@@ -741,6 +744,9 @@ func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
 		job.BatchSize = batchSize
 	}
 
+	req.Name = strings.TrimSpace(req.Name)
+	req.SourceClusterName = strings.TrimSpace(req.SourceClusterName)
+	req.TargetClusterName = strings.TrimSpace(req.TargetClusterName)
 	if req.Name != "" {
 		job.Name = req.Name
 	}
