@@ -19,6 +19,7 @@ import (
 
 	"kaf-mirror/internal/config"
 
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -174,9 +175,12 @@ func CreateCluster(db *sqlx.DB, cluster *KafkaCluster) error {
 	if cluster.Role == "" {
 		cluster.Role = "other"
 	}
-	query := `INSERT INTO kafka_clusters (name, provider, cluster_id, brokers, security_config, api_key, api_secret, connection_string, role)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err = db.Exec(query, cluster.Name, cluster.Provider, cluster.ClusterID, cluster.Brokers, cluster.SecurityConfig, cluster.APIKey, cluster.APISecret, cluster.ConnectionString, cluster.Role)
+	if cluster.UID == "" {
+		cluster.UID = uuid.NewString()
+	}
+	query := `INSERT INTO kafka_clusters (name, uid, provider, cluster_id, brokers, security_config, api_key, api_secret, connection_string, role)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err = db.Exec(query, cluster.Name, cluster.UID, cluster.Provider, cluster.ClusterID, cluster.Brokers, cluster.SecurityConfig, cluster.APIKey, cluster.APISecret, cluster.ConnectionString, cluster.Role)
 	return err
 }
 
@@ -223,6 +227,29 @@ func DeleteCluster(db *sqlx.DB, name string) error {
 func SetClusterStatus(db *sqlx.DB, name, status string) error {
 	query := `UPDATE kafka_clusters SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`
 	_, err := db.Exec(query, status, name)
+	return err
+}
+
+const (
+	ClusterStatusActive      = "active"
+	ClusterStatusUnreachable = "unreachable"
+	ClusterStatusUnknown     = "unknown"
+	ClusterStatusInactive    = "inactive"
+	ClusterStatusArchived    = "archived"
+)
+
+func ClusterStatusIsRetired(status string) bool {
+	return status == ClusterStatusInactive || status == ClusterStatusArchived
+}
+
+func RecordClusterHealth(db *sqlx.DB, name string, reachable bool) error {
+	status := ClusterStatusUnreachable
+	if reachable {
+		status = ClusterStatusActive
+	}
+	query := `UPDATE kafka_clusters SET status = ?, updated_at = CURRENT_TIMESTAMP
+              WHERE name = ? AND COALESCE(status, '') NOT IN (?, ?, ?)`
+	_, err := db.Exec(query, status, name, ClusterStatusInactive, ClusterStatusArchived, status)
 	return err
 }
 

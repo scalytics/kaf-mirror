@@ -283,6 +283,45 @@
         .status.updated { background: #fff3e0; color: #f57c00; padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.75rem; }
         .status.deleted { background: #ffebee; color: #d32f2f; padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.75rem; }
         .status.success { background: #e3f2fd; color: #1976d2; padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.75rem; }
+
+        .main > div > *, .grid > *, .metrics-grid > *, .two-col > *, .job-details-grid > * { min-width: 0; }
+        .table-scroll { width: 100%; overflow-x: auto; }
+        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin-bottom: 2rem; }
+        .job-details-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2rem; margin-bottom: 1rem; }
+        .cluster-status { padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.75rem; }
+        .cluster-status.active { background: #e8f5e8; color: #2e7d32; }
+        .cluster-status.unreachable { background: #ffebee; color: #c62828; }
+        .cluster-status.unknown, .cluster-status.inactive, .cluster-status.archived { background: #eceff1; color: #546e7a; }
+
+        @media (max-width: 768px) {
+            .header { padding: 0.75rem 1rem; flex-wrap: wrap; gap: 0.5rem; }
+            .header h1 { font-size: 1.3rem; }
+            .header .user-info { flex-wrap: wrap; gap: 0.5rem; min-width: 0; }
+            .header .user-info span { margin-right: 0; overflow-wrap: anywhere; }
+            .nav { padding: 0; justify-content: flex-start; overflow-x: auto; }
+            .nav ul, .sub-nav ul { flex-wrap: nowrap; }
+            .nav li, .sub-nav li { padding: 0.75rem 0.9rem; white-space: nowrap; }
+            .sub-nav { overflow-x: auto; padding: 0; }
+            .main { padding: 1rem; }
+            .grid { grid-template-columns: 1fr; gap: 1rem; }
+            .metrics-grid { grid-template-columns: 1fr; margin: 0; gap: 1rem; }
+            #dashboard-tab > .card:first-child { margin: 0 0 1rem 0 !important; }
+            .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+            .kpi h3 { font-size: 1.6rem; overflow-wrap: anywhere; }
+            .card { padding: 1rem; }
+            .two-col, .job-details-grid { grid-template-columns: 1fr; gap: 1rem; }
+            .time-range-buttons { flex-wrap: wrap; gap: 0.25rem; }
+            .time-range-buttons button { margin: 0; }
+            .table th, .table td { padding: 0.5rem; }
+            #topology-view { height: 60vh; }
+            .btn { margin-bottom: 0.5rem; }
+            #jobs-table thead { display: none; }
+            #jobs-table, #jobs-table tbody, #jobs-table tr, #jobs-table td { display: block; width: 100%; }
+            #jobs-table td { border-bottom: none; padding: 0.25rem 0.5rem; overflow-wrap: anywhere; }
+            #jobs-table tr[data-job-id] { border-top: 1px solid #e0e0e0; padding: 0.5rem 0; }
+            #jobs-table td[data-label]::before { content: attr(data-label) ": "; font-weight: 600; }
+            .expanded-content { padding: 0.5rem 0; }
+        }
     </style>
 </head>
 <body>
@@ -312,7 +351,7 @@
                 <div class="kpi-grid">
                     <div class="kpi"><h3 id="total-jobs">0</h3><p>Active Jobs</p></div>
                     <div class="kpi"><h3 id="total-throughput">0</h3><p>Current Msg/sec</p></div>
-                    <div class="kpi"><h3 id="avg-lag">0</h3><p>Avg Lag (ms)</p></div>
+                    <div class="kpi"><h3 id="avg-lag">0</h3><p>Avg Consumer Lag (messages)</p></div>
                     <div class="kpi"><h3 id="error-rate">0%</h3><p>Error Rate</p></div>
                     <div class="kpi"><h3 id="data-transferred">0</h3><p>Total Data Transferred</p></div>
                     <div class="kpi"><h3 id="active-clusters">0</h3><p>Active Clusters</p></div>
@@ -332,7 +371,7 @@
                     <canvas id="throughput-chart"></canvas>
                 </div>
                 <div class="card">
-                    <h2>Latency</h2>
+                    <h2>Consumer Lag (messages)</h2>
                     <div class="time-range-buttons">
                         <button class="active" data-range="2h">2h</button>
                         <button data-range="24h">24h</button>
@@ -347,32 +386,45 @@
         <div id="jobs-tab" class="grid" style="display: none;">
             <div class="card" style="grid-column: 1 / -1;">
                 <h2>Replication Jobs</h2>
-                <table class="table" id="jobs-table">
-                    <thead><tr><th>Job</th><th>Status</th><th>Last Active</th><th>Source</th><th>Target</th><th>Details</th></tr></thead>
-                    <tbody></tbody>
-                </table>
+                <div class="table-scroll">
+                    <table class="table" id="jobs-table">
+                        <thead><tr><th>Job</th><th>Status</th><th>Last Active</th><th>Source</th><th>Target</th><th>Details</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
             </div>
             <div class="card" style="grid-column: 1 / -1;">
                 <h2>Recovery & Mirror State</h2>
                 <p class="muted">Latest per-job mirror state, safe resume points, and detected gaps.</p>
-                <table class="table" id="recovery-table">
-                    <thead>
-                        <tr>
-                            <th>Job</th>
-                            <th>Partitions Tracked</th>
-                            <th>Completed</th>
-                            <th>Open Gaps</th>
-                            <th>Max Lag</th>
-                            <th>Last Resume Point</th>
-                            <th>Last Updated</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
+                <div class="table-scroll">
+                    <table class="table" id="recovery-table">
+                        <thead>
+                            <tr>
+                                <th>Job</th>
+                                <th>Partitions Tracked</th>
+                                <th>Completed</th>
+                                <th>Open Gaps</th>
+                                <th>Max Lag</th>
+                                <th>Last Resume Point</th>
+                                <th>Last Updated</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
             </div>
         </div>
         
         <div id="clusters-tab" class="grid" style="display: none;">
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2>Clusters</h2>
+                <div class="table-scroll">
+                    <table class="table" id="clusters-table">
+                        <thead><tr><th>Name</th><th>Provider</th><th>Role</th><th>Status</th><th>Last Change</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
             <div class="card" style="grid-column: 1 / -1;">
                 <h2>Cluster Topology</h2>
                 <div id="topology-view"></div>
@@ -402,66 +454,78 @@
             <div id="all-insights-subtab" class="subtab-content">
                 <div class="card">
                     <h2>Recent AI Insights</h2>
-                    <table class="table" id="insights-table">
-                        <thead><tr><th>Type</th><th>Severity</th><th>Job</th><th>Recommendation</th><th>Time</th><th>Status</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="table-scroll">
+                        <table class="table" id="insights-table">
+                            <thead><tr><th>Type</th><th>Severity</th><th>Job</th><th>Recommendation</th><th>Time</th><th>Status</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             
             <div id="anomalies-subtab" class="subtab-content" style="display: none;">
                 <div class="card">
                     <h2>Detected Anomalies</h2>
-                    <table class="table" id="anomalies-table">
-                        <thead><tr><th>Job</th><th>Anomaly Type</th><th>Description</th><th>Severity</th><th>Detected</th><th>Status</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="table-scroll">
+                        <table class="table" id="anomalies-table">
+                            <thead><tr><th>Job</th><th>Anomaly Type</th><th>Description</th><th>Severity</th><th>Detected</th><th>Status</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             
             <div id="recommendations-subtab" class="subtab-content" style="display: none;">
                 <div class="card">
                     <h2>Performance Optimization Recommendations</h2>
-                    <table class="table" id="recommendations-table">
-                        <thead><tr><th>Job</th><th>Category</th><th>Recommendation</th><th>Priority</th><th>Impact</th><th>Action</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="table-scroll">
+                        <table class="table" id="recommendations-table">
+                            <thead><tr><th>Job</th><th>Category</th><th>Recommendation</th><th>Priority</th><th>Impact</th><th>Action</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             
             <div id="incident-analysis-subtab" class="subtab-content" style="display: none;">
                 <div class="card">
                     <h2>AI-Powered Incident Analysis</h2>
-                    <table class="table" id="incident-analysis-table">
-                        <thead><tr><th>Event</th><th>Analysis</th><th>Root Cause</th><th>Resolution</th><th>Timestamp</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="table-scroll">
+                        <table class="table" id="incident-analysis-table">
+                            <thead><tr><th>Event</th><th>Analysis</th><th>Root Cause</th><th>Resolution</th><th>Timestamp</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
         
         <div id="compliance-tab" style="display: none;">
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin-bottom: 2rem;">
-                <div class="card">
+            <div class="two-col">
+                <div class="card" id="compliance-reports-card">
                     <h2>Compliance Reports</h2>
                     <button class="btn" onclick="generateComplianceReport('daily')">Daily Report</button>
                     <button class="btn" onclick="generateComplianceReport('weekly')">Weekly Report</button>
                     <button class="btn" onclick="generateComplianceReport('monthly')">Monthly Report</button>
                 </div>
-                <div class="card">
+                <div class="card" id="access-control-card">
                     <h2>Access Control</h2>
-                    <table class="table" id="access-table">
-                        <thead><tr><th>User</th><th>Role</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="table-scroll">
+                        <table class="table" id="access-table">
+                            <thead><tr><th>User</th><th>Role</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             <div class="card">
                 <h2>System Activity Logs</h2>
-                <table class="table" id="activity-logs-table">
-                    <thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Resource</th><th>Status</th><th>Details</th></tr></thead>
-                    <tbody></tbody>
-                </table>
+                <div class="table-scroll">
+                    <table class="table" id="activity-logs-table">
+                        <thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Resource</th><th>Status</th><th>Details</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -480,8 +544,27 @@
             expandedAnomalies: new Set(),
             expandedRecommendations: new Set(),
             expandedIncidents: new Set(),
-            expandedJobs: new Set()
+            expandedJobs: new Set(),
+            permissions: new Set()
         };
+
+        function asArray(value) {
+            return Array.isArray(value) ? value : [];
+        }
+
+        function can(permission) {
+            return appState.permissions.has(permission);
+        }
+
+        function clusterStatusLabel(status) {
+            switch (status) {
+                case 'active': return 'reachable';
+                case 'unreachable': return 'unreachable';
+                case 'inactive': return 'inactive';
+                case 'archived': return 'archived';
+                default: return 'not checked yet';
+            }
+        }
 
         function escapeHtml(value) {
             return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -532,10 +615,9 @@
         }
 
         document.addEventListener('DOMContentLoaded', function() {
-            setupAuth();
             setupTabs();
             setupTimeRangeButtons();
-            loadData();
+            setupAuth().then(() => loadData());
             loadVersion();
             loadProtectionBanner();
             setInterval(loadProtectionBanner, 5000);
@@ -552,10 +634,10 @@
             if (!token) {
                 sessionStorage.setItem('returnUrl', window.location.pathname);
                 window.location.href = '/login.html';
-                return;
+                return new Promise(() => {});
             }
 
-            validateToken(token).then(user => {
+            return validateToken(token).then(user => {
                 if (!user) {
                     logout();
                     return;
@@ -564,12 +646,14 @@
                 document.getElementById('username').textContent = user.username;
                 sessionStorage.setItem('username', user.username);
                 sessionStorage.setItem('user_role', user.role);
+                appState.permissions = new Set(asArray(user.permissions));
 
                 if (user.role === 'compliance') {
                     document.querySelector('[data-tab="jobs"]').style.display = 'none';
                     document.querySelector('[data-tab="clusters"]').style.display = 'none';
                     document.querySelector('[data-tab="ai-insights"]').style.display = 'none';
                 }
+                applyPermissions();
             }).catch(err => {
                 console.error('Token validation failed:', err);
                 if (!window.authFailureHandled) {
@@ -577,6 +661,21 @@
                     logout();
                 }
             });
+        }
+
+        function applyPermissions() {
+            const hide = (selector, allowed) => {
+                const el = document.querySelector(selector);
+                if (el && !allowed) el.style.display = 'none';
+            };
+            hide('[data-tab="jobs"]', can('jobs:view'));
+            hide('[data-tab="clusters"]', can('clusters:view'));
+            hide('[data-tab="ai-insights"]', can('ai:insights:view'));
+            hide('[data-tab="compliance"]', can('events:view') || can('compliance:view'));
+            hide('#compliance-reports-card', can('compliance:generate'));
+            hide('#access-control-card', can('users:list'));
+            const twoCol = document.querySelector('#compliance-tab .two-col');
+            if (twoCol && !can('compliance:generate') && !can('users:list')) twoCol.style.display = 'none';
         }
 
         function validateToken(token) {
@@ -683,6 +782,7 @@
                 updateSummaryMetrics([], [], [], null);
                 updateJobsTable([]);
                 renderRecoveryTable([]);
+                renderClustersTable([]);
                 renderTopology([], []);
                 renderCharts([], [], '2h');
             });
@@ -737,17 +837,20 @@
                 const openGaps = mirrorGaps.length;
                 const maxLag = mirrorProgress.reduce((max, mp) => Math.max(max, mp.replication_lag || 0), 0);
 
-                let lastResume = '—';
+                let lastResume = '-';
                 if (resumePoints.length > 0) {
                     const latestRP = resumePoints.reduce((latest, rp) => {
                         return !latest || new Date(rp.calculated_at) > new Date(latest.calculated_at) ? rp : latest;
                     }, null);
                     if (latestRP) {
-                        lastResume = `${latestRP.source_topic || ''} p${latestRP.partition_id || ''} @ ${latestRP.safe_resume_offset || 0}`;
+                        const topic = latestRP.source_topic || '';
+                        const part = latestRP.partition_id ?? '';
+                        const off = latestRP.safe_resume_offset ?? 0;
+                        lastResume = `${topic} p${part} @ ${off}`;
                     }
                 }
 
-                let lastUpdated = '—';
+                let lastUpdated = '-';
                 if (mirrorProgress.length > 0) {
                     const latestMP = mirrorProgress.reduce((latest, mp) => {
                         return !latest || new Date(mp.last_updated) > new Date(latest.last_updated) ? mp : latest;
@@ -849,6 +952,7 @@
         }
 
         function loadUsers() {
+            if (!can('users:list')) return;
             fetch('/api/v1/users', {
                 headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }
             })
@@ -867,7 +971,7 @@
 
         function loadAIInsights() {
             const userRole = sessionStorage.getItem('user_role');
-            if (userRole === 'compliance') return;
+            if (userRole === 'compliance' || !can('ai:insights:view')) return;
 
             // Load both insights and metrics
             Promise.all([
@@ -898,8 +1002,7 @@
                 return Promise.all(promises);
             })
             .then(([insights, metrics]) => {
-                console.log('AI Insights loaded:', insights.length, 'insights');
-                appState.insights = Array.isArray(insights) ? insights : [];
+                appState.insights = asArray(insights);
                 appState.aiMetrics = metrics;
                 updateAIInsightsDisplay(appState.insights, metrics);
             })
@@ -924,9 +1027,6 @@
             );
             const incidents = safeInsights.filter(i => i.insight_type === 'incident_report' || i.insight_type === 'incident_analysis');
             
-            console.log('Filtered anomalies:', anomalies.length, anomalies.map(a => a.insight_type));
-            console.log('Filtered recommendations:', recommendations.length, recommendations.map(r => r.insight_type));
-            console.log('Filtered incidents:', incidents.length, incidents.map(i => i.insight_type));
             
             document.getElementById('ai-insights-count').textContent = safeInsights.length;
             document.getElementById('ai-anomalies-count').textContent = anomalies.length;
@@ -945,6 +1045,7 @@
         }
 
         function updateAIInsightsTable(insights) {
+            insights = asArray(insights);
             const tbody = document.querySelector('#insights-table tbody');
             const recentInsights = insights.slice(-10);
             tbody.innerHTML = recentInsights.map((insight, index) => {
@@ -968,7 +1069,7 @@
                     <td><span class="badge ${escapeHtml(insight.insight_type)}">${escapeHtml(insight.insight_type)}</span></td>
                     <td><span class="severity ${escapeHtml(insight.severity_level)}">${escapeHtml(insight.severity_level)}</span></td>
                     <td>${escapeHtml(jobName)}</td>
-                    <td class="expandable-text" onclick="toggleInsight(${index})">${escapeHtml(insight.recommendation.substring(0, 80))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
+                    <td class="expandable-text" onclick="toggleInsight(${index})">${escapeHtml(String(insight.recommendation || '').substring(0, 80))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
                     <td>${new Date(insight.timestamp).toLocaleString()}</td>
                     <td><span class="status ${escapeHtml(insight.resolution_status)}">${escapeHtml(insight.resolution_status)}</span></td>
                 </tr>
@@ -991,6 +1092,7 @@
         }
 
         function updateAnomaliesTable(anomalies) {
+            anomalies = asArray(anomalies);
             const tbody = document.querySelector('#anomalies-table tbody');
             tbody.innerHTML = anomalies.map((anomaly, index) => {
                 const isExpanded = appState.expandedAnomalies.has(index);
@@ -1012,7 +1114,7 @@
                 <tr data-anomaly-id="${index}">
                     <td>${escapeHtml(jobName)}</td>
                     <td>${anomaly.insight_type}</td>
-                    <td class="expandable-text" onclick="toggleAnomaly(${index})">${escapeHtml(anomaly.recommendation.substring(0, 60))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
+                    <td class="expandable-text" onclick="toggleAnomaly(${index})">${escapeHtml(String(anomaly.recommendation || '').substring(0, 60))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
                     <td><span class="severity ${anomaly.severity_level}">${anomaly.severity_level}</span></td>
                     <td>${new Date(anomaly.timestamp).toLocaleString()}</td>
                     <td><span class="status ${anomaly.resolution_status}">${anomaly.resolution_status}</span></td>
@@ -1037,6 +1139,7 @@
         }
 
         function updateRecommendationsTable(recommendations) {
+            recommendations = asArray(recommendations);
             const tbody = document.querySelector('#recommendations-table tbody');
             tbody.innerHTML = recommendations.map((rec, index) => {
                 const isExpanded = appState.expandedRecommendations.has(index);
@@ -1058,7 +1161,7 @@
                 <tr data-recommendation-id="${index}">
                     <td>${escapeHtml(jobName)}</td>
                     <td>${rec.insight_type}</td>
-                    <td class="expandable-text" onclick="toggleRecommendation(${index})">${escapeHtml(rec.recommendation.substring(0, 70))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
+                    <td class="expandable-text" onclick="toggleRecommendation(${index})">${escapeHtml(String(rec.recommendation || '').substring(0, 70))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
                     <td><span class="priority ${rec.severity_level}">${rec.severity_level}</span></td>
                     <td>Medium</td>
                     <td>--</td>
@@ -1080,13 +1183,14 @@
         }
 
         function updateIncidentAnalysisTable(incidents) {
+            incidents = asArray(incidents);
             const tbody = document.querySelector('#incident-analysis-table tbody');
             tbody.innerHTML = incidents.map((incident, index) => {
                 const isExpanded = appState.expandedIncidents.has(index);
                 return `
                 <tr data-incident-id="${index}">
                     <td>System Alert</td>
-                    <td class="expandable-text" onclick="toggleIncident(${index})">${escapeHtml(incident.recommendation.substring(0, 60))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
+                    <td class="expandable-text" onclick="toggleIncident(${index})">${escapeHtml(String(incident.recommendation || '').substring(0, 60))}... <span class="expand-indicator" style="transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span></td>
                     <td>Network Partition</td>
                     <td>Automatic Failover</td>
                     <td>${new Date(incident.timestamp).toLocaleString()}</td>
@@ -1123,10 +1227,13 @@
         }
 
         function updateSummaryMetrics(jobs = [], jobMetrics = [], clusters = [], health = null) {
+            jobs = asArray(jobs);
+            jobMetrics = asArray(jobMetrics);
+            clusters = asArray(clusters);
             const activeJobs = jobs.filter(j => j.status === 'running' || j.status === 'active');
             document.getElementById('total-jobs').textContent = activeJobs.length;
             
-            const allMetrics = jobMetrics.flatMap(jm => jm.metrics);
+            const allMetrics = jobMetrics.flatMap(jm => asArray(jm.metrics));
 
             if (allMetrics.length > 0) {
                 const anomalies = appState.insights.filter(i => i.insight_type === 'anomaly');
@@ -1147,7 +1254,7 @@
                 document.getElementById('total-throughput').textContent = Math.round(Math.max(0, totalMsgPerSec)).toLocaleString();
 
                 // Calculate average lag from the most recent metric of each job
-                const lags = jobMetrics.map(jm => jm.metrics.length > 0 ? jm.metrics[jm.metrics.length - 1].avg_lag || 0 : 0);
+                const lags = jobMetrics.map(jm => asArray(jm.metrics).length > 0 ? jm.metrics[jm.metrics.length - 1].avg_lag || 0 : 0);
                 const avgLag = lags.length > 0 ? Math.round(lags.reduce((a, b) => a + b, 0) / lags.length) : 0;
                 document.getElementById('avg-lag').textContent = avgLag;
                 
@@ -1172,6 +1279,7 @@
             
             const activeClusters = clusters.filter(c => c.status === 'active');
             document.getElementById('active-clusters').textContent = activeClusters.length;
+            renderClustersTable(clusters);
             
             if (health && health.uptime) {
                 const uptimeSeconds = parseInt(health.uptime);
@@ -1190,7 +1298,31 @@
             }
         }
 
+        function renderClustersTable(clusters) {
+            const tbody = document.querySelector('#clusters-table tbody');
+            if (!tbody) return;
+            const list = asArray(clusters);
+            if (list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #7f8c8d;"><em>No clusters configured</em></td></tr>';
+                return;
+            }
+            tbody.innerHTML = list.map(c => {
+                const status = c.status || 'unknown';
+                const changed = c.updated_at ? new Date(c.updated_at).toLocaleString() : 'N/A';
+                return `
+                    <tr>
+                        <td>${escapeHtml(c.name)}</td>
+                        <td>${escapeHtml(c.provider || 'plain')}</td>
+                        <td>${escapeHtml(c.role || 'other')}</td>
+                        <td><span class="cluster-status ${escapeHtml(status)}">${escapeHtml(clusterStatusLabel(status))}</span></td>
+                        <td>${escapeHtml(changed)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
         function updateJobsTable(jobs) {
+            jobs = asArray(jobs);
             const tbody = document.querySelector('#jobs-table tbody');
             
             if (jobs.length === 0) {
@@ -1230,24 +1362,24 @@
                     
                     return `
                         <tr data-job-id="${index}">
-                            <td>${escapeHtml(job.name || 'Unnamed Job')}</td>
-                            <td><span class="status ${job.status || 'unknown'}">${job.status || 'Unknown'}</span></td>
-                            <td>${lastActive}</td>
-                            <td>${escapeHtml(job.source_cluster_name || 'Unknown')}</td>
-                            <td>${escapeHtml(job.target_cluster_name || 'Unknown')}</td>
+                            <td data-label="Job">${escapeHtml(job.name || 'Unnamed Job')}</td>
+                            <td data-label="Status"><span class="status ${job.status || 'unknown'}">${job.status || 'Unknown'}</span></td>
+                            <td data-label="Last Active">${lastActive}</td>
+                            <td data-label="Source">${escapeHtml(job.source_cluster_name || 'Unknown')}</td>
+                            <td data-label="Target">${escapeHtml(job.target_cluster_name || 'Unknown')}</td>
                             <td class="expandable-text" onclick="toggleJob(${index}, '${escapeHtml(job.id)}')">View Details <span class="expand-indicator">▼</span></td>
                         </tr>
                         <tr id="expanded-job-${index}" class="expanded-row" style="display: none;">
                             <td colspan="6">
                                 <div class="expanded-content">
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2rem; margin-bottom: 1rem;">
+                                    <div class="job-details-grid">
                                         <!-- Column 1: Job Configuration & Current Metrics -->
                                         <div>
                                             <h4 style="color: var(--primary-color); margin-bottom: 1rem;">📊 Configuration & Metrics</h4>
                                             <div class="recommendation-details" style="margin-bottom: 1rem;">
                                                 <strong>Job ID:</strong> ${job.id || 'N/A'}<br>
                                                 <strong>Created:</strong> ${job.created_at ? new Date(job.created_at).toLocaleString() : 'N/A'}<br>
-                                                <strong>Batch Size:</strong> ${job.batch_size || 1000} messages<br>
+                                                <strong>Batch Size:</strong> ${job.batch_size > 0 ? job.batch_size : 1000} KB<br>
                                                 <strong>Compression:</strong> ${job.compression || 'none'}<br>
                                                 <strong>Source -> Target:</strong> ${job.source_cluster_name} -> ${job.target_cluster_name}
                                             </div>
@@ -1264,7 +1396,7 @@
                                             <div id="mirror-state-${index}" class="recommendation-details">
                                                 <em>Loading mirror state...</em>
                                             </div>
-                                            <button class="btn-small" onclick="refreshMirrorState(${index}, '${job.id}')" style="margin-top: 1rem;">Refresh State</button>
+                                            ${can('jobs:edit') ? `<button class="btn-small" onclick="refreshMirrorState(${index}, '${escapeHtml(job.id)}')" style="margin-top: 1rem;">Refresh State</button>` : ''}
                                         </div>
                                         
                                         <!-- Column 3: Inventory Snapshots -->
@@ -1281,8 +1413,7 @@
                     `;
                 }).join('');
                 
-                const userRole = localStorage.getItem('user_role');
-                if (userRole === 'admin' || userRole === 'operator') {
+                if (can('ai:analysis:trigger')) {
                     jobsWithMetrics.forEach((job, index) => {
                         const buttonContainer = document.getElementById(`analysis-buttons-${index}`);
                         if (buttonContainer) {
@@ -1348,7 +1479,7 @@
                     <strong>Current Performance:</strong><br>
                     • Messages Replicated Since Start: ${metrics.messages_replicated || 0}<br>
                     • Bytes Transferred Since Start: ${formatBytes(metrics.bytes_transferred || 0)}<br>
-                    • Current Lag: ${metrics.current_lag || 0} messages<br>
+                    • Consumer Group Lag: ${(metrics.current_lag || 0).toLocaleString()} messages<br>
                     • Error Count: ${metrics.error_count || 0}<br>
                     • Tombstones: ${metrics.tombstone_count || 0}<br>
                     • Last Updated: ${new Date(metrics.timestamp).toLocaleString()}
@@ -1381,69 +1512,63 @@
             // Show loading state with timestamp
             mirrorContainer.innerHTML = '<strong>Mirror Recovery Status:</strong><br><em>🔄 Loading mirror state data...</em>';
             
-            // Use the fast comprehensive mirror/state endpoint first
-            fetch(`/api/v1/jobs/${jobId}/mirror/state`, {
-                headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }
-            })
-            .then(response => response.ok ? response.json() : null)
-            .then(state => {
+            const authHeaders = { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` };
+            Promise.all([
+                fetch(`/api/v1/jobs/${jobId}/mirror/state`, { headers: authHeaders }).then(response => response.ok ? response.json() : null),
+                fetch(`/api/v1/jobs/${jobId}/mirror/progress`, { headers: authHeaders }).then(response => response.ok ? response.json() : []).catch(() => [])
+            ])
+            .then(([state, progressData]) => {
+                const refreshButton = (label) => can('jobs:edit') ? `<br><button class="btn-small" onclick="refreshMirrorState(${index}, '${escapeHtml(jobId)}')" style="margin-top: 0.5rem;">${label}</button>` : '';
                 if (!state || state.job_id !== jobId) {
-                    // If no state data yet, show initializing message
                     mirrorContainer.innerHTML = `
                         <strong>Mirror Recovery Status:</strong><br>
                         • Status: 🔄 Initializing mirror state...<br>
                         • Data: <em>Auto-populating in background</em><br>
                         • Note: <small>Mirror state updates every 5 minutes automatically</small><br>
-                        <br><button class="btn-small" onclick="refreshMirrorState(${index}, '${jobId}')" style="margin-top: 0.5rem;">🔄 Force Refresh</button>
+                        ${refreshButton('🔄 Force Refresh')}
                     `;
                     return;
                 }
-                
+
                 let content = '<strong>Mirror Recovery Status:</strong><br>';
-                let dataFreshness = '';
-                
-                // Extract data from comprehensive state response
-                const mirrorProgress = state.mirror_progress;
+
                 const resumePoints = state.resume_points;
                 const mirrorGaps = state.mirror_gaps;
-                const stateAnalysis = state.state_analysis;
-                
-                // Calculate status based on available data
-                let status = 'Analyzing...';
-                let totalLag = 0;
-                let partitionCount = 0;
-                
-                if (mirrorProgress) {
-                    if (Array.isArray(mirrorProgress)) {
-                        const latest = mirrorProgress[mirrorProgress.length - 1];
-                        if (latest) {
-                            totalLag = latest.replication_lag || 0;
-                            partitionCount = mirrorProgress.length;
-                            dataFreshness = `<small style="color: #666;">Last update ${new Date(latest.last_updated).toLocaleString()}</small><br>`;
-                        }
-                    } else {
-                        // Single object format - latest state
-                        totalLag = mirrorProgress.replication_lag || 0;
-                        partitionCount = 1;
-                        dataFreshness = `<small style="color: #666;">Last update ${new Date(mirrorProgress.last_updated).toLocaleString()}</small><br>`;
-                    }
-                    
-                    status = totalLag === 0 ? '✅ Synchronized' : 
-                             totalLag < 1000 ? '🟡 Minor Lag' : '🔴 Significant Lag';
+                const partitions = asArray(progressData);
+                if (partitions.length === 0) {
+                    partitions.push(...asArray(state.mirror_progress));
                 }
-                
-                // Add timestamp at the top as overview
-                content += dataFreshness;
+
+                let status = 'Analyzing...';
+                const totalLag = partitions.reduce((sum, p) => sum + Math.max(0, p.replication_lag || 0), 0);
+                const partitionCount = partitions.length;
+                const latestUpdate = partitions.reduce((latest, p) => {
+                    const t = new Date(p.last_updated);
+                    return !latest || t > latest ? t : latest;
+                }, null);
+
+                if (partitionCount > 0) {
+                    status = totalLag === 0 ? '✅ Synchronized' :
+                             totalLag < 1000 ? '🟡 Minor Lag' : '🔴 Significant Lag';
+                    if (latestUpdate && !isNaN(latestUpdate.getTime())) {
+                        content += `<small style="color: #666;">Last update ${latestUpdate.toLocaleString()}</small><br>`;
+                    }
+                }
+
                 content += `• Status: ${status}<br>`;
-                content += `• Total Offset Lag: ${totalLag.toLocaleString()} messages<br>`;
-                content += `• Partition Count: ${partitionCount}<br>`;
-                
+                content += `• Source End Minus Target End: ${totalLag.toLocaleString()} messages<br>`;
+                content += `• Partitions Tracked: ${partitionCount}<br>`;
+                content += `<small style="color: #666;">The consumer group lag in the first column counts what kaf-mirror has not committed yet. This value compares the end offsets of both clusters, so it also counts records that were already on the target or written outside kaf-mirror.</small><br>`;
+
                 // Handle resume points
                 if (resumePoints) {
                     const points = Array.isArray(resumePoints) ? resumePoints : [resumePoints];
                     if (points.length > 0 && points[0]) {
                         const latest = points[points.length - 1];
-                        content += `• Last Resume Point: ${latest.safe_resume_offset || 'N/A'}<br>`;
+                        const topic = latest.source_topic || '';
+                        const part = latest.partition_id ?? '';
+                        const off = latest.safe_resume_offset ?? 0;
+                        content += `• Last Resume Point: ${topic} p${part} @ ${off}<br>`;
                     }
                 }
                 
@@ -1475,8 +1600,8 @@
                 mirrorContainer.innerHTML = `
                     <strong>Mirror Recovery Status:</strong><br>
                     • Status: ❌ Error loading state<br>
-                    • Issue: ${err.message}<br>
-                    <br><button class="btn-small" onclick="refreshMirrorState(${index}, '${jobId}')" style="margin-top: 0.5rem;">🔄 Retry</button>
+                    • Issue: ${escapeHtml(err.message)}<br>
+                    ${can('jobs:edit') ? `<br><button class="btn-small" onclick="refreshMirrorState(${index}, '${escapeHtml(jobId)}')" style="margin-top: 0.5rem;">🔄 Retry</button>` : ''}
                 `;
             });
         }
@@ -1489,8 +1614,9 @@
                 headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }
             })
             .then(response => response.ok ? response.json() : null)
-            .then(snapshots => {
-                if (!snapshots || snapshots.length === 0) {
+            .then(data => {
+                const snapshots = asArray(data);
+                if (snapshots.length === 0) {
                     inventoryContainer.innerHTML = `
                     <strong>Topic Snapshots:</strong><br>
                     <em>No snapshots available. Job has not been started yet.</em>
@@ -1518,21 +1644,20 @@
                         if (detailedInventory.source_cluster || detailedInventory.target_cluster) {
                             content += `<br><strong>Infrastructure Topology:</strong><br>`;
                             if (detailedInventory.source_cluster) {
-                                content += `• Source: ${detailedInventory.source_cluster.broker_count || 0} brokers, ${detailedInventory.source_cluster.topic_count || 0} topics<br>`;
+                                content += `• Source: ${detailedInventory.source_cluster.broker_count || 0} brokers, ${detailedInventory.source_cluster.total_topics || 0} topics<br>`;
                             }
                             if (detailedInventory.target_cluster) {
-                                content += `• Target: ${detailedInventory.target_cluster.broker_count || 0} brokers, ${detailedInventory.target_cluster.topic_count || 0} topics<br>`;
+                                content += `• Target: ${detailedInventory.target_cluster.broker_count || 0} brokers, ${detailedInventory.target_cluster.total_topics || 0} topics<br>`;
                             }
                         }
                         
                         // Compression Analysis
-                        const allTopics = [
-                            ...(detailedInventory.source_topics || []),
-                            ...(detailedInventory.target_topics || [])
-                        ];
+                        const sourceTopics = asArray(detailedInventory.source_topics);
+                        const targetTopics = asArray(detailedInventory.target_topics);
+                        const allTopics = [...sourceTopics, ...targetTopics];
                         if (allTopics.length > 0) {
                             const compressionStats = analyzeCompressionTypes(allTopics);
-                            content += `<br><strong>Compression Analysis (${allTopics.length} topics):</strong><br>`;
+                            content += `<br><strong>Compression Analysis (${sourceTopics.length} source and ${targetTopics.length} target topics):</strong><br>`;
                             if (compressionStats.distribution) {
                                 Object.entries(compressionStats.distribution).forEach(([type, count]) => {
                                     const percentage = ((count / allTopics.length) * 100).toFixed(1);
@@ -1546,25 +1671,40 @@
                         }
                         
                         // Topic Catalog
-                        if (allTopics.length > 0) {
-                            content += `<br><strong>Topic Catalog (${allTopics.length}):</strong><br>`;
-                            allTopics.slice(0, 4).forEach(topic => {
+                        const catalog = [];
+                        const seenTopics = new Set();
+                        [...sourceTopics.map(t => ({ ...t, side: 'source' })), ...targetTopics.map(t => ({ ...t, side: 'target' }))].forEach(topic => {
+                            if (seenTopics.has(topic.topic_name)) return;
+                            seenTopics.add(topic.topic_name);
+                            catalog.push(topic);
+                        });
+                        if (catalog.length > 0) {
+                            content += `<br><strong>Topic Catalog (${catalog.length}):</strong><br>`;
+                            catalog.slice(0, 4).forEach(topic => {
                                 const compressionType = topic.compression_type === 'NONE' || !topic.compression_type ? 'None' : topic.compression_type;
-                                content += `• ${topic.topic_name}: ${topic.partition_count}p, RF=${topic.replication_factor}, ${compressionType}<br>`;
+                                const sides = sourceTopics.some(t => t.topic_name === topic.topic_name) && targetTopics.some(t => t.topic_name === topic.topic_name) ? 'source and target' : topic.side;
+                                content += `• ${escapeHtml(topic.topic_name)} (${sides}): ${topic.partition_count}p, RF=${topic.replication_factor}, ${escapeHtml(compressionType)}<br>`;
                             });
-                            if (allTopics.length > 4) {
-                                content += `• ... and ${allTopics.length - 4} more topics<br>`;
+                            if (catalog.length > 4) {
+                                content += `• ... and ${catalog.length - 4} more topics<br>`;
                             }
                         }
                         
                         // Partition Analysis
                         const allPartitions = [
-                            ...(detailedInventory.source_partitions || []),
-                            ...(detailedInventory.target_partitions || [])
+                            ...asArray(detailedInventory.source_partitions),
+                            ...asArray(detailedInventory.target_partitions)
                         ];
                         if (allPartitions.length > 0) {
                             const totalMessages = allPartitions.reduce((sum, p) => sum + (parseInt(p.high_water_mark) || 0), 0);
-                            const avgReplicas = allPartitions.reduce((sum, p) => sum + (p.replica_count || 0), 0) / allPartitions.length;
+                            const replicaCount = (p) => {
+                                try {
+                                    return asArray(JSON.parse(p.replica_ids || '[]')).length;
+                                } catch (e) {
+                                    return 0;
+                                }
+                            };
+                            const avgReplicas = allPartitions.reduce((sum, p) => sum + replicaCount(p), 0) / allPartitions.length;
                             content += `<br><strong>Partition Analysis:</strong><br>`;
                             content += `• Total Partitions: ${allPartitions.length}<br>`;
                             content += `• Avg Replicas: ${avgReplicas.toFixed(1)}<br>`;
@@ -1578,7 +1718,7 @@
                             content += `<br><strong>👥 Consumer Groups (${detailedInventory.consumer_groups.length}):</strong><br>`;
                             detailedInventory.consumer_groups.slice(0, 3).forEach(group => {
                                 // Use job status to determine appropriate fallback for undefined consumer group state
-                                let state = group.state;
+                                let state = group.group_state || group.state;
                                 if (!state) {
                                     // Check if we can find the job status for this consumer group
                                     const jobFromGroup = appState.jobs.find(j => group.group_id.includes(j.id));
@@ -1591,8 +1731,7 @@
                                 const status = state === 'Stable' ? '✅' : 
                                              state === 'Mirroring' ? '🔄' : 
                                              state === 'Dead' ? '❌' : '🔄';
-                                const totalLag = group.total_lag || 0;
-                                content += `• ${group.group_id}: ${status} ${state}, Lag: ${totalLag.toLocaleString()}<br>`;
+                                content += `• ${escapeHtml(group.group_id)}: ${status} ${escapeHtml(state)}, ${group.member_count || 0} members<br>`;
                             });
                             if (detailedInventory.consumer_groups.length > 3) {
                                 content += `• ... and ${detailedInventory.consumer_groups.length - 3} more groups<br>`;
@@ -1692,13 +1831,11 @@
                 }
                 return response.json();
             })
-            .then(healthData => {
-                if (!Array.isArray(healthData)) {
-                    throw new Error('Invalid health data format');
-                }
+            .then(data => {
+                const healthData = asArray(data);
                 const healthyTopics = healthData.filter(t => t.is_healthy).length;
                 const totalTopics = healthData.length;
-                const underReplicated = healthData.reduce((sum, t) => sum + t.under_replicated_partitions, 0);
+                const underReplicated = healthData.reduce((sum, t) => sum + (t.under_replicated_partitions || 0), 0);
                 const statusIcon = healthyTopics === totalTopics ? '✅' : '⚠️';
 
                 healthContainer.innerHTML = `
@@ -1882,66 +2019,50 @@ ${JSON.stringify(inventory, null, 2)}
                 safeClusters.find(c => c.name === j.target_cluster_name)
             );
             
-            const containerRect = container.getBoundingClientRect();
-            const centerX = containerRect.width / 2;
-            const centerY = containerRect.height / 2;
-            
+            const statusColors = {
+                active: { background: '#27ae60', border: '#1e8449' },
+                unreachable: { background: '#c0392b', border: '#922b21' }
+            };
             const nodeData = safeClusters.map((c, index) => {
-                let region = 'unknown';
-                let regionColor = '#95a5a6';
-                let initialX = centerX;
-                let initialY = centerY;
-                
-                if (c.name.includes('eu') || c.name.includes('nl')) {
-                    region = 'EU';
-                    regionColor = '#3498db';
-                    initialX = centerX - 200;
-                    initialY = centerY;
-                } else if (c.name.includes('us_west') || c.name.includes('west')) {
-                    region = 'US-W';
-                    regionColor = '#e67e22';
-                    initialX = centerX + 100;
-                    initialY = centerY - 100;
-                } else if (c.name.includes('us_east') || c.name.includes('east')) {
-                    region = 'US-E';
-                    regionColor = '#9b59b6';
-                    initialX = centerX + 100;
-                    initialY = centerY + 100;
-                }
-                
+                const status = c.status || 'unknown';
+                const colors = statusColors[status] || { background: '#7f8c8d', border: '#616a6b' };
+                const role = c.role && c.role !== 'other' ? `${c.role}, ` : '';
                 return {
                     id: c.name,
-                    label: `${c.name}\n(${region})`,
-                    title: `Cluster: ${c.name}\nRegion: ${region}\nProvider: ${c.provider || 'Unknown'}\nStatus: ${c.status}`,
+                    label: `${c.name}\n${role}${clusterStatusLabel(status)}`,
+                    title: `Cluster: ${c.name}\nProvider: ${c.provider || 'plain'}\nRole: ${c.role || 'other'}\nStatus: ${clusterStatusLabel(status)}`,
                     shape: 'box',
-                    x: initialX,
-                    y: initialY,
                     color: {
-                        background: c.status === 'active' ? regionColor : '#95a5a6',
-                        border: c.status === 'active' ? '#2c3e50' : '#7f8c8d',
+                        background: colors.background,
+                        border: colors.border,
                         highlight: { background: '#f39c12', border: '#e67e22' }
                     },
                     borderWidth: 3,
-                    font: { color: 'white', size: 14, face: 'Arial', bold: true, multi: true },
-                    margin: 12,
-                    widthConstraint: { minimum: 160, maximum: 200 },
-                    heightConstraint: { minimum: 60, maximum: 80 },
+                    font: { color: 'white', size: 20, face: 'Arial', multi: true },
+                    margin: 14,
+                    widthConstraint: { minimum: 180, maximum: 260 },
                     shadow: { enabled: true, color: 'rgba(0,0,0,0.3)', size: 8, x: 2, y: 2 }
                 };
             });
-            
+
             const nodes = new vis.DataSet(nodeData);
             
+            const pairCounts = {};
             const edges = new vis.DataSet(validJobs.map((j, index) => {
+                const running = j.status === 'running' || j.status === 'active';
                 let jobColor;
-                if (j.status === 'running' || j.status === 'active') {
+                if (running) {
                     jobColor = '#27ae60';
                 } else if (j.status === 'paused') {
                     jobColor = '#f39c12';
                 } else {
                     jobColor = '#e74c3c';
                 }
-                
+                const pairKey = [j.source_cluster_name, j.target_cluster_name].sort().join('|');
+                const pairIndex = pairCounts[pairKey] || 0;
+                pairCounts[pairKey] = pairIndex + 1;
+                const roundness = 0.15 + 0.2 * Math.floor(pairIndex / 2);
+
                 return {
                     id: `job-${index}`,
                     from: j.source_cluster_name,
@@ -1949,15 +2070,15 @@ ${JSON.stringify(inventory, null, 2)}
                     label: `${j.name}\n(${j.status})`,
                     title: `Job: ${j.name}\nStatus: ${j.status}\nSource: ${j.source_cluster_name}\nTarget: ${j.target_cluster_name}`,
                     color: { color: jobColor, highlight: '#2980b9', hover: '#3498db' },
-                    font: { align: 'horizontal', size: 12, color: '#2c3e50', background: 'rgba(255,255,255,0.9)', strokeWidth: 1, strokeColor: 'white', multi: true },
-                    width: j.status === 'running' ? 6 : j.status === 'paused' ? 4 : 2,
-                    dashes: j.status === 'paused' ? [10, 5] : j.status !== 'running' ? [5, 5] : false,
-                    smooth: { enabled: true, type: 'curvedCW', roundness: 0.2 },
+                    font: { align: 'horizontal', size: 16, color: '#2c3e50', background: 'rgba(255,255,255,0.9)', strokeWidth: 1, strokeColor: 'white', multi: true },
+                    width: running ? 6 : j.status === 'paused' ? 4 : 2,
+                    dashes: j.status === 'paused' ? [10, 5] : running ? false : [5, 5],
+                    smooth: { enabled: true, type: pairIndex % 2 === 0 ? 'curvedCW' : 'curvedCCW', roundness: roundness },
                     arrows: { to: { enabled: true, scaleFactor: 1, type: 'arrow' } },
                     shadow: { enabled: true, color: 'rgba(0,0,0,0.2)', size: 4 }
                 };
             }));
-            
+
             const options = {
                 layout: { randomSeed: 42, improvedLayout: true, hierarchical: { enabled: false } },
                 physics: {
@@ -1966,7 +2087,7 @@ ${JSON.stringify(inventory, null, 2)}
                     barnesHut: {
                         gravitationalConstant: -20000,
                         centralGravity: 0.05,
-                        springLength: 400,
+                        springLength: 250,
                         springConstant: 0.04,
                         damping: 0.12,
                         avoidOverlap: 1.5
@@ -2012,8 +2133,8 @@ ${JSON.stringify(inventory, null, 2)}
                                 const positions = network.getPositions([edge.from, edge.to]);
                                 if (!positions[edge.from] || !positions[edge.to]) return;
                                 
-                                const fromPos = positions[edge.from];
-                                const toPos = positions[edge.to];
+                                const fromPos = network.canvasToDOM(positions[edge.from]);
+                                const toPos = network.canvasToDOM(positions[edge.to]);
                                 
                                 const dx = toPos.x - fromPos.x;
                                 const dy = toPos.y - fromPos.y;
@@ -2078,7 +2199,10 @@ ${JSON.stringify(inventory, null, 2)}
             };
             
             network.once("stabilizationIterationsDone", function () {
-                network.fit({ padding: { top: 50, bottom: 50, left: 50, right: 50 } });
+                network.fit({ padding: { top: 50, bottom: 50, left: 50, right: 50 }, maxZoomLevel: 1.2 });
+                if (network.getScale() < 0.6) {
+                    network.moveTo({ scale: 0.6 });
+                }
                 setTimeout(() => { network.setOptions({ physics: { enabled: false } }); }, 2000);
             });
 
@@ -2295,7 +2419,7 @@ ${JSON.stringify(inventory, null, 2)}
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    return `${context.dataset.label}: ${context.parsed.y} ms lag`;
+                                    return `${context.dataset.label}: ${Number(context.parsed.y).toLocaleString()} messages behind`;
                                 }
                             }
                         }
@@ -2458,7 +2582,7 @@ ${JSON.stringify(inventory, null, 2)}
 
         function updateAccessTable(users) {
             const tbody = document.querySelector('#access-table tbody');
-            tbody.innerHTML = users.map(user => `
+            tbody.innerHTML = asArray(users).map(user => `
                 <tr>
                     <td>${escapeHtml(user.username)}</td>
                     <td>${escapeHtml(user.role)}</td>
@@ -2558,6 +2682,7 @@ ${JSON.stringify(inventory, null, 2)}
         }
 
         function loadActivityLogs() {
+            if (!can('events:view')) return;
             fetch('/api/v1/events', {
                 headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }
             })
@@ -2566,7 +2691,7 @@ ${JSON.stringify(inventory, null, 2)}
                 return response.json();
             })
             .then(logs => {
-                updateActivityLogsTable(logs);
+                updateActivityLogsTable(asArray(logs));
             })
             .catch(err => {
                 console.error('Error loading activity logs:', err);
@@ -2695,7 +2820,7 @@ ${JSON.stringify(inventory, null, 2)}
                 return;
             }
             
-            tbody.innerHTML = logs.slice(-50).reverse().map(log => {
+            tbody.innerHTML = logs.slice(0, 50).map(log => {
                 const eventType = log.event_type || 'Unknown';
                 const action = eventType.replace(/_/g, ' ').replace(/^(GET|POST|PUT|DELETE)\s+/, '');
                 const method = eventType.match(/^(GET|POST|PUT|DELETE)/)?.[1] || 'ACTION';

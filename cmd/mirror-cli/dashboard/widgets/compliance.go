@@ -26,7 +26,7 @@ func (cf *ComplianceFactory) UpdateListData(dataManager *core.DataManager) error
 	logs, err := dataManager.GetLogs()
 	if err != nil {
 		cf.listWidget.Rows = []string{
-			"Timestamp | User | Action | Resource | Result",
+			"Timestamp | User | Action | Resource | Details",
 			fmt.Sprintf("Error fetching compliance logs: %v", err),
 		}
 		return err
@@ -35,7 +35,7 @@ func (cf *ComplianceFactory) UpdateListData(dataManager *core.DataManager) error
 	cf.items = logs
 
 	rows := []string{
-		"Timestamp | User | Action | Resource | Result",
+		"Timestamp | User | Action | Resource | Details",
 	}
 
 	if len(logs) == 0 {
@@ -44,16 +44,15 @@ func (cf *ComplianceFactory) UpdateListData(dataManager *core.DataManager) error
 		for _, log := range logs {
 			timestamp := SafeString(log["timestamp"], "N/A")
 			user := SafeString(log["initiator"], "system")
-			action := SafeString(log["event_type"], "unknown")
-			resource := SafeString(log["resource_type"], "N/A")
-			result := SafeString(log["status"], "unknown")
+			action, resource := AuditEventParts(log)
+			details := SafeString(log["details"], "")
 
 			row := fmt.Sprintf("%s | %s | %s | %s | %s",
 				TruncateString(timestamp, 16),
 				TruncateString(user, 12),
 				TruncateString(action, 15),
-				TruncateString(resource, 12),
-				FormatStatus(result),
+				TruncateString(resource, 24),
+				TruncateString(details, 40),
 			)
 
 			rows = append(rows, row)
@@ -109,9 +108,9 @@ func (cf *ComplianceFactory) UpdateDetailData(dataManager *core.DataManager, ite
 	rows = append(rows, fmt.Sprintf("Timestamp: %s", SafeString(selectedLog["timestamp"], "N/A")))
 	rows = append(rows, fmt.Sprintf("Event Type: %s", SafeString(selectedLog["event_type"], "N/A")))
 	rows = append(rows, fmt.Sprintf("Initiator: %s", SafeString(selectedLog["initiator"], "N/A")))
-	rows = append(rows, fmt.Sprintf("Resource Type: %s", SafeString(selectedLog["resource_type"], "N/A")))
-	rows = append(rows, fmt.Sprintf("Resource ID: %s", SafeString(selectedLog["resource_id"], "N/A")))
-	rows = append(rows, fmt.Sprintf("Status: %s", FormatStatus(SafeString(selectedLog["status"], "N/A"))))
+	action, resource := AuditEventParts(selectedLog)
+	rows = append(rows, fmt.Sprintf("Action: %s", action))
+	rows = append(rows, fmt.Sprintf("Resource: %s", resource))
 
 	rows = append(rows, "")
 	rows = append(rows, "=== EVENT DETAILS ===")

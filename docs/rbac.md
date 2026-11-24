@@ -23,6 +23,8 @@ This document outlines the access levels for each API endpoint based on user rol
 | `GET /auth/me` | `any` |
 | `POST /api/v1/auth/reset-token` | `any` authenticated |
 
+`GET /auth/me` returns the username, the role and `permissions`, the permission names of the role. The web UI uses them to hide what the user cannot use, such as the compliance report buttons without `compliance:generate` and "Refresh State" without `jobs:edit`.
+
 ## Configuration
 
 | Endpoint | Role |

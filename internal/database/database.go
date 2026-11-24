@@ -185,7 +185,27 @@ func RunMigrations(db *sqlx.DB) error {
 		return err
 	}
 
+	err = addClusterUID(db)
+	if err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func addClusterUID(db *sqlx.DB) error {
+	var columnExists int
+	err := db.Get(&columnExists, "SELECT COUNT(*) FROM pragma_table_info('kafka_clusters') WHERE name='uid'")
+	if err != nil {
+		return err
+	}
+	if columnExists == 0 {
+		if _, err := db.Exec("ALTER TABLE kafka_clusters ADD COLUMN uid TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+	}
+	_, err = db.Exec("UPDATE kafka_clusters SET uid = lower(hex(randomblob(16))) WHERE uid = ''")
+	return err
 }
 
 // addMirrorProgressHistoryTable adds the mirror_progress_history table for historical data tracking

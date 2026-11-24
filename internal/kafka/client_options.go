@@ -234,3 +234,20 @@ func kerberosClient(krb config.KerberosConfig) (*krbclient.Client, error) {
 	}
 	return krbclient.NewWithKeytab(user, realm, kt, conf, krbclient.DisablePAFXFAST(true)), nil
 }
+
+func ConnectionSecurity(cfg config.ClusterConfig) (string, string) {
+	plan, err := planSecurity(cfg)
+	if err != nil {
+		return "", ""
+	}
+	switch {
+	case plan.tls && plan.mechanism != "":
+		return "SASL_SSL", plan.mechanism
+	case plan.tls:
+		return "SSL", ""
+	case plan.mechanism != "":
+		return "SASL_PLAINTEXT", plan.mechanism
+	default:
+		return "PLAINTEXT", ""
+	}
+}

@@ -67,6 +67,14 @@ type JobManager struct {
 	sleep                func(context.Context, time.Duration) error
 	Protection           *protection.Controller
 	restartJob           func(string) error
+	clusterProbe         ClusterProbe
+	clusterProbeSem      chan struct{}
+	clusterProbeMu       sync.Mutex
+	clusterProbes        map[string]*clusterProbeMeta
+	clusterProbeSemWait  func()
+	clusterProbeJoin     func()
+	bgCtx                context.Context
+	bgCancel             context.CancelFunc
 }
 
 var ErrShuttingDown = errors.New("kaf-mirror is shutting down")
@@ -96,8 +104,11 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		lastAIMetric:         make(map[string]database.ReplicationMetric),
 		lastComplianceReport: make(map[string]time.Time),
 		Protection:           protection.New(db, cfg.Protection),
+		clusterProbeSem:      make(chan struct{}, clusterStatusConcurrency),
+		clusterProbes:        make(map[string]*clusterProbeMeta),
 	}
 	jm.shutdownCtx, jm.shutdownCancel = context.WithCancel(context.Background())
+	jm.bgCtx, jm.bgCancel = context.WithCancel(jm.shutdownCtx)
 	jm.restartJob = jm.ForceRestartJob
 	logger.Info("AI analysis is %s", ai.Status(aiConfig))
 	if cfg.Protection.Enabled {
@@ -135,7 +146,14 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		}
 	}()
 
-	jm.wg.Add(7)
+	backgroundLoops := 7
+	if !strings.EqualFold(cfg.Server.Mode, "test") {
+		backgroundLoops++
+	}
+	jm.wg.Add(backgroundLoops)
+	if !strings.EqualFold(cfg.Server.Mode, "test") {
+		go jm.startClusterStatusChecks()
+	}
 	go jm.watchProtection()
 	go jm.startPruning()
 	go jm.startAIAnalysis()
@@ -179,6 +197,9 @@ func (jm *JobManager) reconcileAndStartJobs() error {
 func (jm *JobManager) Close() {
 	jm.closeOnce.Do(func() {
 		atomic.StoreInt32(&jm.closing, 1)
+		if jm.bgCancel != nil {
+			jm.bgCancel()
+		}
 		close(jm.close)
 	})
 	jm.wg.Wait()
@@ -1562,13 +1583,14 @@ func (jm *JobManager) captureClusterInventory(snapshotID int, clusterName, clust
 		connectionType = "target_producer"
 	}
 
+	securityProtocol, saslMechanism := kafka.ConnectionSecurity(clusterConfig)
 	connectionInventory := database.ConnectionInventory{
 		SnapshotID:           snapshotID,
 		ConnectionType:       connectionType,
 		Provider:             cluster.Provider,
 		Brokers:              cluster.Brokers,
-		SecurityProtocol:     "SASL_SSL",
-		SaslMechanism:        "PLAIN",
+		SecurityProtocol:     securityProtocol,
+		SaslMechanism:        saslMechanism,
 		APIKeyPrefix:         jm.maskAPIKey(cluster.APIKey),
 		ConnectionSuccessful: true,
 		ConnectionTimeMs:     &connectionTimeMs,
@@ -2057,6 +2079,14 @@ func max(a, b int) int {
 }
 
 func (jm *JobManager) healthCheckCluster(cluster *database.KafkaCluster, clusterType string) error {
+	ctx, cancel := context.WithTimeout(jm.backgroundContext(), 30*time.Second)
+	defer cancel()
+	if err := jm.acquireClusterProbeSlot(ctx); err != nil {
+		return fmt.Errorf("failed to health-check %s cluster %s: %v", clusterType, cluster.Name, err)
+	}
+	defer jm.releaseClusterProbeSlot()
+	gen := jm.bumpClusterProbeGen(cluster.Name)
+
 	clusterConfig := database.ClusterConfigFromRow(*cluster)
 
 	adminClient, err := kafka.NewAdminClient(clusterConfig)
@@ -2065,17 +2095,18 @@ func (jm *JobManager) healthCheckCluster(cluster *database.KafkaCluster, cluster
 	}
 	defer adminClient.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	clusterInfo, err := adminClient.GetClusterInfo(ctx)
 	if err != nil {
+		jm.recordClusterHealthIfCurrent(cluster.Name, gen, err)
 		return fmt.Errorf("%s cluster %s is unreachable: %v", clusterType, cluster.Name, err)
 	}
 
 	if clusterInfo.BrokerCount == 0 {
-		return fmt.Errorf("%s cluster %s has no active brokers", clusterType, cluster.Name)
+		err := fmt.Errorf("%s cluster %s has no active brokers", clusterType, cluster.Name)
+		jm.recordClusterHealthIfCurrent(cluster.Name, gen, err)
+		return err
 	}
+	jm.recordClusterHealthIfCurrent(cluster.Name, gen, nil)
 
 	logger.Info("%s cluster %s health check passed: %d brokers, %d topics",
 		clusterType, cluster.Name, clusterInfo.BrokerCount, len(clusterInfo.Topics))

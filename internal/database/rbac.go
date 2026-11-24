@@ -72,6 +72,19 @@ func GetUserRole(db *sqlx.DB, userID int) (string, error) {
 	return roleName, err
 }
 
+func GetUserPermissions(db *sqlx.DB, userID int) ([]string, error) {
+	permissions := []string{}
+	query := `
+		SELECT DISTINCT p.name
+		FROM user_roles ur
+		JOIN role_permissions rp ON ur.role_id = rp.role_id
+		JOIN permissions p ON rp.permission_id = p.id
+		WHERE ur.user_id = ?
+		ORDER BY p.name`
+	err := db.Select(&permissions, query, userID)
+	return permissions, err
+}
+
 // SeedDefaultRolesAndPermissions creates the default roles and permissions.
 func SeedDefaultRolesAndPermissions(db *sqlx.DB) error {
 	roles := []string{"admin", "operator", "monitoring", "compliance"}

@@ -3,6 +3,7 @@ package widgets
 import (
 	"fmt"
 	"kaf-mirror/cmd/mirror-cli/dashboard/core"
+	"strings"
 )
 
 type ClustersFactory struct {
@@ -47,18 +48,7 @@ func (cf *ClustersFactory) UpdateListData(dataManager *core.DataManager) error {
 			status := SafeString(cluster["status"], "unknown")
 			brokers := SafeString(cluster["brokers"], "N/A")
 
-			// Determine health status based on status and other factors
-			healthStatus := "Unknown"
-			switch status {
-			case "active":
-				healthStatus = "✓ Healthy"
-			case "inactive":
-				healthStatus = "⏸ Inactive"
-			case "error":
-				healthStatus = "✗ Error"
-			default:
-				healthStatus = "? " + status
-			}
+			healthStatus := ClusterHealthLabel(status)
 
 			if len(brokers) > 25 {
 				brokers = brokers[:22] + "..."
@@ -127,20 +117,19 @@ func (cf *ClustersFactory) UpdateDetailData(dataManager *core.DataManager, itemI
 	connectionStatus := "Unknown"
 	overallHealth := "Unknown"
 
-	// Simulate connection test results (in real implementation, this would call testClusterConnectionVerbose)
 	switch status {
 	case "active":
-		connectionStatus = "✅ Connected"
-		overallHealth = "✅ HEALTHY - All systems operational"
-	case "inactive":
-		connectionStatus = "⏸ Disabled"
-		overallHealth = "⚠️ INACTIVE - Cluster disabled"
-	case "error":
-		connectionStatus = "❌ Connection failed"
-		overallHealth = "❌ CRITICAL - Connection issues detected"
+		connectionStatus = "✅ Reachable at the last check"
+		overallHealth = "✅ HEALTHY"
+	case "unreachable":
+		connectionStatus = "❌ Unreachable at the last check"
+		overallHealth = "❌ CRITICAL - The server cannot connect to this cluster"
+	case "inactive", "archived":
+		connectionStatus = "⏸ Not checked, the cluster is " + status
+		overallHealth = "⚠️ " + strings.ToUpper(status)
 	default:
-		connectionStatus = "❓ Status unknown"
-		overallHealth = "❓ UNKNOWN - Unable to determine health"
+		connectionStatus = "❓ Not checked yet"
+		overallHealth = "❓ UNKNOWN - The server has not checked this cluster yet"
 	}
 
 	rows = append(rows, fmt.Sprintf("Connection Status: %s", connectionStatus))

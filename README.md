@@ -23,7 +23,8 @@
 - **Role-Based Security:** Token-based authentication with admin/operator/monitoring/compliance roles.
 - **Admin CLI:** A command-line tool for bootstrapping the application and for emergency maintenance.
 - **Unified Management CLI:** A single, powerful CLI for all ongoing management tasks.
-- **Dashboard updates:** The web UI polls the API every 30 seconds. `/ws` accepts authenticated WebSocket clients via an `Authorization: Bearer` header.
+- **Dashboard updates:** The web UI polls the API every 30 seconds. `/ws` accepts authenticated WebSocket clients via an `Authorization: Bearer` header. The web UI reads the permissions of the user from `GET /auth/me` and hides buttons the user cannot use. It fits phone screens down to 390px.
+- **Empty lists:** List endpoints answer `[]` when there is nothing to list, never `null`.
 - **Offset commit:** Source offsets are committed only after the target produce is acknowledged. A failed produce is retried, and the offset is never committed past a record that was not copied. See [Resilience and Buffering](#resilience-and-buffering).
 - **Secrets:** Cluster and config APIs return `***` for credentials. PUT with `***` or an empty secret leaves the stored value unchanged.
 - **Replication halt (experimental):** Off until an admin enables it. Freezes all jobs if the source cluster is compromised so the replica does not keep copying the attack. See [docs/protection.md](docs/protection.md).
@@ -328,6 +329,20 @@ Running `mirror-cli` without a command starts the interactive shell, which needs
 - `./mirror-cli clusters remove <cluster-name>`: Marks a cluster as inactive. (Requires admin role)
 - `./mirror-cli clusters purge`: Purges all archived clusters. (Requires admin role)
 
+**Cluster Status**
+
+Each cluster has a stored status, shown in `GET /api/v1/clusters`, `mirror-cli clusters list`, the web UI clusters tab, topology and "Active Clusters" count, and the `mirror-cli` dashboard:
+
+*   `unknown`: not checked yet. A new or restored cluster has this status until its first check.
+*   `active`: the last connection check reached the cluster.
+*   `unreachable`: the last connection check failed or timed out.
+*   `inactive`: removed with `clusters remove`. It is not checked, and it is archived after 72 hours.
+*   `archived`: inactive for more than 72 hours. `clusters purge` deletes archived clusters.
+
+kaf-mirror checks every cluster that is not `inactive` or `archived` when it starts and then every 60 seconds. Each check connects to the cluster with the same client options a job uses, has a 10 second timeout, and at most 4 probes run at a time in the whole process. That cap covers the background loop, `GET /api/v1/clusters/{name}/status`, checks after create, update or restore, and the pre-flight check of a job restart. Concurrent checks of the same cluster share one probe only when the connection settings still match, including provider, brokers, SASL and TLS settings, API key and secret, and the connection string. The probe fingerprint is an HMAC-SHA256 of the connection settings, keyed with a random key that exists only in this process, so the secrets are never stored or logged in plain text. If that key cannot be created, a check is never shared and the cluster is probed again. A slower check does not overwrite a later result or a result from a newer cluster configuration, and a cluster that is deleted and created again under the same name is treated as a new check. A cluster that comes back is `active` again after the next check. The interval and the timeout have no config key.
+
+`GET /api/v1/clusters/{name}/status` runs one of those checks now. It answers HTTP 200 with `{"status":"active","message":"Cluster is reachable"}` when the cluster is reached. When the check fails or times out, it stores `unreachable` and answers HTTP 503. If the request is cancelled while it waits for a free probe slot, the stored status is left alone. Concurrent requests for the same cluster share the in-flight probe. Inactive and archived clusters are not probed; the call answers HTTP 200 with their stored status.
+
 **Replication Job Management**
 
 - `./mirror-cli jobs list`: List all replication jobs with status and performance metrics.
@@ -405,7 +420,8 @@ The system includes comprehensive compliance reporting capabilities:
 - **Web Dashboard**: Access compliance reports through the web interface at `http://localhost:8080` or `https://localhost:8080` (with TLS)
 - **Report Generation**: Generate daily, weekly, or monthly compliance reports in CSV format
 - **Audit Trails**: All reports include detailed audit trails and security metrics
-- **Role-Based Access**: Only users with `compliance` role can generate and view reports
+- **Role-Based Access**: Users with the `admin` or `compliance` role can generate and view reports. The web UI hides the report buttons from other users
+- **Audit Trail Content**: The CSV audit trail lists every successful `POST`, `PUT`, `PATCH` and `DELETE` API request in the period, with the time in UTC, the user, the method and path, and the details. These are the same events as the activity log
 - **Token Validation**: Dashboard includes automatic token validation and logout for expired sessions
 
 Compliance features include:
