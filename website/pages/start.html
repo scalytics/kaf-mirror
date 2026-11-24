@@ -1,0 +1,79 @@
+    <section class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Quick start</p>
+        <h1>Run kaf-mirror with Docker or Helm.</h1>
+        <p class="lede">These commands are copied from the README. Paste them from a clone of the repository. The published <code>v1.3.1</code> image does not include the password file location or the image listen-address change, so build from this repository until a newer tag is published.</p>
+      </div>
+    </section>
+
+    <section class="section steps" id="docker">
+      <div class="wrap">
+        <h2>1. Run locally with Docker</h2>
+        <p>Start the app and two local Kafka brokers from the repo root:</p>
+<pre><code>make dev-up   # uses docker compose</code></pre>
+        <p>The UI and API are at <code>http://localhost:8080</code>. The compose file uses <code>configs/docker.yml</code>, which binds <code>0.0.0.0</code> so the published port answers. Production requires TLS unless <code>server.allow_insecure</code> is set.</p>
+        <p>Data and logs are in the Docker volumes <code>kaf-mirror_kaf-mirror-data</code> (<code>/app/data</code>) and <code>kaf-mirror_kaf-mirror-logs</code> (<code>/app/logs</code>). They are kept when the container restarts or is recreated.</p>
+        <p>On first start, the server seeds roles and permissions and creates <code>admin@localhost</code> with a random password. The password is not printed. The server writes it to a file named <code>kaf-mirror-bootstrap-&lt;random&gt;</code> in the database directory and prints the file path in the log. In the container that directory is <code>/app/data</code>. Read the password, deliver it securely, then delete the file:</p>
+<pre><code>docker compose -p kaf-mirror logs kaf-mirror | grep "Password File"
+docker compose -p kaf-mirror exec kaf-mirror sh -c 'cat /app/data/kaf-mirror-bootstrap-*'
+docker compose -p kaf-mirror exec kaf-mirror sh -c 'rm /app/data/kaf-mirror-bootstrap-*'</code></pre>
+        <p>Stop and clean. This also deletes the data and log volumes:</p>
+<pre><code>make dev-down</code></pre>
+        <p>If you need to recreate roles or bootstrap again when the DB is empty:</p>
+<pre><code>docker compose -p kaf-mirror exec kaf-mirror ./admin-cli repair</code></pre>
+        <p>To reset the initial admin password, <code>admin-cli</code> writes the new password to <code>/tmp/kaf-mirror-admin-reset-&lt;random&gt;</code> in the container and prints that path:</p>
+<pre><code>docker compose -p kaf-mirror exec kaf-mirror ./admin-cli reset-admin-password admin@localhost
+docker compose -p kaf-mirror exec kaf-mirror sh -c 'cat /tmp/kaf-mirror-admin-reset-*'
+docker compose -p kaf-mirror exec kaf-mirror sh -c 'rm /tmp/kaf-mirror-admin-reset-*'</code></pre>
+      </div>
+    </section>
+
+    <section class="section steps" id="image">
+      <div class="wrap">
+        <h2>1b. Run an image you build</h2>
+        <p>Until a newer tag is published, build and run locally. Keep <code>/app/data</code> and <code>/app/logs</code> on named volumes so they survive a restart or a new container:</p>
+<pre><code>docker build -t kaf-mirror:local .
+docker run -d --name kaf-mirror -p 8080:8080 \
+  -v kaf-mirror-data:/app/data \
+  -v kaf-mirror-logs:/app/logs \
+  kaf-mirror:local</code></pre>
+        <p><code>make docker-run</code> does the same, in the foreground, with the local <code>kaf-mirror:latest</code> tag. After a newer image is published, replace <code>kaf-mirror:local</code> with <code>ghcr.io/scalytics/kaf-mirror:&lt;tag&gt;</code>. You can also use the <code>latest</code> tag once it includes this change:</p>
+<pre><code>docker pull ghcr.io/scalytics/kaf-mirror:latest</code></pre>
+        <p>The UI and API will be at <code>http://localhost:8080</code>:</p>
+<pre><code>curl -s http://localhost:8080/health</code></pre>
+        <p>Stop the container with <code>docker stop -t 45 kaf-mirror</code>, so it has time to stop its jobs.</p>
+        <p>The image sets <code>KAF_MIRROR_SERVER_HOST=0.0.0.0</code>, so the server listens on all container interfaces. The image runs in <code>development</code> mode. If you mount a config with <code>mode: "production"</code>, give it TLS or set <code>server.allow_insecure</code>.</p>
+        <p>Read the bootstrap admin password, then delete the file:</p>
+<pre><code>docker logs kaf-mirror | grep "Password File"
+docker exec kaf-mirror sh -c 'cat /app/data/kaf-mirror-bootstrap-*'
+docker exec kaf-mirror sh -c 'rm /app/data/kaf-mirror-bootstrap-*'</code></pre>
+      </div>
+    </section>
+
+    <section class="section steps" id="helm">
+      <div class="wrap">
+        <h2>2. Run with Helm</h2>
+        <p>The Helm chart is in <code>deploy/helm/kaf-mirror</code>. A default install starts and answers <code>/health</code>. The chart's default image tag is <code>v1.3.1</code>. Until a newer tag is published, build the image from this repository, make it available to the cluster, and point the chart at it:</p>
+<pre><code>docker build -t kaf-mirror:local .
+cat &gt; km-values.yaml &lt;&lt;'VALUES'
+image:
+  repository: kaf-mirror
+  tag: local
+  pullPolicy: IfNotPresent
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml --wait
+kubectl port-forward svc/km-kaf-mirror 8088:8088</code></pre>
+        <p>Pass <code>-f km-values.yaml</code> first on every later <code>helm upgrade</code>, followed by the values files of the other settings you use. Helm does not keep values from an earlier upgrade, so an upgrade without <code>km-values.yaml</code> goes back to the default image.</p>
+        <p>In another terminal:</p>
+<pre><code>curl -s http://localhost:8088/health</code></pre>
+        <p>The bootstrap password is written to <code>/app/data/kaf-mirror-bootstrap-&lt;random&gt;</code> on the PVC. Read it with <code>kubectl exec deploy/km-kaf-mirror -- sh -c 'cat /app/data/kaf-mirror-bootstrap-*'</code>, then delete the file.</p>
+        <ul>
+          <li><strong>TLS:</strong> by default the server runs without TLS (<code>config.server.allowInsecure: true</code>). For production, create a TLS Secret, set <code>config.server.tls.existingSecret</code> to its name and <code>config.server.allowInsecure</code> to <code>false</code>.</li>
+          <li><strong>Kafka TLS:</strong> for a private CA or mTLS to the brokers, put the files in a Secret and set <code>kafkaTLS.existingSecret</code>. The Secret is mounted at <code>/app/kafka-tls</code>.</li>
+          <li><strong>Tokens:</strong> <code>secretEnv</code> sets <code>KAF_MIRROR_AI_TOKEN</code>, <code>KAF_MIRROR_AI_API_SECRET</code> or <code>KAF_MIRROR_MONITORING_SPLUNK_HEC_TOKEN</code> from a Secret key. Do not pass secrets with <code>--set</code>.</li>
+          <li><strong>AI:</strong> off by default. Set <code>config.ai.provider</code> to turn it on.</li>
+          <li><strong>Upgrades:</strong> the Deployment uses the <code>Recreate</code> strategy, because SQLite on a ReadWriteOnce volume must not be opened by two pods. Keep one replica.</li>
+        </ul>
+        <p>All values are listed in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/deploy/helm/kaf-mirror/README.md" rel="noopener noreferrer">Helm chart README</a>.</p>
+      </div>
+    </section>

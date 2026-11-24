@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="kaf-mirror">
+  <rect width="32" height="32" rx="7" fill="#0c4a6e"/>
+  <rect x="6.5" y="7.5" width="13" height="13" rx="2.2" fill="none" stroke="#18c6ac" stroke-width="2"/>
+  <rect x="12.5" y="11.5" width="13" height="13" rx="2.2" fill="#0c4a6e" stroke="#f7f6f2" stroke-width="2"/>
+</svg>

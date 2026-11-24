@@ -77,3 +77,9 @@ scripts/archive-tags.sh
 
 # Release build output
 /dist/
+
+# Generated project website
+_site/
+
+# Python bytecode
+__pycache__/
