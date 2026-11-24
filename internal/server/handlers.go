@@ -507,6 +507,14 @@ func validateClusterRow(cluster database.KafkaCluster) error {
 	return kafka.ValidateSecurity(database.ClusterConfigFromRow(cluster))
 }
 
+func (s *Server) jobByID(c *fiber.Ctx) (*database.ReplicationJob, error) {
+	job, err := database.GetJob(s.Db, c.Params("id"))
+	if err != nil {
+		return nil, fiber.NewError(fiber.StatusNotFound, "Job not found")
+	}
+	return job, nil
+}
+
 // handleListJobs godoc
 // @Summary List all replication jobs
 // @Description Get a list of all replication jobs.
@@ -691,6 +699,9 @@ func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
 // @Router /jobs/{id} [delete]
 // @Security ApiKeyAuth
 func (s *Server) handleDeleteJob(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	id := c.Params("id")
 	if err := s.manager.StopJob(id); err != nil {
 		log.Printf("Stopping job %s before delete: %v", id, err)
@@ -710,6 +721,9 @@ func (s *Server) handleDeleteJob(c *fiber.Ctx) error {
 // @Router /jobs/{id}/start [post]
 // @Security ApiKeyAuth
 func (s *Server) handleStartJob(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	if err := s.manager.StartJob(c.Params("id")); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -725,6 +739,9 @@ func (s *Server) handleStartJob(c *fiber.Ctx) error {
 // @Router /jobs/{id}/stop [post]
 // @Security ApiKeyAuth
 func (s *Server) handleStopJob(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	if err := s.manager.StopJob(c.Params("id")); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -740,6 +757,9 @@ func (s *Server) handleStopJob(c *fiber.Ctx) error {
 // @Router /jobs/{id}/pause [post]
 // @Security ApiKeyAuth
 func (s *Server) handlePauseJob(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	if err := s.manager.PauseJob(c.Params("id")); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -788,6 +808,9 @@ func (s *Server) handleStopAllJobs(c *fiber.Ctx) error {
 // @Router /jobs/{id}/restart [post]
 // @Security ApiKeyAuth
 func (s *Server) handleRestartJob(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	if err := s.manager.RestartJob(c.Params("id")); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -803,6 +826,9 @@ func (s *Server) handleRestartJob(c *fiber.Ctx) error {
 // @Router /jobs/{id}/force-restart [post]
 // @Security ApiKeyAuth
 func (s *Server) handleForceRestartJob(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	if err := s.manager.ForceRestartJob(c.Params("id")); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -816,9 +842,13 @@ func (s *Server) handleForceRestartJob(c *fiber.Ctx) error {
 // @Produce json
 // @Param id path string true "Job ID"
 // @Success 200 {array} kafka.TopicHealth
+// @Failure 404 {object} map[string]interface{}
 // @Router /jobs/{id}/topic-health [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetJobTopicHealth(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 	health, err := s.manager.GetJobTopicHealth(jobID)
 	if err != nil {
@@ -908,6 +938,9 @@ func (s *Server) handleListTargetTopics(c *fiber.Ctx) error {
 // @Router /jobs/{id}/mappings [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetMappings(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 	mappings, err := database.GetMappingsForJob(s.Db, jobID)
 	if err != nil {
@@ -928,6 +961,9 @@ func (s *Server) handleGetMappings(c *fiber.Ctx) error {
 // @Router /jobs/{id}/mappings [put]
 // @Security ApiKeyAuth
 func (s *Server) handleUpdateMappings(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 	var mappings []database.TopicMapping
 	if err := c.BodyParser(&mappings); err != nil {
@@ -957,6 +993,9 @@ func (s *Server) handleUpdateMappings(c *fiber.Ctx) error {
 // @Router /jobs/{id}/metrics/current [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetCurrentMetrics(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 	metrics, err := database.GetLatestMetrics(s.Db, jobID)
 	if err != nil {
@@ -976,6 +1015,9 @@ func (s *Server) handleGetCurrentMetrics(c *fiber.Ctx) error {
 // @Router /jobs/{id}/metrics/history [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetHistoricalMetrics(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 	timeRange := c.Query("range", "2h") // Default to 2h
 
@@ -1182,14 +1224,14 @@ func (s *Server) handleTestAIIntegration(c *fiber.Ctx) error {
 // @Router /jobs/{id}/ai/analyze [post]
 // @Security ApiKeyAuth
 func (s *Server) handleTriggerJobAIAnalysis(c *fiber.Ctx) error {
+	job, err := s.jobByID(c)
+	if err != nil {
+		return err
+	}
 	if !s.aiClient.Enabled() {
 		return fiber.NewError(fiber.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
 	}
-	jobID := c.Params("id")
-	job, err := database.GetJob(s.Db, jobID)
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Job not found")
-	}
+	jobID := job.ID
 
 	go func() {
 		// Trigger comprehensive analysis using the new manager method
@@ -1212,6 +1254,9 @@ func (s *Server) handleTriggerJobAIAnalysis(c *fiber.Ctx) error {
 // @Router /jobs/{id}/ai/insights [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetJobAIInsights(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 	limit, _ := strconv.Atoi(c.Query("limit", "0"))
 	insights, err := database.ListAIInsights(s.Db, "", &jobID, limit)
@@ -1232,14 +1277,14 @@ func (s *Server) handleGetJobAIInsights(c *fiber.Ctx) error {
 // @Router /jobs/{id}/ai/historical-analysis [post]
 // @Security ApiKeyAuth
 func (s *Server) handleTriggerHistoricalAnalysis(c *fiber.Ctx) error {
+	job, err := s.jobByID(c)
+	if err != nil {
+		return err
+	}
 	if !s.aiClient.Enabled() {
 		return fiber.NewError(fiber.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
 	}
-	jobID := c.Params("id")
-	job, err := database.GetJob(s.Db, jobID)
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Job not found")
-	}
+	jobID := job.ID
 
 	periodStr := c.Query("period", "7d")
 	periodDays, err := strconv.Atoi(strings.TrimSuffix(periodStr, "d"))
@@ -2004,6 +2049,9 @@ func (s *Server) validateTokenDetailed(tokenString string) (*database.User, erro
 // @Router /jobs/{id}/inventory/snapshots [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetJobInventorySnapshots(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 	snapshots, err := database.GetInventorySnapshots(s.Db, jobID)
 	if err != nil {
@@ -2221,6 +2269,9 @@ func (s *Server) handleGetConnectionInventory(c *fiber.Ctx) error {
 // @Router /jobs/{id}/mirror/state [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetMirrorState(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 	period := c.Query("period")
 
@@ -2348,6 +2399,9 @@ func (s *Server) calculateTimeRange(period string) (time.Time, time.Time) {
 // @Router /jobs/{id}/mirror/progress [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetMirrorProgress(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 
 	progress, err := database.GetMirrorProgress(s.Db, jobID)
@@ -2371,6 +2425,9 @@ func (s *Server) handleGetMirrorProgress(c *fiber.Ctx) error {
 // @Router /jobs/{id}/mirror/resume-points [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetResumePoints(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 
 	resumePoints, err := database.GetResumePoints(s.Db, jobID)
@@ -2483,6 +2540,9 @@ func (s *Server) handleCalculateResumePoints(c *fiber.Ctx) error {
 // @Router /jobs/{id}/mirror/gaps [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetMirrorGaps(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 
 	gaps, err := database.GetMirrorGaps(s.Db, jobID)
@@ -2589,6 +2649,9 @@ func (s *Server) handleValidateMigration(c *fiber.Ctx) error {
 // @Router /jobs/{id}/mirror/checkpoint [post]
 // @Security ApiKeyAuth
 func (s *Server) handleCreateMigrationCheckpoint(c *fiber.Ctx) error {
+	if _, err := s.jobByID(c); err != nil {
+		return err
+	}
 	jobID := c.Params("id")
 
 	var request struct {

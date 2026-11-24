@@ -2353,6 +2353,13 @@ const docTemplate = `{
                                 "$ref": "#/definitions/kafka.TopicHealth"
                             }
                         }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }

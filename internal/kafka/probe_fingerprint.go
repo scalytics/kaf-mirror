@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 
 	"kaf-mirror/internal/config"
@@ -49,13 +50,30 @@ func ProbeFingerprint(cfg config.ClusterConfig) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return probeFingerprintWithKey(cfg, key[:]), true
+	return probeFingerprintWithKey(cfg, key[:])
 }
 
-func probeFingerprintWithKey(cfg config.ClusterConfig, key []byte) string {
+func probeFingerprintWithKey(cfg config.ClusterConfig, key []byte) (string, bool) {
+	payload, ok := canonicalClusterConfig(cfg, key)
+	if !ok {
+		return "", false
+	}
 	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write(canonicalClusterConfig(cfg))
-	return hex.EncodeToString(mac.Sum(nil))
+	_, _ = mac.Write(payload)
+	return hex.EncodeToString(mac.Sum(nil)), true
+}
+
+func hmacTLSFile(path string, key []byte) (string, bool) {
+	if path == "" {
+		return "", true
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(data)
+	return hex.EncodeToString(mac.Sum(nil)), true
 }
 
 func suspendProbeMACKeyForTest() func() {
@@ -70,10 +88,17 @@ func suspendProbeMACKeyForTest() func() {
 	}
 }
 
-func canonicalClusterConfig(cfg config.ClusterConfig) []byte {
+func canonicalClusterConfig(cfg config.ClusterConfig, key []byte) ([]byte, bool) {
 	b, err := json.Marshal(cfg)
 	if err != nil {
-		return []byte(fmt.Sprintf("%#v", cfg))
+		b = []byte(fmt.Sprintf("%#v", cfg))
 	}
-	return b
+	for _, path := range []string{cfg.Security.CAFile, cfg.Security.CertFile, cfg.Security.KeyFile} {
+		digest, ok := hmacTLSFile(path, key)
+		if !ok {
+			return nil, false
+		}
+		b = append(b, digest...)
+	}
+	return b, true
 }

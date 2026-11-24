@@ -137,7 +137,61 @@ func TestResetPasswordPrintsTheTempPasswordFile(t *testing.T) {
 	if err != nil || string(got) != resetPassword+"\n" {
 		t.Fatalf("temp password file %q %v", got, err)
 	}
+	info, err := os.Stat(m[1])
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("temp password file mode %v %v, want 0600", info.Mode().Perm(), err)
+	}
 	if strings.Contains(out, resetPassword) {
 		t.Fatalf("output prints the password:\n%s", out)
+	}
+}
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("go.mod not found")
+		}
+		dir = parent
+	}
+}
+
+func TestCommittedCLIDocsHaveNoEmptyShorthand(t *testing.T) {
+	root := repoRoot(t)
+	roots := []string{filepath.Join(root, "docs"), filepath.Join(root, "web", "docu")}
+	var files []string
+	for _, dir := range roots {
+		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			if strings.Contains(path, "cli-commands") {
+				files = append(files, path)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(files) == 0 {
+		t.Fatal("no cli-commands docs found")
+	}
+	for _, path := range files {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "  -, --") {
+			t.Errorf("%s still renders a flag without shorthand as \"-, --\"", path)
+		}
 	}
 }

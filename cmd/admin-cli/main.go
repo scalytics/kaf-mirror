@@ -116,6 +116,29 @@ func newImportDatabaseCmd(dbPath *string) *cobra.Command {
 	}
 }
 
+func newAddUserCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add [username]",
+		Short: "Add a new user to the database.",
+		Long:  `This command adds a new user directly to the database. It asks for the password without echo, or reads the first line of stdin when there is no terminal.`,
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			password, err := readPassword("Password:")
+			if err != nil {
+				log.Fatalf("Password is required: %v", err)
+			}
+			isInitial, _ := cmd.Flags().GetBool("initial")
+			user, err := database.CreateUser(db, args[0], password, isInitial)
+			if err != nil {
+				log.Fatalf("Failed to create user: %v", err)
+			}
+			fmt.Printf("User created successfully: %s (ID: %d)\n", user.Username, user.ID)
+		},
+	}
+	cmd.Flags().Bool("initial", false, "Set user as initial admin")
+	return cmd
+}
+
 func main() {
 	var dbPath string
 
@@ -150,30 +173,7 @@ and for emergency maintenance. It interacts directly with the database.`,
 		Long:  `The users command allows you to add and list users directly in the database. This is useful for initial setup and recovery.`,
 	}
 
-	var addUserCmd = &cobra.Command{
-		Use:   "add [username]",
-		Short: "Add a new user to the database.",
-		Long:  `This command adds a new user directly to the database. It asks for the password without echo when --password is not set.`,
-		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			password, _ := cmd.Flags().GetString("password")
-			if password == "" {
-				var err error
-				password, err = readPassword("Password:")
-				if err != nil {
-					log.Fatalf("Password is required: %v", err)
-				}
-			}
-			isInitial, _ := cmd.Flags().GetBool("initial")
-			user, err := database.CreateUser(db, args[0], password, isInitial)
-			if err != nil {
-				log.Fatalf("Failed to create user: %v", err)
-			}
-			fmt.Printf("User created successfully: %s (ID: %d)\n", user.Username, user.ID)
-		},
-	}
-	addUserCmd.Flags().String("password", "", "User's password. Leave it out to be asked for it without echo")
-	addUserCmd.Flags().Bool("initial", false, "Set user as initial admin")
+	addUserCmd := newAddUserCmd()
 
 	var listUsersCmd = &cobra.Command{
 		Use:   "list",

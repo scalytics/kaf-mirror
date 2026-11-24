@@ -4,10 +4,10 @@
 *.dll
 *.so
 *.dylib
-admin-cli
+/admin-cli
 /kaf-mirror
 /main
-mirror-cli
+/mirror-cli
 mirror-cli-*
 kaf-mirror-*
 admin-cli-*

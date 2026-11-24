@@ -412,7 +412,7 @@ mirror-cli docs generate [flags]
 ### Options
 
 ```
-  -, --file string   Output file for documentation (default "docs/cli-commands.md")
+      --file string   Output file for documentation (default "docs/cli-commands.md")
 ```
 
 ### mirror-cli jobs
@@ -466,7 +466,7 @@ mirror-cli jobs analyze [job-id] [flags]
 ### Options
 
 ```
-  -, --period string   Analysis period (e.g., 7d, 30d) (default "7d")
+      --period string   Analysis period (e.g., 7d, 30d) (default "7d")
 ```
 
 #### mirror-cli jobs delete
@@ -560,13 +560,7 @@ mirror-cli jobs stop [job-id]
 ### Usage
 
 ```
-mirror-cli login [username] [flags]
-```
-
-### Options
-
-```
-  -, --password string   User's password
+mirror-cli login [username]
 ```
 
 ### mirror-cli logout
@@ -677,13 +671,7 @@ This command adds a new user with the specified username and password.
 ### Usage
 
 ```
-mirror-cli users add [flags]
-```
-
-### Options
-
-```
-  -, --password string   User's password
+mirror-cli users add
 ```
 
 #### mirror-cli users change-password

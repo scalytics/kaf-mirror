@@ -2280,6 +2280,11 @@ paths:
             items:
               $ref: '#/definitions/kafka.TopicHealth'
             type: array
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Get topic health for a job

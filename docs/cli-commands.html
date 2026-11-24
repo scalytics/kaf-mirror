@@ -203,7 +203,7 @@
 <br>
 <h2 id="global-options">Global Options</h2>
 <br>
-<pre><code>  -, --mirror-url string   URL of the kaf-mirror backend. (default &#34;http://localhost:8080&#34;)
+<pre><code>      --mirror-url string   URL of the kaf-mirror backend. (default &#34;http://localhost:8080&#34;)
   -v, --version   Print the version and exit
 </pre>
 <br>
@@ -736,7 +736,7 @@
 <br>
 <h3 id="options">Options</h3>
 <br>
-<pre><code>  -, --file string   Output file for documentation (default &#34;docs/cli-commands.md&#34;)
+<pre><code>      --file string   Output file for documentation (default &#34;docs/cli-commands.md&#34;)
 </pre>
 <br>
 <h3 id="mirror-cli-jobs">mirror-cli jobs</h3>
@@ -788,7 +788,7 @@
 <br>
 <h3 id="options">Options</h3>
 <br>
-<pre><code>  -, --period string   Analysis period (e.g., 7d, 30d) (default &#34;7d&#34;)
+<pre><code>      --period string   Analysis period (e.g., 7d, 30d) (default &#34;7d&#34;)
 </pre>
 <br>
 <h4 id="mirror-cli-jobs-delete">mirror-cli jobs delete</h4>
@@ -923,12 +923,7 @@
 <br>
 <h3 id="usage">Usage</h3>
 <br>
-<pre><code>mirror-cli login [username] [flags]
-</pre>
-<br>
-<h3 id="options">Options</h3>
-<br>
-<pre><code>  -, --password string   User&#39;s password
+<pre><code>mirror-cli login [username]
 </pre>
 <br>
 <h3 id="mirror-cli-logout">mirror-cli logout</h3>
@@ -1031,12 +1026,7 @@
 <br>
 <h3 id="usage">Usage</h3>
 <br>
-<pre><code>mirror-cli users add [flags]
-</pre>
-<br>
-<h3 id="options">Options</h3>
-<br>
-<pre><code>  -, --password string   User&#39;s password
+<pre><code>mirror-cli users add
 </pre>
 <br>
 <h4 id="mirror-cli-users-change-password">mirror-cli users change-password</h4>
@@ -1083,7 +1073,7 @@
 <br>
 <h3 id="options">Options</h3>
 <br>
-<pre><code>  -, --password-file string   Write new password to file instead of stdout
+<pre><code>      --password-file string   File for the new password, created with mode 0600. Default: a new file in the temp directory
 </pre>
 <br>
 <h4 id="mirror-cli-users-reset-token">mirror-cli users reset-token</h4>
