@@ -28,7 +28,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
-const topicIDCheckEvery = 10 * time.Second
+const (
+	topicIDCheckEvery = 10 * time.Second
+	topicRejoinWait   = 30 * time.Second
+)
 
 type topicID [16]byte
 
@@ -40,6 +43,7 @@ type topicIDState struct {
 	mu          sync.Mutex
 	known       map[string]topicID
 	watched     map[string]bool
+	revokeWait  chan struct{}
 	missing     map[string]time.Time
 	check       chan struct{}
 	every       time.Duration
@@ -290,7 +294,25 @@ func (c *Consumer) switchTopic(ctx context.Context, topic string, old, id topicI
 			return
 		}
 	}
+	revoked := make(chan struct{})
+	c.topicIDs.mu.Lock()
+	c.topicIDs.revokeWait = revoked
+	c.topicIDs.mu.Unlock()
 	c.Client.PurgeTopicsFromConsuming(topic)
+	logger.Info("Consumer: waiting for the consumer group to drop topic %s before it reads the topic again, job=%s", topic, c.jobID)
+	timer := time.NewTimer(topicRejoinWait)
+	select {
+	case <-revoked:
+	case <-timer.C:
+		logger.Warn("Consumer: the consumer group did not end its session within %s after topic %s was dropped, adding the topic again anyway, job=%s", topicRejoinWait, topic, c.jobID)
+	case <-ctx.Done():
+	}
+	timer.Stop()
+	c.topicIDs.mu.Lock()
+	if c.topicIDs.revokeWait == revoked {
+		c.topicIDs.revokeWait = nil
+	}
+	c.topicIDs.mu.Unlock()
 	c.Client.AddConsumeTopics(topic)
 
 	c.mu.Lock()
@@ -350,4 +372,13 @@ func (c *Consumer) earliestOffsets(ctx context.Context, topic string, partitions
 		return nil, fmt.Errorf("got start offsets for %d of %d partitions", len(starts), len(t.Partitions))
 	}
 	return starts, nil
+}
+
+func (c *Consumer) sessionEnded() {
+	c.topicIDs.mu.Lock()
+	defer c.topicIDs.mu.Unlock()
+	if c.topicIDs.revokeWait != nil {
+		close(c.topicIDs.revokeWait)
+		c.topicIDs.revokeWait = nil
+	}
 }

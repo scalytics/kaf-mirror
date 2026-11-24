@@ -51,6 +51,11 @@ type recreateRig struct {
 }
 
 func newRecreateRig(t *testing.T) *recreateRig {
+	return newRecreateRigWithAssign(t, nil)
+}
+
+func newRecreateRigWithAssign(t *testing.T, onAssigned func()) *recreateRig {
+	consumer := kafka.NewConsumerForTest(nil, nil)
 	cluster, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(2, "kin"))
 	require.NoError(t, err)
 	t.Cleanup(cluster.Close)
@@ -64,6 +69,18 @@ func newRecreateRig(t *testing.T) *recreateRig {
 		kgo.DisableAutoCommit(),
 		kgo.MetadataMinAge(10*time.Millisecond),
 		kgo.MetadataMaxAge(100*time.Millisecond),
+		kgo.OnPartitionsAssigned(func(_ context.Context, _ *kgo.Client, assigned map[string][]int32) {
+			consumer.AssignPartitions(assigned)
+			if onAssigned != nil {
+				onAssigned()
+			}
+		}),
+		kgo.OnPartitionsRevoked(func(_ context.Context, _ *kgo.Client, revoked map[string][]int32) {
+			consumer.RevokePartitions(revoked)
+		}),
+		kgo.OnPartitionsLost(func(_ context.Context, _ *kgo.Client, lost map[string][]int32) {
+			consumer.RevokePartitions(lost)
+		}),
 	)
 	require.NoError(t, err)
 	t.Cleanup(client.Close)
@@ -76,7 +93,7 @@ func newRecreateRig(t *testing.T) *recreateRig {
 	}))
 	t.Cleanup(func() { logger.SetOutput(io.Discard) })
 
-	r.consumer = kafka.NewConsumerForTest(nil, nil)
+	r.consumer = consumer
 	r.consumer.Client = client
 	r.consumer.SetWatchedTopicsForTest("kin")
 	r.consumer.SetTopicCheckIntervalForTest(20 * time.Millisecond)
@@ -199,7 +216,7 @@ func TestDeletedSourceTopicIsReportedUntilItIsCreatedAgain(t *testing.T) {
 	assert.Empty(t, metrics.MissingTopics)
 }
 
-func TestTopicIDFromMetadataAtStartFollowsARecreatedTopic(t *testing.T) {
+func TestRecreatedSourceTopicWithNoRecordsSwitchesToTheNewTopicID(t *testing.T) {
 	r := newRecreateRig(t)
 	require.Eventually(t, func() bool {
 		_, ok := r.consumer.TopicIDForTest("kin")
@@ -208,8 +225,6 @@ func TestTopicIDFromMetadataAtStartFollowsARecreatedTopic(t *testing.T) {
 	oldID, ok := r.consumer.TopicIDForTest("kin")
 	require.True(t, ok)
 	assert.Equal(t, r.topicID(), oldID)
-	r.produce("old-0")
-	r.waitFor("old-0")
 
 	r.deleteTopic()
 	r.createTopic()
@@ -289,6 +304,7 @@ func scriptedTopicConsumer(script *pollScript, meta *metadataScript) *kafka.Cons
 			meta.mu.Lock()
 			meta.purged = append(meta.purged, topics...)
 			meta.mu.Unlock()
+			consumer.RevokePartitions(nil)
 		},
 		CommitRecordsFunc: func(_ context.Context, rs ...*kgo.Record) error {
 			meta.mu.Lock()
@@ -536,4 +552,37 @@ func TestLateRecordsOfTheOldTopicDoNotCommitOverTheReset(t *testing.T) {
 	for _, r := range meta.commits() {
 		assert.NotEqual(t, int64(7), r.Offset, "a record of the deleted topic must not commit over the reset")
 	}
+}
+
+func TestSwitchDuringTheFirstRebalanceReadsTheNewTopic(t *testing.T) {
+	var first sync.Once
+	entered := make(chan struct{})
+	var r *recreateRig
+	var ready atomic.Bool
+	release := func() bool {
+		return r.consumer.GetMetrics().TopicRecreations == 1 || strings.Contains(r.logText(), "waiting for the consumer group to drop topic kin")
+	}
+	r = newRecreateRigWithAssign(t, func() {
+		first.Do(func() {
+			close(entered)
+			for !ready.Load() || !release() {
+				runtime.Gosched()
+			}
+		})
+	})
+	<-entered
+	require.Eventually(t, func() bool {
+		_, ok := r.consumer.TopicIDForTest("kin")
+		return ok
+	}, 20*time.Second, time.Millisecond)
+	oldID, _ := r.consumer.TopicIDForTest("kin")
+
+	r.deleteTopic()
+	r.createTopic()
+	r.produce("new-0", "new-1", "new-2", "new-3")
+	require.NotEqual(t, oldID, r.topicID())
+	ready.Store(true)
+
+	r.waitFor("new-0", "new-1", "new-2", "new-3")
+	assert.Equal(t, int64(1), r.consumer.GetMetrics().TopicRecreations)
 }
