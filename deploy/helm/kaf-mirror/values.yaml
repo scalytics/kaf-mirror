@@ -65,6 +65,13 @@ persistence:
   storageClass: ""
   size: 2Gi
 
+volumePermissions:
+  enabled: false
+  image:
+    repository: busybox
+    tag: "1.37"
+    pullPolicy: IfNotPresent
+
 resources:
   limits:
     cpu: 500m

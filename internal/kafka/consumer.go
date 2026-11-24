@@ -506,7 +506,7 @@ func (c *Consumer) releasePartitions(ctxs map[topicPartition]context.Context) {
 }
 
 func (c *Consumer) RevokePartitions(revoked map[string][]int32) {
-	defer c.sessionEnded()
+	defer c.sessionEnded(revoked)
 	c.partMu.Lock()
 	defer c.partMu.Unlock()
 	if c.revoked == nil {

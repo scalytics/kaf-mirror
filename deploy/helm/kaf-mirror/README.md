@@ -23,6 +23,8 @@ kubectl port-forward svc/km-kaf-mirror 8088:8088
 
 The `kubectl get` line prints `kaf-mirror:local`.
 
+On kind or k3s with the default `local-path` provisioner, also pass `-f volume-permissions-values.yaml`. See "Storage permissions".
+
 Each section below writes its own values file and adds it after `km-values.yaml`. Helm does not keep values from an earlier upgrade, so pass every values file you use on each upgrade, in the same order. For example, with TLS and the Secret example:
 
 ```bash
@@ -59,11 +61,31 @@ kubectl exec deploy/km-kaf-mirror -- sh -c 'rm /tmp/kaf-mirror-admin-reset-*'
 
 The pod runs as UID 100 and GID 101 with `fsGroup` 101. kaf-mirror needs write access to `/app/data`, as the owner or through group 101. With storage that honors `fsGroup`, the volume root belongs to group 101 and the default chart works. Most CSI drivers for block storage do, for example the AWS EBS, GCE PD and Azure Disk drivers.
 
-kaf-mirror refuses to start when `/app/data` belongs to another user and every user can write to it without the sticky bit, because any user could then replace the database files. The log names the directory, its mode and its owner. The `local-path` provisioner of kind and k3s does not honor `fsGroup`. It creates the directory as `root:root` with mode `0777`, so the default chart does not start on it. Use storage that honors `fsGroup`, or a pre-created volume that belongs to UID 100 and GID 101. On kind, create the directory on the node and a PersistentVolume for it, then install the chart with the matching storage class:
+kaf-mirror refuses to start when `/app/data` belongs to another user and every user can write to it without the sticky bit, because any user could then replace the database files. The log names the directory, its mode and its owner. The `local-path` provisioner of kind and k3s does not honor `fsGroup`. It creates the directory as `root:root` with mode `0777`, so the default chart does not start on it. On those clusters, enable `volumePermissions`. A root init container then gives `/app/data` to UID 100 and GID 101 and sets mode `0770`. kaf-mirror owns the directory after that and sets it to mode `0700`:
+
+```bash
+cat > volume-permissions-values.yaml <<'VALUES'
+volumePermissions:
+  enabled: true
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f volume-permissions-values.yaml --wait
+```
+
+The init container uses the `busybox` image, runs as root, and only adds the `CHOWN`, `FOWNER` and `DAC_OVERRIDE` capabilities. Storage that honors `fsGroup` does not need it.
+
+A pre-created volume that belongs to UID 100 and GID 101 also works, without the init container. On kind, create the directory on the node, a StorageClass and a PersistentVolume for it, then install the chart with the matching storage class:
 
 ```bash
 docker exec kind-control-plane sh -c 'mkdir -p /var/lib/kaf-mirror && chown 100:101 /var/lib/kaf-mirror && chmod 0770 /var/lib/kaf-mirror'
 kubectl apply -f - <<'YAML'
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: kaf-mirror-manual
+provisioner: kubernetes.io/no-provisioner
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+---
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -73,6 +95,7 @@ spec:
     storage: 2Gi
   accessModes: [ReadWriteOnce]
   storageClassName: kaf-mirror-manual
+  persistentVolumeReclaimPolicy: Retain
   hostPath:
     path: /var/lib/kaf-mirror
     type: Directory
@@ -261,6 +284,8 @@ helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f shutdown-v
 | `persistence.enabled` | `true` | Keep `/app/data` on a PVC. With `false`, data is lost when the pod is replaced. |
 | `persistence.storageClass` | `""` | StorageClass of the PVC. Empty uses the cluster default. |
 | `persistence.size` | `2Gi` | PVC size. |
+| `volumePermissions.enabled` | `false` | Run a root init container that gives `/app/data` to UID 100 and GID 101 and sets mode `0770`. Use this on kind or k3s `local-path` storage, which does not honor `fsGroup`. See "Storage permissions". |
+| `volumePermissions.image` | `busybox:1.37`, `IfNotPresent` | Image of the init container. |
 | `resources` | see `values.yaml` | Container resources. |
 | `probes.liveness` | `initialDelaySeconds: 15`, `periodSeconds: 20` | Liveness probe timing. The probe checks `/health` on the `http` port. |
 | `probes.readiness` | `initialDelaySeconds: 5`, `periodSeconds: 10` | Readiness probe timing. The probe checks `/health` on the `http` port. |

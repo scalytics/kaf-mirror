@@ -244,6 +244,7 @@ type metadataScript struct {
 	requests  int
 	answer    func(n int) (topicID [16]byte, code int16)
 	purged    []string
+	added     []string
 	committed []*kgo.Record
 }
 
@@ -295,7 +296,17 @@ func (m *metadataScript) purges() []string {
 	return append([]string(nil), m.purged...)
 }
 
+func (m *metadataScript) adds() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.added...)
+}
+
 func scriptedTopicConsumer(script *pollScript, meta *metadataScript) *kafka.Consumer {
+	return scriptedTopicConsumerRevoke(script, meta, true)
+}
+
+func scriptedTopicConsumerRevoke(script *pollScript, meta *metadataScript, autoRevoke bool) *kafka.Consumer {
 	consumer := kafka.NewConsumerForTest(nil, nil)
 	consumer.Client = &mocks.MockKgoClient{
 		PollFetchesFunc: script.poll,
@@ -304,7 +315,19 @@ func scriptedTopicConsumer(script *pollScript, meta *metadataScript) *kafka.Cons
 			meta.mu.Lock()
 			meta.purged = append(meta.purged, topics...)
 			meta.mu.Unlock()
-			consumer.RevokePartitions(nil)
+			if !autoRevoke {
+				return
+			}
+			lost := make(map[string][]int32, len(topics))
+			for _, topic := range topics {
+				lost[topic] = nil
+			}
+			consumer.RevokePartitions(lost)
+		},
+		AddConsumeTopicsFunc: func(topics ...string) {
+			meta.mu.Lock()
+			meta.added = append(meta.added, topics...)
+			meta.mu.Unlock()
 		},
 		CommitRecordsFunc: func(_ context.Context, rs ...*kgo.Record) error {
 			meta.mu.Lock()
@@ -585,4 +608,86 @@ func TestSwitchDuringTheFirstRebalanceReadsTheNewTopic(t *testing.T) {
 
 	r.waitFor("new-0", "new-1", "new-2", "new-3")
 	assert.Equal(t, int64(1), r.consumer.GetMetrics().TopicRecreations)
+}
+
+func TestSwitchDoesNotResubscribeWhenTheJobStops(t *testing.T) {
+	meta := &metadataScript{answer: func(int) ([16]byte, int16) { return topicIDNew, 0 }}
+	script := &pollScript{next: func(n int) kgo.Fetches {
+		switch n {
+		case 1:
+			return recordsWithID(topicIDKin, 5)
+		case 2:
+			return recordsWithID(topicIDNew, 0)
+		default:
+			return nil
+		}
+	}}
+	consumer := scriptedTopicConsumerRevoke(script, meta, false)
+	consumer.SetTopicRejoinWaitForTest(time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
+
+	require.Eventually(t, func() bool { return len(meta.purges()) > 0 }, 5*time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	assert.Empty(t, meta.adds())
+	assert.Equal(t, int64(0), consumer.GetMetrics().TopicRecreations)
+}
+
+func TestSwitchWaitsForTheDroppedTopicNotAnotherRevoke(t *testing.T) {
+	meta := &metadataScript{answer: func(int) ([16]byte, int16) { return topicIDNew, 0 }}
+	script := &pollScript{next: func(n int) kgo.Fetches {
+		switch n {
+		case 1:
+			return recordsWithID(topicIDKin, 5)
+		case 2:
+			return recordsWithID(topicIDNew, 0)
+		default:
+			return nil
+		}
+	}}
+	consumer := scriptedTopicConsumerRevoke(script, meta, false)
+	consumer.SetTopicRejoinWaitForTest(time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
+
+	require.Eventually(t, func() bool { return len(meta.purges()) > 0 }, 5*time.Second, time.Millisecond)
+	consumer.RevokePartitions(map[string][]int32{"other": {0}})
+	require.Never(t, func() bool { return len(meta.adds()) > 0 }, 50*time.Millisecond, time.Millisecond)
+	consumer.RevokePartitions(map[string][]int32{"kin": {0}})
+	require.Eventually(t, func() bool {
+		return len(meta.adds()) > 0 && consumer.GetMetrics().TopicRecreations == 1
+	}, 5*time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	assert.Equal(t, []string{"kin"}, meta.adds())
+}
+
+func TestSwitchResubscribesAfterTheRevokeWaitTimesOut(t *testing.T) {
+	meta := &metadataScript{answer: func(int) ([16]byte, int16) { return topicIDNew, 0 }}
+	script := &pollScript{next: func(n int) kgo.Fetches {
+		switch n {
+		case 1:
+			return recordsWithID(topicIDKin, 5)
+		case 2:
+			return recordsWithID(topicIDNew, 0)
+		default:
+			return nil
+		}
+	}}
+	consumer := scriptedTopicConsumerRevoke(script, meta, false)
+	consumer.SetTopicRejoinWaitForTest(time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
+
+	require.Eventually(t, func() bool {
+		return len(meta.adds()) > 0 && consumer.GetMetrics().TopicRecreations == 1
+	}, 5*time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	assert.Equal(t, []string{"kin"}, meta.adds())
+	assert.Equal(t, []string{"kin"}, meta.purges())
 }

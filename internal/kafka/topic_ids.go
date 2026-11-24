@@ -44,9 +44,11 @@ type topicIDState struct {
 	known       map[string]topicID
 	watched     map[string]bool
 	revokeWait  chan struct{}
+	revokeTopic string
 	missing     map[string]time.Time
 	check       chan struct{}
 	every       time.Duration
+	rejoinWait  time.Duration
 	recreations int64
 }
 
@@ -177,6 +179,30 @@ func (c *Consumer) SetTopicCheckIntervalForTest(every time.Duration) {
 	c.topicIDs.every = every
 }
 
+func (c *Consumer) SetTopicRejoinWaitForTest(wait time.Duration) {
+	c.topicIDs.mu.Lock()
+	defer c.topicIDs.mu.Unlock()
+	c.topicIDs.rejoinWait = wait
+}
+
+func (c *Consumer) topicRejoinWait() time.Duration {
+	c.topicIDs.mu.Lock()
+	defer c.topicIDs.mu.Unlock()
+	if c.topicIDs.rejoinWait > 0 {
+		return c.topicIDs.rejoinWait
+	}
+	return topicRejoinWait
+}
+
+func (c *Consumer) clearRevokeWait(revoked chan struct{}) {
+	c.topicIDs.mu.Lock()
+	defer c.topicIDs.mu.Unlock()
+	if c.topicIDs.revokeWait == revoked {
+		c.topicIDs.revokeWait = nil
+		c.topicIDs.revokeTopic = ""
+	}
+}
+
 func (c *Consumer) watchTopicIDs(ctx context.Context) {
 	c.topicIDs.mu.Lock()
 	every := c.topicIDs.every
@@ -279,15 +305,16 @@ func (c *Consumer) switchTopic(ctx context.Context, topic string, old, id topicI
 		return
 	}
 	c.topicCommitMu.Lock()
-	defer c.topicCommitMu.Unlock()
 	c.topicIDs.mu.Lock()
 	if current, ok := c.topicIDs.known[topic]; ok && current == id {
 		c.topicIDs.mu.Unlock()
+		c.topicCommitMu.Unlock()
 		return
 	}
 	c.topicIDs.mu.Unlock()
 	if len(starts) > 0 {
 		if err := c.Client.CommitRecords(ctx, starts...); err != nil {
+			c.topicCommitMu.Unlock()
 			if ctx.Err() == nil {
 				logger.Warn("Consumer: source topic %s has the new topic ID %s, but the start offsets cannot be committed: %v. kaf-mirror tries again, job=%s", topic, id, err, c.jobID)
 			}
@@ -296,37 +323,39 @@ func (c *Consumer) switchTopic(ctx context.Context, topic string, old, id topicI
 	}
 	revoked := make(chan struct{})
 	c.topicIDs.mu.Lock()
-	c.topicIDs.revokeWait = revoked
-	c.topicIDs.mu.Unlock()
-	c.Client.PurgeTopicsFromConsuming(topic)
-	logger.Info("Consumer: waiting for the consumer group to drop topic %s before it reads the topic again, job=%s", topic, c.jobID)
-	timer := time.NewTimer(topicRejoinWait)
-	select {
-	case <-revoked:
-	case <-timer.C:
-		logger.Warn("Consumer: the consumer group did not end its session within %s after topic %s was dropped, adding the topic again anyway, job=%s", topicRejoinWait, topic, c.jobID)
-	case <-ctx.Done():
-	}
-	timer.Stop()
-	c.topicIDs.mu.Lock()
-	if c.topicIDs.revokeWait == revoked {
-		c.topicIDs.revokeWait = nil
-	}
-	c.topicIDs.mu.Unlock()
-	c.Client.AddConsumeTopics(topic)
-
-	c.mu.Lock()
-	delete(c.highWaterMarks, topic)
-	delete(c.lastOffsets, topic)
-	c.mu.Unlock()
-
-	c.topicIDs.mu.Lock()
 	if c.topicIDs.known == nil {
 		c.topicIDs.known = make(map[string]topicID)
 	}
 	c.topicIDs.known[topic] = id
 	delete(c.topicIDs.missing, topic)
+	c.topicIDs.revokeWait = revoked
+	c.topicIDs.revokeTopic = topic
 	c.topicIDs.mu.Unlock()
+	c.mu.Lock()
+	delete(c.highWaterMarks, topic)
+	delete(c.lastOffsets, topic)
+	c.mu.Unlock()
+	c.topicCommitMu.Unlock()
+
+	c.Client.PurgeTopicsFromConsuming(topic)
+	logger.Info("Consumer: waiting for the consumer group to drop topic %s before it reads the topic again, job=%s", topic, c.jobID)
+	wait := c.topicRejoinWait()
+	timer := time.NewTimer(wait)
+	select {
+	case <-revoked:
+	case <-timer.C:
+		logger.Warn("Consumer: the consumer group did not end its session within %s after topic %s was dropped, adding the topic again anyway, job=%s", wait, topic, c.jobID)
+	case <-ctx.Done():
+		timer.Stop()
+		c.clearRevokeWait(revoked)
+		return
+	}
+	timer.Stop()
+	c.clearRevokeWait(revoked)
+	if ctx.Err() != nil {
+		return
+	}
+	c.Client.AddConsumeTopics(topic)
 	atomic.AddInt64(&c.topicIDs.recreations, 1)
 
 	logger.ErrorAI("disaster", "replication", c.jobID, "Consumer: source topic %s was recreated, topic ID %s changed to %s. kaf-mirror now copies the new topic from its earliest offsets", topic, old, id)
@@ -374,11 +403,18 @@ func (c *Consumer) earliestOffsets(ctx context.Context, topic string, partitions
 	return starts, nil
 }
 
-func (c *Consumer) sessionEnded() {
+func (c *Consumer) sessionEnded(revoked map[string][]int32) {
 	c.topicIDs.mu.Lock()
 	defer c.topicIDs.mu.Unlock()
-	if c.topicIDs.revokeWait != nil {
-		close(c.topicIDs.revokeWait)
-		c.topicIDs.revokeWait = nil
+	if c.topicIDs.revokeWait == nil {
+		return
 	}
+	if topic := c.topicIDs.revokeTopic; topic != "" {
+		if _, ok := revoked[topic]; !ok {
+			return
+		}
+	}
+	close(c.topicIDs.revokeWait)
+	c.topicIDs.revokeWait = nil
+	c.topicIDs.revokeTopic = ""
 }
