@@ -354,7 +354,7 @@ kaf-mirror checks every cluster that is not `inactive` or `archived` when it sta
 - `./mirror-cli jobs start [job-id]`: Start paused or stopped replication jobs with interactive selection.
 - `./mirror-cli jobs stop [job-id]`: Stop running replication jobs with interactive selection.
 - `./mirror-cli jobs pause [job-id]`: Pause running replication jobs (resumable) with interactive selection.
-- `./mirror-cli jobs delete [job-id]`: Delete replication jobs with confirmation (admin only).
+- `./mirror-cli jobs delete [job-id]`: Delete replication jobs with confirmation (admin only). The API call `DELETE /api/v1/jobs/{id}` answers HTTP 204 when the job is deleted, and HTTP 404 with `Job not found` when it does not exist. Before, a missing job answered HTTP 204.
 - `./mirror-cli jobs status metrics [job-id]`: Show detailed job status and metrics.
 - `./mirror-cli jobs status full [job-id]`: Show full mirror state (progress, gaps, resume points).
 

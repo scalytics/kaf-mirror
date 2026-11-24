@@ -12,6 +12,7 @@
 package kafka
 
 import (
+	"errors"
 	"testing"
 
 	"kaf-mirror/internal/config"
@@ -93,4 +94,15 @@ func bytesOf(b byte) []byte {
 		key[i] = b
 	}
 	return key
+}
+
+func TestProbeFingerprintFailsClosedWhenCanonicalJSONCannotBeMarshaled(t *testing.T) {
+	orig := marshalClusterConfig
+	t.Cleanup(func() { marshalClusterConfig = orig })
+	marshalClusterConfig = func(any) ([]byte, error) {
+		return nil, errors.New("marshal failed")
+	}
+	fp, ok := probeFingerprintWithKey(config.ClusterConfig{Brokers: "broker-1:9092"}, bytesOf(1))
+	require.False(t, ok)
+	require.Empty(t, fp)
 }

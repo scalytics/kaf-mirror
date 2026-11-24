@@ -77,3 +77,80 @@ func TestUnknownJobRoutesReturn404(t *testing.T) {
 		})
 	}
 }
+
+func TestJobRoutesReturn500WhenTheDatabaseFails(t *testing.T) {
+	ctx := setupTestServer(t)
+	_, err := ctx.Server.Db.Exec("PRAGMA foreign_keys = OFF")
+	require.NoError(t, err)
+	_, err = ctx.Server.Db.Exec("DROP TABLE replication_jobs")
+	require.NoError(t, err)
+
+	id := uuid.NewString()
+	base := "/api/v1/jobs/" + id
+	cases := []struct {
+		method, path, body string
+	}{
+		{"GET", base, ""},
+		{"DELETE", base, ""},
+		{"GET", base + "/topic-health", ""},
+		{"GET", base + "/lag", ""},
+		{"POST", base + "/start", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			var rdr io.Reader
+			if tc.body != "" {
+				rdr = bytes.NewBufferString(tc.body)
+			}
+			req := httptest.NewRequest(tc.method, tc.path, rdr)
+			if tc.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			addAuthHeader(req, ctx.Token)
+			resp, err := ctx.Server.App.Test(req, -1)
+			require.NoError(t, err)
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			text := string(body)
+			lower := strings.ToLower(text)
+			assert.Equal(t, 500, resp.StatusCode, text)
+			assert.Contains(t, lower, "failed to get job")
+			assert.NotContains(t, lower, "job not found")
+			assert.NotContains(t, lower, "no such table")
+			assert.NotContains(t, lower, "sql:")
+			assert.NotContains(t, lower, "database is closed")
+		})
+	}
+}
+
+func TestClusterRoutesReturn404Or500ByErrorKind(t *testing.T) {
+	ctx := setupTestServer(t)
+	req := httptest.NewRequest("GET", "/api/v1/clusters/does-not-exist", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err := ctx.Server.App.Test(req, -1)
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, 404, resp.StatusCode, string(body))
+	assert.Contains(t, strings.ToLower(string(body)), "cluster not found")
+
+	_, err = ctx.Server.Db.Exec("PRAGMA foreign_keys = OFF")
+	require.NoError(t, err)
+	_, err = ctx.Server.Db.Exec("DROP TABLE kafka_clusters")
+	require.NoError(t, err)
+
+	req = httptest.NewRequest("GET", "/api/v1/clusters/does-not-exist", nil)
+	addAuthHeader(req, ctx.Token)
+	resp, err = ctx.Server.App.Test(req, -1)
+	require.NoError(t, err)
+	body, err = io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	text := string(body)
+	lower := strings.ToLower(text)
+	assert.Equal(t, 500, resp.StatusCode, text)
+	assert.Contains(t, lower, "failed to get cluster")
+	assert.NotContains(t, lower, "cluster not found")
+	assert.NotContains(t, lower, "no such table")
+	assert.NotContains(t, lower, "sql:")
+	assert.NotContains(t, lower, "database is closed")
+}

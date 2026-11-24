@@ -17,7 +17,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"os"
 	"sync"
 
@@ -88,10 +87,12 @@ func suspendProbeMACKeyForTest() func() {
 	}
 }
 
+var marshalClusterConfig = json.Marshal
+
 func canonicalClusterConfig(cfg config.ClusterConfig, key []byte) ([]byte, bool) {
-	b, err := json.Marshal(cfg)
+	b, err := marshalClusterConfig(cfg)
 	if err != nil {
-		b = []byte(fmt.Sprintf("%#v", cfg))
+		return nil, false
 	}
 	for _, path := range []string{cfg.Security.CAFile, cfg.Security.CertFile, cfg.Security.KeyFile} {
 		digest, ok := hmacTLSFile(path, key)

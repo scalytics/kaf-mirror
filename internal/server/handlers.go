@@ -13,7 +13,9 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"kaf-mirror/internal/ai"
 	"kaf-mirror/internal/config"
@@ -236,9 +238,9 @@ func (s *Server) handleCreateCluster(c *fiber.Ctx) error {
 // @Router /clusters/{name} [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetCluster(c *fiber.Ctx) error {
-	cluster, err := database.GetCluster(s.Db, c.Params("name"))
+	cluster, err := s.clusterByName(c.Params("name"), "")
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Cluster not found")
+		return err
 	}
 	return c.JSON(cluster.Redacted())
 }
@@ -261,9 +263,9 @@ func (s *Server) handleUpdateCluster(c *fiber.Ctx) error {
 	}
 
 	cluster.Name = c.Params("name")
-	existing, err := database.GetCluster(s.Db, cluster.Name)
+	existing, err := s.clusterByName(cluster.Name, "")
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Cluster not found")
+		return err
 	}
 	cluster.RestoreUnchangedSecrets(existing)
 	if cluster.Role == "" {
@@ -322,9 +324,9 @@ func (s *Server) handleDeleteCluster(c *fiber.Ctx) error {
 // @Security ApiKeyAuth
 func (s *Server) handleRestoreCluster(c *fiber.Ctx) error {
 	clusterName := c.Params("name")
-	cluster, err := database.GetCluster(s.Db, clusterName)
+	cluster, err := s.clusterByName(clusterName, "")
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Cluster not found")
+		return err
 	}
 
 	if cluster.Status != "inactive" {
@@ -364,9 +366,9 @@ func (s *Server) handlePurgeClusters(c *fiber.Ctx) error {
 // @Security ApiKeyAuth
 func (s *Server) handleListClusterTopics(c *fiber.Ctx) error {
 	clusterName := c.Params("name")
-	cluster, err := database.GetCluster(s.Db, clusterName)
+	cluster, err := s.clusterByName(clusterName, "")
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Cluster not found")
+		return err
 	}
 
 	clusterConfig := database.ClusterConfigFromRow(*cluster)
@@ -402,9 +404,9 @@ func (s *Server) handleListClusterTopics(c *fiber.Ctx) error {
 // @Security ApiKeyAuth
 func (s *Server) handleGetTopicDetails(c *fiber.Ctx) error {
 	clusterName := c.Params("name")
-	cluster, err := database.GetCluster(s.Db, clusterName)
+	cluster, err := s.clusterByName(clusterName, "")
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Cluster not found")
+		return err
 	}
 
 	topicsQuery := c.Query("topics")
@@ -442,8 +444,8 @@ func (s *Server) handleGetTopicDetails(c *fiber.Ctx) error {
 // @Security ApiKeyAuth
 func (s *Server) handleGetClusterStatus(c *fiber.Ctx) error {
 	clusterName := c.Params("name")
-	if _, err := database.GetCluster(s.Db, clusterName); err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Cluster not found")
+	if _, err := s.clusterByName(clusterName, ""); err != nil {
+		return err
 	}
 
 	status, err := s.manager.CheckClusterStatus(c.UserContext(), clusterName)
@@ -510,9 +512,26 @@ func validateClusterRow(cluster database.KafkaCluster) error {
 func (s *Server) jobByID(c *fiber.Ctx) (*database.ReplicationJob, error) {
 	job, err := database.GetJob(s.Db, c.Params("id"))
 	if err != nil {
-		return nil, fiber.NewError(fiber.StatusNotFound, "Job not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fiber.NewError(fiber.StatusNotFound, "Job not found")
+		}
+		return nil, fiber.NewError(fiber.StatusInternalServerError, "Failed to get job")
 	}
 	return job, nil
+}
+
+func (s *Server) clusterByName(name, notFound string) (*database.KafkaCluster, error) {
+	cluster, err := database.GetCluster(s.Db, name)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			if notFound == "" {
+				notFound = "Cluster not found"
+			}
+			return nil, fiber.NewError(fiber.StatusNotFound, notFound)
+		}
+		return nil, fiber.NewError(fiber.StatusInternalServerError, "Failed to get cluster")
+	}
+	return cluster, nil
 }
 
 // handleListJobs godoc
@@ -619,9 +638,9 @@ func (s *Server) handleCreateJob(c *fiber.Ctx) error {
 // @Router /jobs/{id} [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetJob(c *fiber.Ctx) error {
-	job, err := database.GetJob(s.Db, c.Params("id"))
+	job, err := s.jobByID(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Job not found")
+		return err
 	}
 	return c.JSON(job)
 }
@@ -639,10 +658,9 @@ func (s *Server) handleGetJob(c *fiber.Ctx) error {
 // @Router /jobs/{id} [put]
 // @Security ApiKeyAuth
 func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
-	id := c.Params("id")
-	job, err := database.GetJob(s.Db, id)
+	job, err := s.jobByID(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Job not found")
+		return err
 	}
 
 	var req CreateJobRequest // Reuse the create request for updates
@@ -692,10 +710,11 @@ func (s *Server) handleUpdateJob(c *fiber.Ctx) error {
 
 // handleDeleteJob godoc
 // @Summary Delete a replication job
-// @Description Delete a replication job by its ID.
+// @Description Delete a replication job by its ID. An unknown job ID answers HTTP 404 with Job not found.
 // @Tags jobs
 // @Param id path string true "Job ID"
 // @Success 204
+// @Failure 404 {object} map[string]interface{}
 // @Router /jobs/{id} [delete]
 // @Security ApiKeyAuth
 func (s *Server) handleDeleteJob(c *fiber.Ctx) error {
@@ -999,7 +1018,7 @@ func (s *Server) handleGetCurrentMetrics(c *fiber.Ctx) error {
 	jobID := c.Params("id")
 	metrics, err := database.GetLatestMetrics(s.Db, jobID)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "No metrics found for this job")
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to get current metrics")
 	}
 	return c.JSON(metrics)
 }
@@ -1070,11 +1089,11 @@ func (s *Server) handleGetOperationalEvents(c *fiber.Ctx) error {
 // @Router /jobs/{id}/lag [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetLag(c *fiber.Ctx) error {
-	jobID := c.Params("id")
-	job, err := database.GetJob(s.Db, jobID)
+	job, err := s.jobByID(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Job not found")
+		return err
 	}
+	jobID := c.Params("id")
 
 	mappings, err := database.GetMappingsForJob(s.Db, jobID)
 	if err != nil {
@@ -1085,9 +1104,9 @@ func (s *Server) handleGetLag(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{})
 	}
 
-	sourceCluster, err := database.GetCluster(s.Db, job.SourceClusterName)
+	sourceCluster, err := s.clusterByName(job.SourceClusterName, "Source cluster for job not found")
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Source cluster for job not found")
+		return err
 	}
 
 	adminClient, err := kafka.NewAdminClient(database.ClusterConfigFromRow(*sourceCluster))
@@ -2106,9 +2125,9 @@ func (s *Server) handleGetInventorySnapshot(c *fiber.Ctx) error {
 func (s *Server) handleCreateManualInventorySnapshot(c *fiber.Ctx) error {
 	jobID := c.Params("id")
 
-	job, err := database.GetJob(s.Db, jobID)
+	job, err := s.jobByID(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Job not found")
+		return err
 	}
 
 	if job.Status != "active" {
@@ -2453,20 +2472,20 @@ func (s *Server) handleGetResumePoints(c *fiber.Ctx) error {
 func (s *Server) handleCalculateResumePoints(c *fiber.Ctx) error {
 	jobID := c.Params("id")
 
-	job, err := database.GetJob(s.Db, jobID)
+	job, err := s.jobByID(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Job not found")
+		return err
 	}
 
 	// Get source and target clusters
-	sourceCluster, err := database.GetCluster(s.Db, job.SourceClusterName)
+	sourceCluster, err := s.clusterByName(job.SourceClusterName, "Source cluster not found")
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Source cluster not found")
+		return err
 	}
 
-	targetCluster, err := database.GetCluster(s.Db, job.TargetClusterName)
+	targetCluster, err := s.clusterByName(job.TargetClusterName, "Target cluster not found")
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Target cluster not found")
+		return err
 	}
 
 	sourceConfig := database.ClusterConfigFromRow(*sourceCluster)
@@ -2568,20 +2587,20 @@ func (s *Server) handleGetMirrorGaps(c *fiber.Ctx) error {
 func (s *Server) handleValidateMigration(c *fiber.Ctx) error {
 	jobID := c.Params("id")
 
-	job, err := database.GetJob(s.Db, jobID)
+	job, err := s.jobByID(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Job not found")
+		return err
 	}
 
 	// Get source and target clusters
-	sourceCluster, err := database.GetCluster(s.Db, job.SourceClusterName)
+	sourceCluster, err := s.clusterByName(job.SourceClusterName, "Source cluster not found")
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Source cluster not found")
+		return err
 	}
 
-	targetCluster, err := database.GetCluster(s.Db, job.TargetClusterName)
+	targetCluster, err := s.clusterByName(job.TargetClusterName, "Target cluster not found")
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Target cluster not found")
+		return err
 	}
 
 	// Get topic mappings

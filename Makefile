@@ -112,7 +112,7 @@ docs:
 		echo "GOPATH is not set. Please set it and try again."; \
 		exit 1; \
 	fi; \
-	go install github.com/swaggo/swag/cmd/swag@latest; \
+	go install github.com/swaggo/swag/cmd/swag@$$(go list -m -f '{{.Version}}' github.com/swaggo/swag); \
 	$$GOPATH/bin/swag init -g cmd/kaf-mirror/main.go --output web/docu/swagger --exclude scripts
 
 build: docs docs-cli docs-html binaries
@@ -229,8 +229,8 @@ docs-cli:
 	@echo "Generating CLI documentation (Markdown)..."
 	@go run ./cmd/mirror-cli docs generate
 
-docs-check: docs-cli docs-html
-	@git diff --exit-code -- docs web/docu || { echo "Generated docs are out of date. Run 'make docs-cli docs-html' and commit the result."; exit 1; }
+docs-check: docs docs-cli docs-html
+	@git diff --exit-code -- docs web/docu || { echo "Generated docs are out of date. Run 'make docs docs-cli docs-html' and commit the result."; exit 1; }
 
 # Detect docker compose command (plugin or standalone)
 COMPOSE ?= $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo ""; fi)

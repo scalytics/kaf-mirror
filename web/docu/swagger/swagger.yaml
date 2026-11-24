@@ -1576,7 +1576,8 @@ paths:
       - jobs
   /jobs/{id}:
     delete:
-      description: Delete a replication job by its ID.
+      description: Delete a replication job by its ID. An unknown job ID answers HTTP
+        404 with Job not found.
       parameters:
       - description: Job ID
         in: path
@@ -1586,6 +1587,11 @@ paths:
       responses:
         "204":
           description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Delete a replication job

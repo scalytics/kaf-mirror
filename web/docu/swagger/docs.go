@@ -1364,7 +1364,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Delete a replication job by its ID.",
+                "description": "Delete a replication job by its ID. An unknown job ID answers HTTP 404 with Job not found.",
                 "tags": [
                     "jobs"
                 ],
@@ -1381,6 +1381,13 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
