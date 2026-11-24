@@ -88,7 +88,7 @@
     radial-gradient(circle at 80% 0%, rgba(244, 162, 97, 0.18), transparent 50%),
     linear-gradient(180deg, #f7f6f2, #eceae4 70%);
   --radius: 14px;
-  --content: 72rem;
+  --content: 1200px;
   --pad: clamp(1.25rem, 5vw, 4rem);
 }
 
@@ -190,7 +190,7 @@ a:focus-visible {
 
 .site-header-inner {
   max-width: var(--content);
-  margin: 0 auto;
+  margin-inline: auto;
   padding: 0.9rem var(--pad);
   display: flex;
   align-items: center;
@@ -315,7 +315,7 @@ main {
 
 .wrap {
   max-width: var(--content);
-  margin: 0 auto;
+  margin-inline: auto;
   padding: 2.5rem var(--pad) 3.5rem;
 }
 
@@ -616,7 +616,6 @@ html {
 body,
 main,
 #content,
-.wrap,
 .card,
 .kafscale,
 .note,
@@ -624,6 +623,13 @@ main,
 pre {
   min-width: 0;
   max-width: 100%;
+}
+
+.wrap,
+.site-header-inner {
+  min-width: 0;
+  max-width: var(--content);
+  margin-inline: auto;
 }
 
 pre {
