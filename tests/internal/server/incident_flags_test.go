@@ -56,7 +56,7 @@ func TestCurrentMetricsShowTheIncidentFlagsOfTheRunningJob(t *testing.T) {
 
 	require.NoError(t, ctx.Manager.StartJob(jobID))
 	require.NotNil(t, report)
-	report(database.ReplicationMetric{JobID: jobID, CurrentLag: 1400, SourceStalled: true, CriticalLag: true})
+	report(database.ReplicationMetric{JobID: jobID, CurrentLag: 1400, SourceStalled: true, CriticalLag: true, TopicRecreations: 2, MissingTopics: []string{"orders"}})
 
 	m := current()
 	assert.True(t, m.SourceStalled)
@@ -65,6 +65,8 @@ func TestCurrentMetricsShowTheIncidentFlagsOfTheRunningJob(t *testing.T) {
 	assert.False(t, m.HighErrorRate)
 	assert.False(t, m.ErrorSpike)
 	assert.Equal(t, 1400, m.CurrentLag)
+	assert.Equal(t, int64(2), m.TopicRecreations)
+	assert.Equal(t, []string{"orders"}, m.MissingTopics)
 
 	report(database.ReplicationMetric{JobID: jobID, CurrentLag: 0, TargetStalled: true, HighErrorRate: true, ErrorSpike: true})
 	m = current()
@@ -79,4 +81,6 @@ func TestCurrentMetricsShowTheIncidentFlagsOfTheRunningJob(t *testing.T) {
 	assert.False(t, m.TargetStalled)
 	assert.False(t, m.HighErrorRate)
 	assert.False(t, m.ErrorSpike)
+	assert.Equal(t, int64(0), m.TopicRecreations)
+	assert.Empty(t, m.MissingTopics)
 }

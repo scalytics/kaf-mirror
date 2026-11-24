@@ -14,7 +14,6 @@ package kafka
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -28,10 +27,7 @@ const (
 	fetchErrorBackoffMin = 100 * time.Millisecond
 	fetchErrorBackoffMax = 5 * time.Second
 	fetchErrorLogEvery   = 30 * time.Second
-	UnknownTopicIDLimit  = 10
 )
-
-var ErrSourceTopicRecreated = errors.New("source topic was deleted or recreated")
 
 type fetchErrorKey struct {
 	topic     string
@@ -44,36 +40,37 @@ type fetchErrorLog struct {
 	suppressed int64
 }
 
-func (c *Consumer) handleFetchErrors(ctx context.Context, fetches kgo.Fetches) error {
-	if c.unknownTopicIDs == nil {
-		c.unknownTopicIDs = make(map[string]int)
-	}
-	fetches.EachPartition(func(p kgo.FetchTopicPartition) {
-		if len(p.Records) > 0 {
-			delete(c.unknownTopicIDs, p.Topic)
+func (c *Consumer) handleFetchErrors(ctx context.Context, fetches kgo.Fetches) {
+	fetches.EachTopic(func(t kgo.FetchTopic) {
+		fetched, records := false, false
+		for _, p := range t.Partitions {
+			if p.Err == nil {
+				fetched = true
+				records = records || len(p.Records) > 0
+			}
+		}
+		if fetched {
+			c.topicFetched(t.Topic, t.TopicID, records)
 		}
 	})
 
 	errorCount := 0
-	unknown := make(map[string]bool)
+	unknownID := false
 	fetches.EachError(func(topic string, partition int32, err error) {
 		errorCount++
 		atomic.AddInt64(&c.fetchErrors, 1)
 		c.logFetchError(topic, partition, err)
 		if errors.Is(err, kerr.UnknownTopicID) {
-			unknown[topic] = true
+			unknownID = true
 		}
 	})
-	for topic := range unknown {
-		c.unknownTopicIDs[topic]++
-		if n := c.unknownTopicIDs[topic]; n >= UnknownTopicIDLimit {
-			return fmt.Errorf("%w: fetches for topic %s answered UNKNOWN_TOPIC_ID %d times with no record in between. Check the topic, then start the job again", ErrSourceTopicRecreated, topic, n)
-		}
+	if unknownID {
+		c.requestTopicCheck()
 	}
 
 	if errorCount == 0 || fetches.NumRecords() > 0 {
 		c.fetchBackoff = 0
-		return nil
+		return
 	}
 	c.fetchBackoff = min(max(c.fetchBackoff*2, fetchErrorBackoffMin), fetchErrorBackoffMax)
 	sleep := c.sleep
@@ -81,7 +78,6 @@ func (c *Consumer) handleFetchErrors(ctx context.Context, fetches kgo.Fetches) e
 		sleep = sleepContext
 	}
 	_ = sleep(ctx, c.fetchBackoff)
-	return nil
 }
 
 func (c *Consumer) logFetchError(topic string, partition int32, err error) {

@@ -14,7 +14,6 @@ package kafka_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"strings"
 	"sync"
@@ -85,47 +84,75 @@ func scriptedConsumer(script *pollScript, sleeps *sleepLog) *kafka.Consumer {
 	return consumer
 }
 
-func TestRecreatedSourceTopicStopsTheConsumerWithBackoff(t *testing.T) {
-	script := &pollScript{next: func(int) kgo.Fetches { return fetchError("kin", kerr.UnknownTopicID) }}
-	sleeps := &sleepLog{}
-	consumer := scriptedConsumer(script, sleeps)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func consumeUntil(t *testing.T, consumer *kafka.Consumer, want int) {
+	t.Helper()
+	got := make(chan struct{}, want)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	err := consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil })
-
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, kafka.ErrSourceTopicRecreated), "error: %v", err)
-	assert.Contains(t, err.Error(), "topic kin")
-	assert.Equal(t, kafka.UnknownTopicIDLimit, script.count())
-	assert.Equal(t, int64(kafka.UnknownTopicIDLimit), consumer.GetMetrics().FetchErrors)
-	ms := time.Millisecond
-	assert.Equal(t, []time.Duration{100 * ms, 200 * ms, 400 * ms, 800 * ms, 1600 * ms, 3200 * ms, 5000 * ms, 5000 * ms, 5000 * ms}, sleeps.get())
+	done := make(chan error, 1)
+	go func() {
+		done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error {
+			got <- struct{}{}
+			return nil
+		})
+	}()
+	for i := 0; i < want; i++ {
+		select {
+		case <-got:
+		case err := <-done:
+			t.Fatalf("the consumer stopped after %d of %d records: %v", i, want, err)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("got %d of %d records", i, want)
+		}
+	}
+	cancel()
+	require.NoError(t, <-done)
 }
 
-func TestRecordsOfTheTopicResetTheUnknownTopicIDCount(t *testing.T) {
-	limit := kafka.UnknownTopicIDLimit
+func TestUnknownTopicIDBacksOffAndKeepsConsuming(t *testing.T) {
 	script := &pollScript{next: func(n int) kgo.Fetches {
 		switch {
-		case n == limit:
-			return fetchOf("kin", partitionRecords{0, []int64{0}})
-		case n < 2*limit:
+		case n <= 12:
 			return fetchError("kin", kerr.UnknownTopicID)
+		case n == 13:
+			return fetchOf("kin", partitionRecords{0, []int64{0}})
 		default:
 			return nil
 		}
 	}}
 	sleeps := &sleepLog{}
 	consumer := scriptedConsumer(script, sleeps)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
 
-	require.Eventually(t, func() bool { return script.count() > 2*limit-1 }, 5*time.Second, time.Millisecond)
-	cancel()
-	require.NoError(t, <-done)
-	assert.Equal(t, int64(2*limit-2), consumer.GetMetrics().FetchErrors)
-	assert.Equal(t, 100*time.Millisecond, sleeps.get()[limit-1], "a poll with records resets the backoff")
+	consumeUntil(t, consumer, 1)
+
+	assert.Equal(t, int64(12), consumer.GetMetrics().FetchErrors)
+	assert.Equal(t, int64(0), consumer.GetMetrics().TopicRecreations)
+	ms := time.Millisecond
+	assert.Equal(t, []time.Duration{100 * ms, 200 * ms, 400 * ms, 800 * ms, 1600 * ms, 3200 * ms, 5000 * ms, 5000 * ms, 5000 * ms, 5000 * ms, 5000 * ms, 5000 * ms}, sleeps.get())
+}
+
+func TestAnySuccessfulFetchResetsTheErrorBackoff(t *testing.T) {
+	script := &pollScript{next: func(n int) kgo.Fetches {
+		switch {
+		case n <= 9, n >= 11 && n <= 19:
+			return fetchError("kin", kerr.UnknownTopicID)
+		case n == 10:
+			return fetchOf("kin", partitionRecords{0, nil})
+		case n == 20:
+			return fetchOf("kin", partitionRecords{0, []int64{0}})
+		default:
+			return nil
+		}
+	}}
+	sleeps := &sleepLog{}
+	consumer := scriptedConsumer(script, sleeps)
+
+	consumeUntil(t, consumer, 1)
+
+	assert.Equal(t, int64(18), consumer.GetMetrics().FetchErrors)
+	ms := time.Millisecond
+	climb := []time.Duration{100 * ms, 200 * ms, 400 * ms, 800 * ms, 1600 * ms, 3200 * ms, 5000 * ms, 5000 * ms, 5000 * ms}
+	assert.Equal(t, append(append([]time.Duration(nil), climb...), climb...), sleeps.get(), "the empty fetch without errors starts the backoff again at 100ms")
 }
 
 func TestFetchErrorsAreRateLimitedInTheLog(t *testing.T) {
@@ -182,31 +209,42 @@ type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
-func TestRecreatedSourceTopicFailsTheJobAndCountsTheErrors(t *testing.T) {
+func TestUnknownTopicIDKeepsTheJobRunningAndCountsTheErrors(t *testing.T) {
 	km := kafka.NewKafMirrorImplForTest(&kafka.Producer{Client: &mocks.MockKgoClient{}}, map[string]string{"kin": "kin"})
-	gate := make(chan struct{})
 	script := &pollScript{next: func(n int) kgo.Fetches {
-		if n == 2 {
-			<-gate
+		if n > 3 {
+			return nil
 		}
 		return fetchError("kin", kerr.UnknownTopicID)
 	}}
 	km.Consumer = scriptedConsumer(script, &sleepLog{})
 	km.SetIntervalsForTest(time.Millisecond, 0)
 
-	var once sync.Once
-	var counted database.ReplicationMetric
-	reason := startAndWaitForFailure(t, km, func(m database.ReplicationMetric) {
-		if m.ErrorCount > 0 {
-			once.Do(func() {
-				counted = m
-				close(gate)
-			})
+	counted := make(chan database.ReplicationMetric, 1)
+	failed := make(chan string, 1)
+	km.Start("job-87", func(m database.ReplicationMetric) {
+		if m.ErrorCount == 3 {
+			select {
+			case counted <- m:
+			default:
+			}
 		}
+	}, func(_ string, reason string) {
+		failed <- reason
 	})
+	defer km.Stop()
 
-	assert.Contains(t, reason, "consumer stopped: source topic was deleted or recreated")
-	assert.Contains(t, reason, "UNKNOWN_TOPIC_ID")
-	assert.Equal(t, 1, counted.ErrorCount)
-	assert.True(t, counted.ErrorSpike)
+	select {
+	case m := <-counted:
+		assert.Equal(t, 3, m.FetchErrorCount)
+	case reason := <-failed:
+		t.Fatalf("the job failed: %s", reason)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no metric counted the fetch errors")
+	}
+	select {
+	case reason := <-failed:
+		t.Fatalf("the job failed: %s", reason)
+	default:
+	}
 }

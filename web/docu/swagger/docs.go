@@ -1809,7 +1809,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get the totals of a job since it was created (messages, bytes, errors, tombstones) and the lag of the last sample. source_stalled, target_stalled, critical_lag, high_error_rate and error_spike are the incident flags of the last sample of the running job. They are false when the job is not running or has not sent a sample since it started.",
+                "description": "Get the totals of a job since it was created (messages, bytes, errors, tombstones) and the lag of the last sample. source_stalled, target_stalled, critical_lag, high_error_rate and error_spike are the incident flags of the last sample of the running job. They are false when the job is not running or has not sent a sample since it started. source_topic_recreations counts the source topics that were deleted and created again since the job started, which kaf-mirror noticed by a new Kafka topic ID and then copied from their earliest offsets. missing_source_topics lists the source topics that were deleted and do not exist yet. Both come from the last sample of the running job and are 0 and empty otherwise.",
                 "produces": [
                     "application/json"
                 ],
@@ -3877,8 +3877,17 @@ const docTemplate = `{
                 "messages_replicated": {
                     "type": "integer"
                 },
+                "missing_source_topics": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "source_stalled": {
                     "type": "boolean"
+                },
+                "source_topic_recreations": {
+                    "type": "integer"
                 },
                 "target_stalled": {
                     "type": "boolean"

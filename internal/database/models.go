@@ -70,6 +70,8 @@ type ReplicationMetric struct {
 	CriticalLag        bool      `db:"-" json:"critical_lag"`
 	HighErrorRate      bool      `db:"-" json:"high_error_rate"`
 	ErrorSpike         bool      `db:"-" json:"error_spike"`
+	TopicRecreations   int64     `db:"-" json:"source_topic_recreations"`
+	MissingTopics      []string  `db:"-" json:"missing_source_topics"`
 	TombstoneCount     int64     `db:"tombstone_count" json:"tombstone_count"`
 	Timestamp          time.Time `db:"timestamp" json:"timestamp"`
 }

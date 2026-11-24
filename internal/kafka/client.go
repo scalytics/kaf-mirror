@@ -26,6 +26,7 @@ type KgoClient interface {
 	Produce(context.Context, *kgo.Record, func(*kgo.Record, error))
 	CommitRecords(context.Context, ...*kgo.Record) error
 	AddConsumeTopics(...string)
+	PurgeTopicsFromConsuming(...string)
 	Close()
 }
 

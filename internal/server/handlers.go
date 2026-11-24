@@ -1079,7 +1079,7 @@ func (s *Server) handleUpdateMappings(c *fiber.Ctx) error {
 
 // handleGetCurrentMetrics godoc
 // @Summary Get current metrics for a job
-// @Description Get the totals of a job since it was created (messages, bytes, errors, tombstones) and the lag of the last sample. source_stalled, target_stalled, critical_lag, high_error_rate and error_spike are the incident flags of the last sample of the running job. They are false when the job is not running or has not sent a sample since it started.
+// @Description Get the totals of a job since it was created (messages, bytes, errors, tombstones) and the lag of the last sample. source_stalled, target_stalled, critical_lag, high_error_rate and error_spike are the incident flags of the last sample of the running job. They are false when the job is not running or has not sent a sample since it started. source_topic_recreations counts the source topics that were deleted and created again since the job started, which kaf-mirror noticed by a new Kafka topic ID and then copied from their earliest offsets. missing_source_topics lists the source topics that were deleted and do not exist yet. Both come from the last sample of the running job and are 0 and empty otherwise.
 // @Tags jobs
 // @Produce json
 // @Param id path string true "Job ID"
@@ -1103,6 +1103,8 @@ func (s *Server) handleGetCurrentMetrics(c *fiber.Ctx) error {
 		metrics.CriticalLag = flags.CriticalLag
 		metrics.HighErrorRate = flags.HighErrorRate
 		metrics.ErrorSpike = flags.ErrorSpike
+		metrics.TopicRecreations = flags.Recreations
+		metrics.MissingTopics = flags.MissingTopics
 	}
 	return c.JSON(metrics)
 }

@@ -511,6 +511,8 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 				HighErrorRate:      highErrorRate,
 				ErrorSpike:         errorSpike,
 				TombstoneCount:     consumerMetrics.Tombstones,
+				TopicRecreations:   consumerMetrics.TopicRecreations,
+				MissingTopics:      consumerMetrics.MissingTopics,
 				Timestamp:          time.Now(),
 			}
 

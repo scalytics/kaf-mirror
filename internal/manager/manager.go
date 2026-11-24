@@ -85,6 +85,8 @@ type IncidentFlags struct {
 	CriticalLag   bool
 	HighErrorRate bool
 	ErrorSpike    bool
+	Recreations   int64
+	MissingTopics []string
 }
 
 type incidentSample struct {
@@ -803,6 +805,8 @@ func (jm *JobManager) recordIncidents(mirror kafka.KafMirror, metric database.Re
 		CriticalLag:   metric.CriticalLag,
 		HighErrorRate: metric.HighErrorRate,
 		ErrorSpike:    metric.ErrorSpike,
+		Recreations:   metric.TopicRecreations,
+		MissingTopics: metric.MissingTopics,
 	}}
 }
 
