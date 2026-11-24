@@ -38,10 +38,6 @@ func readTLSFile(path, setting string) ([]byte, error) {
 	if info.Size() > MaxTLSFileSize {
 		return nil, fmt.Errorf("%s is larger than 1 MiB", setting)
 	}
-	if err := syscall.SetNonblock(int(f.Fd()), false); err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", setting, err)
-	}
-
 	data, err := io.ReadAll(io.LimitReader(f, MaxTLSFileSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s: %w", setting, err)

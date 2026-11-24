@@ -111,16 +111,17 @@ docs:
 	go install github.com/swaggo/swag/cmd/swag@$$SWAG_VER; \
 	GOBIN_DIR=$$(go env GOBIN); \
 	if [ -n "$$GOBIN_DIR" ]; then \
-	SWAG_BIN=$$GOBIN_DIR/swag; \
+	  SWAG_BIN="$$GOBIN_DIR/swag"; \
 	else \
-	GOPATH_DIR=$$(go env GOPATH); \
-	if [ -z "$$GOPATH_DIR" ]; then \
-	echo "GOPATH is not set. Please set it and try again."; \
-	exit 1; \
+	  GOPATH_DIR=$$(go env GOPATH); \
+	  GOPATH_DIR=$${GOPATH_DIR%%:*}; \
+	  if [ -z "$$GOPATH_DIR" ]; then \
+	    echo "GOPATH is not set. Please set it and try again."; \
+	    exit 1; \
+	  fi; \
+	  SWAG_BIN="$$GOPATH_DIR/bin/swag"; \
 	fi; \
-	SWAG_BIN=$$GOPATH_DIR/bin/swag; \
-	fi; \
-	$$SWAG_BIN init -g cmd/kaf-mirror/main.go --output web/docu/swagger --exclude scripts
+	"$$SWAG_BIN" init -g cmd/kaf-mirror/main.go --output web/docu/swagger --exclude scripts
 
 build: docs docs-cli docs-html binaries
 
