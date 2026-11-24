@@ -90,4 +90,35 @@ if helm template km "$chart" --set config.server.shutdownTimeoutSeconds=0 >/dev/
   fail "render accepts a shutdown timeout of 0"
 fi
 
+kafka_tls_out=$(helm template km "$chart" --set kafkaTLS.existingSecret=km-kafka-tls)
+grep -q "secretName: km-kafka-tls" <<<"$kafka_tls_out" || fail "kafka tls render does not mount the Secret"
+grep -q "mountPath: /app/kafka-tls" <<<"$kafka_tls_out" || fail "kafka tls render has no /app/kafka-tls mount"
+if grep -q "kafka-tls" <<<"$default_out"; then
+  fail "default render mounts a kafka tls Secret"
+fi
+
+name_out=$(helm template km "$chart" --set nameOverride=mirror --set fullnameOverride=km-custom)
+grep -q "name: km-custom$" <<<"$name_out" || fail "fullnameOverride is not used"
+grep -q "app.kubernetes.io/name: mirror$" <<<"$name_out" || fail "nameOverride is not used"
+
+readme_values=$(mktemp -d)
+trap 'rm -f "$krb_values"; rm -rf "$readme_values"' EXIT
+awk -v dir="$readme_values" '
+  /^cat > [A-Za-z0-9.-]+ <<.VALUES.$/ { file = dir "/" $3; next }
+  /^VALUES$/ { file = ""; next }
+  file != "" { print > file }
+' "$chart/README.md"
+[ -f "$readme_values/km-values.yaml" ] || fail "chart README has no km-values.yaml"
+all_files=(-f "$readme_values/km-values.yaml")
+for values_file in "$readme_values"/*.yaml; do
+  name=$(basename "$values_file")
+  [ "$name" = "km-values.yaml" ] && continue
+  out=$(helm template km "$chart" -f "$readme_values/km-values.yaml" -f "$values_file") || fail "chart README $name does not render with km-values.yaml"
+  grep -q 'image: "kaf-mirror:local"' <<<"$out" || fail "chart README $name drops the image settings of km-values.yaml"
+  all_files+=(-f "$values_file")
+done
+[ "${#all_files[@]}" -gt 2 ] || fail "chart README has no values files besides km-values.yaml"
+all_out=$(helm template km "$chart" "${all_files[@]}") || fail "chart README values files do not render together"
+grep -q 'image: "kaf-mirror:local"' <<<"$all_out" || fail "chart README values files together drop the image settings"
+
 echo "helm-check: ok"

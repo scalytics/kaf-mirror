@@ -25,7 +25,7 @@ This page lists every config key and environment variable that kaf-mirror reads.
 | `server.tls.enabled` | `false` | Serves HTTPS. |
 | `server.tls.cert_file` | empty | Path to the server certificate. |
 | `server.tls.key_file` | empty | Path to the server key. |
-| `server.cors.allowed_origins` | `http://localhost:8080` | Allowed CORS origins. With `*`, credentials are not allowed. |
+| `server.cors.allowed_origins` | `["http://localhost:8080"]` | Allowed CORS origins. `configs/default.yml`, `configs/docker.yml` and the Helm chart ship `["http://localhost:8080"]`, and an empty list means the same. The web UI is served by kaf-mirror itself and does not need CORS. Add an origin only for a browser app on another origin. With `*`, any origin is allowed and credentials are not allowed. |
 | `database.path` | none | Path to the SQLite database. The first start writes the bootstrap admin password file to the same directory. |
 | `database.retention_days` | `30` | Days of metrics and events to keep, from 1 to 30. |
 | `logging.level` | none | `DEBUG`, `INFO`, `WARN`, `ERROR` or `FATAL`. Required. |
@@ -42,6 +42,9 @@ This page lists every config key and environment variable that kaf-mirror reads.
 | `clusters.<name>.security.api_key` | empty | API key of the `confluent` provider. |
 | `clusters.<name>.security.api_secret` | empty | API secret of the `confluent` provider. Set it from the environment. |
 | `clusters.<name>.security.connection_string` | empty | Connection string of the `azure` provider. Set it from the environment. |
+| `clusters.<name>.security.ca_file` | empty | PEM file with the CA certificates that sign the broker certificates. Empty uses the system trust store. Needs a TLS connection: `protocol` `SSL` or `SASL_SSL`, or the `confluent` or `azure` provider. |
+| `clusters.<name>.security.cert_file` | empty | PEM client certificate for mTLS. Set it together with `key_file`. Needs a TLS connection. |
+| `clusters.<name>.security.key_file` | empty | PEM private key of `cert_file`. Set it together with `cert_file`. Needs a TLS connection. |
 | `clusters.<name>.security.kerberos.service_name` | `kafka` | Kerberos service name of the brokers. |
 | `clusters.<name>.security.kerberos.principal` | empty | Kerberos client principal. |
 | `clusters.<name>.security.kerberos.keytab_path` | empty | Path to the keytab. |
@@ -113,7 +116,7 @@ Jobs use the clusters stored in the database, not the `clusters` section of the 
 | `api_key`, `api_secret` | Credentials of the `confluent` provider. |
 | `connection_string` | Connection string of the `azure` provider. |
 | `role` | `prod`, `dr` or `other`. Default `other`. See [protection.md](protection.md). |
-| `security_config` | A JSON object written as a string, with the keys `enabled`, `protocol`, `sasl_mechanism`, `username`, `password` and `kerberos` (`service_name`, `principal`, `keytab_path`, `krb5_conf_path`). |
+| `security_config` | A JSON object written as a string, with the keys `enabled`, `protocol`, `sasl_mechanism`, `username`, `password`, `ca_file`, `cert_file`, `key_file` and `kerberos` (`service_name`, `principal`, `keytab_path`, `krb5_conf_path`). |
 
 An example `security_config` value:
 ```json

@@ -10,7 +10,7 @@ It interacts with the kaf-mirror API to perform various tasks.
 ## Global Options
 
 ```
-  -, --mirror-url string   URL of the kaf-mirror backend. (default "http://localhost:8080")
+      --mirror-url string   URL of the kaf-mirror backend. (default "http://localhost:8080")
   -v, --version   Print the version and exit
 ```
 
@@ -101,7 +101,7 @@ mirror-cli clusters remove [name] [flags]
 ### Options
 
 ```
-  -, --yes   Confirm without a prompt, for scripts and runs without a terminal
+      --yes   Confirm without a prompt, for scripts and runs without a terminal
 ```
 
 #### mirror-cli clusters restore
@@ -597,7 +597,7 @@ mirror-cli docs generate [flags]
 ### Options
 
 ```
-  -, --file string   Output file for documentation (default "docs/cli-commands.md")
+      --file string   Output file for documentation (default "docs/cli-commands.md")
 ```
 
 ### mirror-cli jobs
@@ -653,7 +653,7 @@ mirror-cli jobs analyze [job-id] [flags]
 ### Options
 
 ```
-  -, --period string   Analysis period (e.g., 7d, 30d) (default "7d")
+      --period string   Analysis period (e.g., 7d, 30d) (default "7d")
 ```
 
 #### mirror-cli jobs delete
@@ -671,7 +671,7 @@ mirror-cli jobs delete [job-id] [flags]
 ### Options
 
 ```
-  -, --yes   Confirm without a prompt, for scripts and runs without a terminal
+      --yes   Confirm without a prompt, for scripts and runs without a terminal
 ```
 
 #### mirror-cli jobs force-restart
@@ -806,13 +806,7 @@ mirror-cli jobs stop [job-id]
 ### Usage
 
 ```
-mirror-cli login [username] [flags]
-```
-
-### Options
-
-```
-  -, --password string   User's password. Leave it out to be asked without echo, or pipe it on stdin when there is no terminal
+mirror-cli login [username]
 ```
 
 ### mirror-cli logout
@@ -1045,8 +1039,8 @@ mirror-cli users reset-password [username] [flags]
 ### Options
 
 ```
-  -, --password-file string   File for the new password, created with mode 0600. Default: a new file in the temp directory
-  -, --yes   Confirm without a prompt, for scripts and runs without a terminal
+      --password-file string   File for the new password, created with mode 0600. Default: a new file in the temp directory
+      --yes   Confirm without a prompt, for scripts and runs without a terminal
 ```
 
 #### mirror-cli users reset-token

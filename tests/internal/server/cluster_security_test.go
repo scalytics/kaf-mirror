@@ -148,3 +148,21 @@ func TestClusterSaveValidatesGSSAPIWhenEnabledOmitted(t *testing.T) {
 	status, body = postJSON(t, ctx, "POST", "/api/v1/clusters", complete)
 	assert.Equal(t, 201, status, body)
 }
+
+func TestClusterSaveValidatesTLSFiles(t *testing.T) {
+	ctx := setupTestServer(t)
+	cases := map[string]string{
+		`{"protocol":"SSL","cert_file":"/app/kafka-tls/tls.crt"}`:    "cert_file and key_file must be set together",
+		`{"protocol":"SSL","key_file":"/app/kafka-tls/tls.key"}`:     "cert_file and key_file must be set together",
+		`{"protocol":"PLAINTEXT","ca_file":"/app/kafka-tls/ca.crt"}`: "need protocol SSL or SASL_SSL",
+	}
+	for sec, want := range cases {
+		body := map[string]interface{}{"name": "tls", "provider": "plain", "brokers": "broker-1:9093", "security_config": sec}
+		status, out := postJSON(t, ctx, "POST", "/api/v1/clusters", body)
+		assert.Equal(t, 400, status, out)
+		assert.Contains(t, out, want)
+	}
+	ok := map[string]interface{}{"name": "tls", "provider": "plain", "brokers": "broker-1:9093", "security_config": `{"protocol":"SSL","ca_file":"/app/kafka-tls/ca.crt","cert_file":"/app/kafka-tls/tls.crt","key_file":"/app/kafka-tls/tls.key"}`}
+	status, out := postJSON(t, ctx, "POST", "/api/v1/clusters", ok)
+	assert.Equal(t, 201, status, out)
+}

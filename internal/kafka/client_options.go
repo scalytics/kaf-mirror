@@ -13,8 +13,10 @@ package kafka
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -47,6 +49,9 @@ type securityPlan struct {
 	user      string
 	pass      string
 	kerberos  config.KerberosConfig
+	caFile    string
+	certFile  string
+	keyFile   string
 }
 
 func ClientOptions(cfg config.ClusterConfig) ([]kgo.Opt, error) {
@@ -65,7 +70,11 @@ func clientOptions(cfg config.ClusterConfig) ([]kgo.Opt, []sasl.Mechanism, error
 	}
 	opts := []kgo.Opt{kgo.SeedBrokers(brokers...)}
 	if plan.tls {
-		opts = append(opts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
+		tlsCfg, err := tlsConfig(plan)
+		if err != nil {
+			return nil, nil, err
+		}
+		opts = append(opts, kgo.DialTLSConfig(tlsCfg))
 	}
 	var mechs []sasl.Mechanism
 	if plan.mechanism != "" {
@@ -131,7 +140,46 @@ func splitBrokers(brokers string) []string {
 	return out
 }
 
+func tlsConfig(plan securityPlan) (*tls.Config, error) {
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if plan.caFile != "" {
+		pem, err := os.ReadFile(plan.caFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read ca_file: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, errors.New("ca_file has no PEM certificate")
+		}
+		cfg.RootCAs = pool
+	}
+	if plan.certFile != "" {
+		cert, err := tls.LoadX509KeyPair(plan.certFile, plan.keyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load cert_file and key_file: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+	return cfg, nil
+}
+
 func planSecurity(cfg config.ClusterConfig) (securityPlan, error) {
+	plan, err := planAuth(cfg)
+	if err != nil {
+		return plan, err
+	}
+	sec := cfg.Security
+	if (sec.CertFile == "") != (sec.KeyFile == "") {
+		return plan, errors.New("cert_file and key_file must be set together")
+	}
+	if (sec.CAFile != "" || sec.CertFile != "") && !plan.tls {
+		return plan, errors.New("ca_file, cert_file and key_file need protocol SSL or SASL_SSL")
+	}
+	plan.caFile, plan.certFile, plan.keyFile = sec.CAFile, sec.CertFile, sec.KeyFile
+	return plan, nil
+}
+
+func planAuth(cfg config.ClusterConfig) (securityPlan, error) {
 	sec := cfg.Security
 	plan := securityPlan{tls: strings.Contains(strings.ToUpper(sec.Protocol), "SSL")}
 	switch strings.ToLower(cfg.Provider) {

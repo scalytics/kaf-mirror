@@ -86,6 +86,36 @@ func writeSecretTempFile(prefix string, secret string) (string, error) {
 	return file.Name(), nil
 }
 
+func newImportDatabaseCmd(dbPath *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "database [source-path]",
+		Short: "Import database from external kaf-mirror instance.",
+		Long:  `Replace the current database with the database of another kaf-mirror instance. Stop kaf-mirror first. Without a terminal, pass --yes.`,
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			sourcePath := args[0]
+			if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+				log.Fatalf("Source database not found: %s", sourcePath)
+			}
+
+			confirm, err := confirmAction(cmd, "This will replace the current database. Continue?")
+			if err != nil {
+				log.Fatalf("Import cancelled: %v", err)
+			}
+			if !confirm {
+				fmt.Println("Import cancelled.")
+				return
+			}
+
+			closeDB()
+			if err := restoreDatabase(sourcePath, *dbPath); err != nil {
+				log.Fatalf("Failed to import database: %v", err)
+			}
+			fmt.Printf("Database imported from: %s\n", sourcePath)
+		},
+	}
+}
+
 func main() {
 	var dbPath string
 
@@ -500,39 +530,7 @@ and for emergency maintenance. It interacts directly with the database.`,
 		Long:  `Import data from external kaf-mirror instances or other sources.`,
 	}
 
-	var importDatabaseCmd = &cobra.Command{
-		Use:   "database [source-path]",
-		Short: "Import database from external kaf-mirror instance.",
-		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			sourcePath := args[0]
-			merge, _ := cmd.Flags().GetBool("merge")
-
-			if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
-				log.Fatalf("Source database not found: %s", sourcePath)
-			}
-
-			if !merge {
-				confirm, err := confirmAction(cmd, "This will replace the current database. Use --merge to merge instead. Continue?")
-				if err != nil {
-					log.Fatalf("Import cancelled: %v", err)
-				}
-				if !confirm {
-					fmt.Println("Import cancelled.")
-					return
-				}
-
-				closeDB()
-				if err := restoreDatabase(sourcePath, dbPath); err != nil {
-					log.Fatalf("Failed to import database: %v", err)
-				}
-				fmt.Printf("Database imported from: %s\n", sourcePath)
-			} else {
-				log.Fatal("Database merge functionality not yet implemented. Use restore for replacement.")
-			}
-		},
-	}
-	importDatabaseCmd.Flags().Bool("merge", false, "Merge data instead of replacing (not yet implemented)")
+	importDatabaseCmd := newImportDatabaseCmd(&dbPath)
 
 	var importConfigCmd = &cobra.Command{
 		Use:   "config [source-path]",

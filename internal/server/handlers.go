@@ -437,7 +437,7 @@ func (s *Server) handleGetTopicDetails(c *fiber.Ctx) error {
 // @Param name path string true "Cluster Name"
 // @Success 200 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
-// @Failure 503 {object} map[string]interface{}
+// @Failure 503 {object} map[string]interface{} "The connection check failed or timed out. The cluster status is stored as unreachable."
 // @Router /clusters/{name}/status [get]
 // @Security ApiKeyAuth
 func (s *Server) handleGetClusterStatus(c *fiber.Ctx) error {

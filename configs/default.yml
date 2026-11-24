@@ -8,7 +8,7 @@ server:
     cert_file: ""
     key_file: ""
   cors:
-    allowed_origins: ["*"]
+    allowed_origins: ["http://localhost:8080"]
 
 logging:
   file: "logs/kaf-mirror.log"

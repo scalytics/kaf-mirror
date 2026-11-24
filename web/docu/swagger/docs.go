@@ -3080,6 +3080,12 @@ const docTemplate = `{
                 "api_secret": {
                     "type": "string"
                 },
+                "ca_file": {
+                    "type": "string"
+                },
+                "cert_file": {
+                    "type": "string"
+                },
                 "connection_string": {
                     "type": "string"
                 },
@@ -3088,6 +3094,9 @@ const docTemplate = `{
                 },
                 "kerberos": {
                     "$ref": "#/definitions/config.KerberosConfig"
+                },
+                "key_file": {
+                    "type": "string"
                 },
                 "password": {
                     "type": "string"

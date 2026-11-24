@@ -167,6 +167,9 @@ type SecurityConfig struct {
 	APIKey           string         `mapstructure:"api_key" json:"api_key"`
 	APISecret        string         `mapstructure:"api_secret" json:"api_secret"`
 	ConnectionString *string        `mapstructure:"connection_string" json:"connection_string"`
+	CAFile           string         `mapstructure:"ca_file" json:"ca_file"`
+	CertFile         string         `mapstructure:"cert_file" json:"cert_file"`
+	KeyFile          string         `mapstructure:"key_file" json:"key_file"`
 	Kerberos         KerberosConfig `mapstructure:"kerberos" json:"kerberos"`
 }
 
