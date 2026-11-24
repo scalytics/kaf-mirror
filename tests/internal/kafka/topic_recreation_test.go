@@ -382,7 +382,10 @@ func TestSuccessfulEmptyFetchClearsTheMissingTopic(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
 
-	require.Eventually(t, func() bool { return len(consumer.GetMetrics().MissingTopics) == 1 }, 5*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool {
+		m := consumer.GetMetrics()
+		return len(m.MissingTopics) == 1 && m.FetchErrors == 2
+	}, 5*time.Second, time.Millisecond)
 	assert.Equal(t, []string{"kin"}, consumer.GetMetrics().MissingTopics)
 	assert.Equal(t, int64(2), consumer.GetMetrics().FetchErrors, "the fetch error and the missing topic both count")
 	close(gate)
