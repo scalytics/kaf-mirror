@@ -26,3 +26,11 @@ directory and deploys it with `actions/upload-pages-artifact` and
 The first deploy needs the repository Pages source set to GitHub Actions
 in Settings, Pages. Do not delete the `gh-pages` branch until that
 deploy has been checked.
+
+## Fonts
+
+Latin woff2 files for IBM Plex Sans, IBM Plex Mono and Space Grotesk
+live in `fonts/`, with their SIL Open Font License 1.1 files. The
+site loads them from this directory only. It does not request fonts
+from a third-party host. System fonts stay in the fallback stack.
+

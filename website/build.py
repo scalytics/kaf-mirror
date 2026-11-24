@@ -131,6 +131,9 @@ def main() -> int:
     out.mkdir(parents=True)
     shutil.copy2(WEBSITE / "styles.css", out / "styles.css")
     shutil.copy2(WEBSITE / "favicon.svg", out / "favicon.svg")
+    fonts_src = WEBSITE / "fonts"
+    if fonts_src.is_dir():
+        shutil.copytree(fonts_src, out / "fonts", dirs_exist_ok=True)
     for name, info in meta.items():
         body = (PAGES / name).read_text(encoding="utf-8")
         html = shell(info["title"], info["description"], info["canonical"], info["nav"], body)
