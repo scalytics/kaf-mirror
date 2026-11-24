@@ -167,7 +167,7 @@ func CreateCluster(db *sqlx.DB, cluster *KafkaCluster) error {
 		return err
 	}
 	if count > 0 {
-		return errors.New("a cluster with this name already exists")
+		return ErrClusterExists
 	}
 
 	// Provider-aware uniqueness check
@@ -177,7 +177,7 @@ func CreateCluster(db *sqlx.DB, cluster *KafkaCluster) error {
 			return err
 		}
 		if count > 0 {
-			return errors.New("a confluent cluster with this cluster_id already exists")
+			return ErrConfluentClusterExists
 		}
 	}
 
@@ -202,7 +202,7 @@ func UpdateCluster(db *sqlx.DB, cluster *KafkaCluster) error {
 		return err
 	}
 	if count > 0 {
-		return errors.New("a cluster with this name already exists")
+		return ErrClusterExists
 	}
 
 	// Provider-aware uniqueness check
@@ -212,7 +212,7 @@ func UpdateCluster(db *sqlx.DB, cluster *KafkaCluster) error {
 			return err
 		}
 		if count > 0 {
-			return errors.New("a confluent cluster with this cluster_id already exists")
+			return ErrConfluentClusterExists
 		}
 	}
 
@@ -263,8 +263,18 @@ func RecordClusterHealth(db *sqlx.DB, name string, reachable bool) error {
 }
 
 // PurgeArchivedClusters permanently deletes all archived Kafka clusters.
+var (
+	ErrClusterExists          = errors.New("a cluster with this name already exists")
+	ErrConfluentClusterExists = errors.New("a confluent cluster with this cluster_id already exists")
+)
+
 func PurgeArchivedClusters(db *sqlx.DB) error {
-	_, err := db.Exec("DELETE FROM kafka_clusters WHERE status = 'archived'")
+	if _, err := db.Exec("DELETE FROM kafka_clusters WHERE status = 'archived'"); err != nil {
+		return err
+	}
+	_, err := db.Exec(`DELETE FROM kafka_clusters WHERE TRIM(name) = ''
+		AND name NOT IN (SELECT source_cluster_name FROM replication_jobs)
+		AND name NOT IN (SELECT target_cluster_name FROM replication_jobs)`)
 	return err
 }
 

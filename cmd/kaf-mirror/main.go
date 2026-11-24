@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
 	"kaf-mirror/internal/manager"
@@ -62,6 +63,17 @@ func writeSecretFile(dir string, prefix string, secret string) (string, error) {
 	return filepath.Abs(file.Name())
 }
 
+func startupDBError(dbPath string, err error) string {
+	switch {
+	case errors.Is(err, database.ErrDatabaseInUse):
+		return fmt.Sprintf("Refusing to start: %v. If a restore or import is running, wait for it to finish. If another kaf-mirror process holds the database, stop it first.", err)
+	case errors.Is(err, fs.ErrPermission):
+		return fmt.Sprintf("Refusing to start: %v. The directory that holds %s must be writable by UID %d or GID %d, the user and group kaf-mirror runs as.", err, dbPath, os.Geteuid(), os.Getegid())
+	default:
+		return fmt.Sprintf("Refusing to start: cannot open the database %s: %v", dbPath, err)
+	}
+}
+
 func main() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -81,7 +93,7 @@ func main() {
 
 	db, dbLock, err := database.OpenLockedDB(cfg.Database.Path)
 	if err != nil {
-		log.Fatalf("Refusing to start: %v. If a restore or import is running, wait for it to finish. If another kaf-mirror process holds the database, stop it first.", err)
+		log.Fatal(startupDBError(cfg.Database.Path, err))
 	}
 	defer db.Close()
 	if dbLock != nil {

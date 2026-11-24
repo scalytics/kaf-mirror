@@ -384,7 +384,7 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 			totalBytes := consumerMetrics.BytesReplicated
 			totalConsumed := consumerMetrics.RecordsProcessed
 			totalConsumedBytes := consumerMetrics.BytesProcessed
-			totalErrors := producerMetrics.ErrorCount
+			totalErrors := producerMetrics.ErrorCount + consumerMetrics.FetchErrors
 			currentLag := r.currentLag(ctx, consumerMetrics.ConsumerLag)
 
 			// Detect performance disasters and incidents
@@ -504,6 +504,7 @@ func (r *KafMirrorImpl) collectMetrics(ctx context.Context, jobID string, callba
 				BytesConsumed:      int(totalConsumedBytes),
 				CurrentLag:         int(currentLag),
 				ErrorCount:         int(totalErrors),
+				FetchErrorCount:    int(consumerMetrics.FetchErrors),
 				SourceStalled:      sourceStalled,
 				TargetStalled:      targetStalled,
 				CriticalLag:        criticalLag,

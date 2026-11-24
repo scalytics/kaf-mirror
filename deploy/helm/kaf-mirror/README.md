@@ -55,6 +55,12 @@ kubectl exec deploy/km-kaf-mirror -- sh -c 'cat /tmp/kaf-mirror-admin-reset-*'
 kubectl exec deploy/km-kaf-mirror -- sh -c 'rm /tmp/kaf-mirror-admin-reset-*'
 ```
 
+## Storage permissions
+
+The pod runs as UID 100 and GID 101 with `fsGroup` 101. kaf-mirror needs write access to `/app/data`, either as the owner, through group 101 or because the directory is world-writable. That covers volumes that honor `fsGroup` (the volume root is then group 101) and storage that ignores it, such as the `local-path` provisioner of kind and k3s, which creates the directory as `root:root` with mode `0777`. No manual `chown` is needed.
+
+kaf-mirror sets `/app/data` to mode `0700` only when it owns the directory. If the directory belongs to another user, kaf-mirror leaves its mode alone and logs a warning when the directory is open to the group or others. The database, its `-wal` and `-shm` files and `kaf-mirror.db.lock` are always created with mode `0600`. An existing database file of another user that the group or others can read stops the start, because kaf-mirror cannot make it private.
+
 ## Back up the database
 
 The database is `/app/data/kaf-mirror.db` on the PVC. `admin-cli backup database` takes a consistent copy with `VACUUM INTO` while the pod runs, including writes still in the WAL file, and creates it with mode `0600`. Write the backup to the PVC, copy it out with a private umask, then delete it in the pod:
@@ -231,7 +237,7 @@ helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f shutdown-v
 | `resources` | see `values.yaml` | Container resources. |
 | `probes.liveness` | `initialDelaySeconds: 15`, `periodSeconds: 20` | Liveness probe timing. The probe checks `/health` on the `http` port. |
 | `probes.readiness` | `initialDelaySeconds: 5`, `periodSeconds: 10` | Readiness probe timing. The probe checks `/health` on the `http` port. |
-| `podSecurityContext` | UID 100, GID 101, `fsGroup` 101 | Pod security context. The IDs match the `kaf-mirror` user in the image. |
+| `podSecurityContext` | UID 100, GID 101, `fsGroup` 101, `fsGroupChangePolicy` `OnRootMismatch` | Pod security context. The IDs match the `kaf-mirror` user in the image. See "Storage permissions". |
 | `securityContext` | see `values.yaml` | Container security context. |
 | `serviceAccount.create` | `true` | Create a ServiceAccount. |
 | `serviceAccount.name` | `""` | ServiceAccount name. Empty uses the release full name. |

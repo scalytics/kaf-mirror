@@ -160,7 +160,7 @@ func TestJobsAPI(t *testing.T) {
 	err = database.CreateCluster(ctx.Server.Db, targetCluster)
 	assert.NoError(t, err)
 
-	jobPayload := `{"name":"test-job","source_cluster_name":"src","target_cluster_name":"tgt"}`
+	jobPayload := `{"name":"test-job","source_cluster_name":"src","target_cluster_name":"tgt","topic_mappings":[{"source_topic_pattern":"orders","target_topic_pattern":"orders","enabled":true}]}`
 	req := httptest.NewRequest("POST", "/api/v1/jobs", bytes.NewBufferString(jobPayload))
 	req.Header.Set("Content-Type", "application/json")
 	addAuthHeader(req, ctx.Token)
@@ -690,6 +690,7 @@ func TestProtectionHaltAndRefuseProd(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"name": "into-prod", "source_cluster_name": "prod-src", "target_cluster_name": "prod-dst",
+		"topic_mappings": []map[string]interface{}{{"source_topic_pattern": "orders", "target_topic_pattern": "orders", "enabled": true}},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/jobs", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

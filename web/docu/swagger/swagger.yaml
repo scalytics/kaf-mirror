@@ -997,7 +997,9 @@ paths:
       consumes:
       - application/json
       description: Create a new Kafka cluster. Optional role is prod, dr, or other
-        (default other).
+        (default other). name and brokers are required, and name must not contain
+        a slash; otherwise the answer is 400. A name that another cluster has answers
+        409.
       parameters:
       - description: Kafka Cluster
         in: body
@@ -1012,6 +1014,16 @@ paths:
           description: Created
           schema:
             $ref: '#/definitions/database.KafkaCluster'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Create a new Kafka cluster
@@ -1020,7 +1032,7 @@ paths:
   /clusters/{name}:
     delete:
       description: Mark a Kafka cluster as inactive. It will be archived after 72
-        hours and then can be purged.
+        hours and then can be purged. An unknown cluster answers 404.
       parameters:
       - description: Cluster Name
         in: path
@@ -1030,6 +1042,16 @@ paths:
       responses:
         "202":
           description: Accepted
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Mark a Kafka cluster for deletion
@@ -1058,7 +1080,8 @@ paths:
     put:
       consumes:
       - application/json
-      description: Update an existing Kafka cluster.
+      description: Update an existing Kafka cluster. brokers is required; without
+        it the answer is 400.
       parameters:
       - description: Cluster Name
         in: path
@@ -1078,6 +1101,21 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/database.KafkaCluster'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Update a Kafka cluster
@@ -1196,7 +1234,8 @@ paths:
       - clusters
   /clusters/purge:
     delete:
-      description: Permanently delete all archived Kafka clusters.
+      description: Permanently delete all archived Kafka clusters, and a cluster with
+        an empty name that no job uses, which earlier versions accepted.
       responses:
         "204":
           description: No Content
@@ -1547,9 +1586,11 @@ paths:
     post:
       consumes:
       - application/json
-      description: Create a new replication job. batch_size is in KB. A missing or
-        0 batch_size uses 1000. A value below 0 or above 102400 KB is rejected with
-        400.
+      description: Create a new replication job. name, source_cluster_name, target_cluster_name
+        and at least one topic mapping are required; otherwise the answer is 400.
+        An unknown source or target cluster answers 404. A name that another job has
+        answers 409. batch_size is in KB. A missing or 0 batch_size uses 1000. A value
+        below 0 or above 102400 KB is rejected with 400.
       parameters:
       - description: Replication Job
         in: body
@@ -1566,6 +1607,16 @@ paths:
             $ref: '#/definitions/database.ReplicationJob'
         "400":
           description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
           schema:
             additionalProperties: true
             type: object
@@ -1621,8 +1672,10 @@ paths:
       consumes:
       - application/json
       description: Update an existing replication job. Empty fields keep their stored
-        value. A missing or 0 batch_size keeps the stored value, and a stored 0 becomes
-        1000. A batch_size below 0 or above 102400 KB is rejected with 400.
+        value. An unknown source or target cluster answers 404, and a name that another
+        job has answers 409. A missing or 0 batch_size keeps the stored value, and
+        a stored 0 becomes 1000. A batch_size below 0 or above 102400 KB is rejected
+        with 400.
       parameters:
       - description: Job ID
         in: path
@@ -1644,6 +1697,16 @@ paths:
             $ref: '#/definitions/database.ReplicationJob'
         "400":
           description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
           schema:
             additionalProperties: true
             type: object
@@ -1869,7 +1932,10 @@ paths:
   /jobs/{id}/metrics/current:
     get:
       description: Get the totals of a job since it was created (messages, bytes,
-        errors, tombstones) and the lag of the last sample.
+        errors, tombstones) and the lag of the last sample. source_stalled, target_stalled,
+        critical_lag, high_error_rate and error_spike are the incident flags of the
+        last sample of the running job. They are false when the job is not running
+        or has not sent a sample since it started.
       parameters:
       - description: Job ID
         in: path

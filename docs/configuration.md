@@ -109,19 +109,27 @@ Jobs use the clusters stored in the database, not the `clusters` section of the 
 
 | Field | Description |
 |---|---|
-| `name` | Cluster name. Jobs refer to it. |
+| `name` | Cluster name. Jobs refer to it. Required. It must not be empty or only spaces and must not contain `/`, because it is part of the URL of the cluster. |
 | `provider` | `plain`, `confluent`, `redpanda` or `azure`. |
-| `brokers` | Comma-separated broker list. |
+| `brokers` | Comma-separated broker list. Required, also for `PUT`. |
 | `cluster_id` | Cluster ID, for `confluent`. |
 | `api_key`, `api_secret` | Credentials of the `confluent` provider. |
 | `connection_string` | Connection string of the `azure` provider. |
 | `role` | `prod`, `dr` or `other`. Default `other`. See [protection.md](protection.md). |
 | `security_config` | A JSON object written as a string, with the keys `enabled`, `protocol`, `sasl_mechanism`, `username`, `password`, `ca_file`, `cert_file`, `key_file` and `kerberos` (`service_name`, `principal`, `keytab_path`, `krb5_conf_path`). |
 
+A missing `name` or `brokers` answers HTTP 400. A `name` that another cluster already has answers HTTP 409. `DELETE /api/v1/clusters/{name}` of an unknown cluster answers HTTP 404.
+
+Earlier versions accepted a cluster with an empty name, which no URL can reach. `DELETE /api/v1/clusters/purge` removes such a cluster when no job uses it. Delete the jobs that use it first, with `DELETE /api/v1/jobs/{id}`.
+
 An example `security_config` value:
 ```json
 {"enabled":true,"protocol":"SASL_SSL","sasl_mechanism":"SCRAM-SHA-512","username":"kaf-mirror","password":"<password>"}
 ```
+
+## Job API fields
+
+`POST /api/v1/jobs` needs `name`, `source_cluster_name`, `target_cluster_name` and at least one entry in `topic_mappings`, otherwise it answers HTTP 400. A source or target cluster that does not exist answers HTTP 404 with `Source cluster not found` or `Target cluster not found`, also for `PUT /api/v1/jobs/{id}`. A `name` that another job already has answers HTTP 409. The response has the stored `created_at` and `updated_at`.
 
 ## AI analysis
 

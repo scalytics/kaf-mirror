@@ -64,6 +64,7 @@ type ReplicationMetric struct {
 	BytesConsumed      int       `db:"bytes_consumed" json:"bytes_consumed"`
 	CurrentLag         int       `db:"current_lag" json:"current_lag"`
 	ErrorCount         int       `db:"error_count" json:"error_count"`
+	FetchErrorCount    int       `db:"-" json:"-"`
 	SourceStalled      bool      `db:"-" json:"source_stalled"`
 	TargetStalled      bool      `db:"-" json:"target_stalled"`
 	CriticalLag        bool      `db:"-" json:"critical_lag"`

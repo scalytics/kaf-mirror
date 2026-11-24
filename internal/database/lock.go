@@ -43,7 +43,7 @@ func AcquireDBLock(dbPath string) (*DBLock, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := f.Chmod(privateFileMode); err != nil {
+	if err := tightenOpenFile(f); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func IsDBLocked(dbPath string) (bool, error) {
 		return false, err
 	}
 	defer f.Close()
-	if err := f.Chmod(privateFileMode); err != nil {
+	if err := tightenOpenFile(f); err != nil {
 		return false, err
 	}
 	if err := lockFileExclusive(f); err != nil {

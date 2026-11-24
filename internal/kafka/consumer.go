@@ -30,6 +30,7 @@ type ConsumerMetrics struct {
 	BytesReplicated   int64
 	ConsumerLag       int64
 	Tombstones        int64
+	FetchErrors       int64
 }
 
 const (
@@ -59,6 +60,11 @@ type Consumer struct {
 	partCancels      map[topicPartition]context.CancelFunc
 	revoked          map[topicPartition]bool
 	sleep            func(context.Context, time.Duration) error
+	now              func() time.Time
+	fetchErrors      int64
+	fetchBackoff     time.Duration
+	unknownTopicIDs  map[string]int
+	fetchErrorLogs   map[fetchErrorKey]*fetchErrorLog
 }
 
 func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config.ReplicationConfig, jobID string, topics ...string) (*Consumer, error) {
@@ -166,13 +172,12 @@ func (c *Consumer) ConsumeAsync(ctx context.Context, handler AsyncHandler) error
 			return nil
 		}
 		fetches := c.Client.PollFetches(ctx)
-		if fetches.IsClientClosed() {
+		if fetches.IsClientClosed() || ctx.Err() != nil {
 			return nil
 		}
-
-		fetches.EachError(func(t string, p int32, err error) {
-			logger.ErrorAI("disaster", "replication", c.jobID, "Consumer: Fetch error for topic %s, partition %d: %v", t, p, err)
-		})
+		if err := c.handleFetchErrors(ctx, fetches); err != nil {
+			return err
+		}
 
 		partCtxs := c.trackPartitions(ctx, fetches)
 		var batches []*partitionBatch
@@ -553,6 +558,7 @@ func (c *Consumer) GetMetrics() ConsumerMetrics {
 		BytesReplicated:   atomic.LoadInt64(&c.bytesAcked),
 		ConsumerLag:       calculatedLag,
 		Tombstones:        atomic.LoadInt64(&c.tombstones),
+		FetchErrors:       atomic.LoadInt64(&c.fetchErrors),
 	}
 }
 
