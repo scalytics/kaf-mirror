@@ -115,19 +115,26 @@ func setClusterConfigPath(cfg *config.ClusterConfig, path, value string) {
 	}
 }
 
+func probeFP(t *testing.T, cfg config.ClusterConfig) string {
+	t.Helper()
+	fp, ok := kafka.ProbeFingerprint(cfg)
+	require.True(t, ok)
+	require.NotEmpty(t, fp)
+	return fp
+}
+
 func TestProbeFingerprintCoversEveryClusterConfigField(t *testing.T) {
 	got := clusterConfigFieldPaths(reflect.TypeOf(config.ClusterConfig{}), "")
 	require.Equal(t, probeFingerprintFields, got, "ClusterConfig fields changed; confirm ProbeFingerprint still hashes every connection field and update this list")
 
 	base := baseClusterConfig()
-	baseFP := kafka.ProbeFingerprint(base)
-	require.NotEmpty(t, baseFP)
+	baseFP := probeFP(t, base)
 
 	for _, path := range got {
 		cfg := baseClusterConfig()
 		secret := "fp-secret-value/" + path
 		setClusterConfigPath(&cfg, path, secret)
-		fp := kafka.ProbeFingerprint(cfg)
+		fp := probeFP(t, cfg)
 		assert.NotEqual(t, baseFP, fp, "%s must change the probe fingerprint", path)
 		assert.NotContains(t, fp, secret, "%s must not appear in the fingerprint", path)
 		assert.NotContains(t, fp, "fp-secret-value")
@@ -148,7 +155,7 @@ func TestProbeFingerprintHidesCredentialValues(t *testing.T) {
 			Kerberos:         config.KerberosConfig{Principal: "kafka/broker@REALM"},
 		},
 	}
-	fp := kafka.ProbeFingerprint(cfg)
+	fp := probeFP(t, cfg)
 	for _, secret := range []string{
 		"confluent-api-key",
 		"confluent-api-secret",
@@ -163,13 +170,13 @@ func TestProbeFingerprintHidesCredentialValues(t *testing.T) {
 
 	other := cfg
 	other.Security.APISecret = "rotated-confluent-secret"
-	assert.NotEqual(t, fp, kafka.ProbeFingerprint(other))
+	assert.NotEqual(t, fp, probeFP(t, other))
 	other = cfg
 	other.Security.ConnectionString = strPtr("Endpoint=sb://hub.servicebus.windows.net/;SharedAccessKey=rotated-azure")
-	assert.NotEqual(t, fp, kafka.ProbeFingerprint(other))
+	assert.NotEqual(t, fp, probeFP(t, other))
 	other = cfg
 	other.Provider = "azure"
-	assert.NotEqual(t, fp, kafka.ProbeFingerprint(other))
+	assert.NotEqual(t, fp, probeFP(t, other))
 }
 
 func TestProbeFingerprintFollowsClusterConfigFromRow(t *testing.T) {
@@ -182,10 +189,10 @@ func TestProbeFingerprintFollowsClusterConfigFromRow(t *testing.T) {
 		APISecret:        "confluent-api-secret",
 		ConnectionString: &conn,
 	}
-	fp := kafka.ProbeFingerprint(database.ClusterConfigFromRow(row))
+	fp := probeFP(t, database.ClusterConfigFromRow(row))
 	rotated := row
 	rotated.APISecret = "rotated-confluent-secret"
-	assert.NotEqual(t, fp, kafka.ProbeFingerprint(database.ClusterConfigFromRow(rotated)))
+	assert.NotEqual(t, fp, probeFP(t, database.ClusterConfigFromRow(rotated)))
 	assert.NotContains(t, fp, "confluent-api-secret")
 	assert.NotContains(t, fp, conn)
 }

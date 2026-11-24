@@ -12,42 +12,68 @@
 package kafka
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"kaf-mirror/internal/config"
 )
 
-func ProbeFingerprint(cfg config.ClusterConfig) string {
-	sum := sha256.Sum256(canonicalClusterConfig(cfg))
-	return hex.EncodeToString(sum[:])
+var (
+	probeMACMu    sync.Mutex
+	probeMACKey   [32]byte
+	probeMACKeyOK bool
+)
+
+func init() {
+	initProbeMACKey()
 }
 
-func hashSecret(value string) string {
-	if value == "" {
-		return ""
+func initProbeMACKey() {
+	n, err := rand.Read(probeMACKey[:])
+	probeMACKeyOK = err == nil && n == len(probeMACKey)
+}
+
+func ProbeFingerprint(cfg config.ClusterConfig) (string, bool) {
+	probeMACMu.Lock()
+	ok := probeMACKeyOK
+	var key [32]byte
+	if ok {
+		key = probeMACKey
 	}
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
+	probeMACMu.Unlock()
+	if !ok {
+		return "", false
+	}
+	return probeFingerprintWithKey(cfg, key[:]), true
+}
+
+func probeFingerprintWithKey(cfg config.ClusterConfig, key []byte) string {
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(canonicalClusterConfig(cfg))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func suspendProbeMACKeyForTest() func() {
+	probeMACMu.Lock()
+	was := probeMACKeyOK
+	probeMACKeyOK = false
+	probeMACMu.Unlock()
+	return func() {
+		probeMACMu.Lock()
+		probeMACKeyOK = was
+		probeMACMu.Unlock()
+	}
 }
 
 func canonicalClusterConfig(cfg config.ClusterConfig) []byte {
-	hashed := cfg
-	hashed.Security.Username = hashSecret(cfg.Security.Username)
-	hashed.Security.Password = hashSecret(cfg.Security.Password)
-	hashed.Security.APIKey = hashSecret(cfg.Security.APIKey)
-	hashed.Security.APISecret = hashSecret(cfg.Security.APISecret)
-	hashed.Security.Kerberos.Principal = hashSecret(cfg.Security.Kerberos.Principal)
-	if cfg.Security.ConnectionString != nil {
-		h := hashSecret(*cfg.Security.ConnectionString)
-		hashed.Security.ConnectionString = &h
-	}
-	b, err := json.Marshal(hashed)
+	b, err := json.Marshal(cfg)
 	if err != nil {
-		sum := sha256.Sum256([]byte(fmt.Sprintf("%#v", hashed)))
-		return sum[:]
+		return []byte(fmt.Sprintf("%#v", cfg))
 	}
 	return b
 }

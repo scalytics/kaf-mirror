@@ -37,6 +37,7 @@ type clusterProbeMeta struct {
 
 type clusterStatusFlight struct {
 	fp        string
+	joinable  bool
 	gen       uint64
 	done      chan struct{}
 	status    string
@@ -48,8 +49,12 @@ func probeCluster(ctx context.Context, cluster database.KafkaCluster) error {
 	return kafka.TestConnection(ctx, database.ClusterConfigFromRow(cluster))
 }
 
-func clusterProbeFingerprint(cluster database.KafkaCluster) string {
-	return cluster.UID + ":" + kafka.ProbeFingerprint(database.ClusterConfigFromRow(cluster))
+func clusterProbeFingerprint(cluster database.KafkaCluster) (string, bool) {
+	digest, ok := kafka.ProbeFingerprint(database.ClusterConfigFromRow(cluster))
+	if !ok {
+		return "", false
+	}
+	return cluster.UID + ":" + digest, true
 }
 
 func (jm *JobManager) SetClusterProbeForTest(probe ClusterProbe) {
@@ -156,7 +161,7 @@ func (jm *JobManager) releaseClusterProbeSlot() {
 	<-jm.clusterProbeSem
 }
 
-func (jm *JobManager) joinOrStartClusterFlight(name, fp string) (*clusterStatusFlight, bool, uint64) {
+func (jm *JobManager) joinOrStartClusterFlight(name, fp string, joinable bool) (*clusterStatusFlight, bool, uint64) {
 	jm.clusterProbeMu.Lock()
 	defer jm.clusterProbeMu.Unlock()
 	if jm.clusterProbes == nil {
@@ -167,11 +172,11 @@ func (jm *JobManager) joinOrStartClusterFlight(name, fp string) (*clusterStatusF
 		meta = &clusterProbeMeta{}
 		jm.clusterProbes[name] = meta
 	}
-	if meta.flight != nil && meta.flight.fp == fp {
+	if joinable && meta.flight != nil && meta.flight.fp == fp {
 		return meta.flight, true, meta.flight.gen
 	}
 	meta.gen++
-	flight := &clusterStatusFlight{fp: fp, gen: meta.gen, done: make(chan struct{})}
+	flight := &clusterStatusFlight{fp: fp, joinable: joinable, gen: meta.gen, done: make(chan struct{})}
 	meta.flight = flight
 	return flight, false, flight.gen
 }
@@ -211,7 +216,8 @@ func (jm *JobManager) CheckClusterStatus(ctx context.Context, name string) (stri
 		if database.ClusterStatusIsRetired(cluster.Status) {
 			return cluster.Status, nil
 		}
-		flight, joined, gen := jm.joinOrStartClusterFlight(name, clusterProbeFingerprint(*cluster))
+		fp, joinable := clusterProbeFingerprint(*cluster)
+		flight, joined, gen := jm.joinOrStartClusterFlight(name, fp, joinable)
 		if joined {
 			if hook := jm.clusterProbeJoinHook(); hook != nil {
 				hook()
@@ -250,9 +256,12 @@ func (jm *JobManager) runClusterStatusFlight(ctx context.Context, name string, c
 		jm.finishClusterFlight(name, flight, current.Status, nil, false)
 		return current.Status, nil, false
 	}
-	if clusterProbeFingerprint(*current) != flight.fp {
-		jm.finishClusterFlight(name, flight, current.Status, nil, true)
-		return "", nil, true
+	if flight.joinable {
+		currentFP, currentOK := clusterProbeFingerprint(*current)
+		if !currentOK || currentFP != flight.fp {
+			jm.finishClusterFlight(name, flight, current.Status, nil, true)
+			return "", nil, true
+		}
 	}
 
 	probeCtx, cancel := context.WithTimeout(ctx, ClusterStatusTimeout)
