@@ -541,7 +541,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Run a live connection test against the cluster, bounded by 10 seconds, and store the result as the cluster status (active or unreachable). When the check fails the response is HTTP 503 and the stored status is unreachable. Inactive and archived clusters are not probed and keep their status.",
+                "description": "Run a live connection test against the cluster, bounded by 10 seconds, and store the result as the cluster status (active or unreachable). At most 4 probes run at a time in the process, and concurrent checks of the same cluster share one probe. When the check fails the response is HTTP 503 and the stored status is unreachable. Inactive and archived clusters are not probed and keep their status.",
                 "produces": [
                     "application/json"
                 ],

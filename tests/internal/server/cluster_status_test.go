@@ -17,6 +17,8 @@ import (
 	"errors"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"kaf-mirror/internal/database"
@@ -121,4 +123,89 @@ func TestClusterStatusEndpointKeepsInactiveWhenProbeWouldFail(t *testing.T) {
 	assert.Equal(t, "Cluster status is inactive", body["message"])
 	assert.Equal(t, "inactive", listedClusterStatus(t, ctx, "old"))
 	assert.Equal(t, 0, probed)
+}
+
+func TestClusterStatusEndpointRespectsGlobalProbeCap(t *testing.T) {
+	ctx := setupTestServer(t)
+	for i := 0; i < 6; i++ {
+		name := "c" + string(rune('a'+i))
+		require.NoError(t, database.CreateCluster(ctx.Server.Db, &database.KafkaCluster{Name: name, Brokers: "localhost:1", SecurityConfig: "{}"}))
+	}
+
+	var current, max, started int32
+	release := make(chan struct{})
+	entered := make(chan struct{}, 6)
+	ctx.Manager.SetClusterProbeForTest(func(context.Context, database.KafkaCluster) error {
+		n := atomic.AddInt32(&current, 1)
+		atomic.AddInt32(&started, 1)
+		for {
+			old := atomic.LoadInt32(&max)
+			if n <= old || atomic.CompareAndSwapInt32(&max, old, n) {
+				break
+			}
+		}
+		entered <- struct{}{}
+		<-release
+		atomic.AddInt32(&current, -1)
+		return nil
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 6; i++ {
+		name := "c" + string(rune('a'+i))
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			code, body := getClusterStatus(t, ctx, name)
+			assert.Equal(t, 200, code)
+			assert.Equal(t, "active", body["status"])
+		}(name)
+	}
+	for i := 0; i < 4; i++ {
+		<-entered
+	}
+	assert.Equal(t, int32(4), atomic.LoadInt32(&current))
+	assert.Equal(t, int32(4), atomic.LoadInt32(&max))
+	close(release)
+	wg.Wait()
+	assert.Equal(t, int32(4), atomic.LoadInt32(&max))
+	assert.Equal(t, int32(6), atomic.LoadInt32(&started))
+}
+
+func TestClusterStatusEndpointSharesAnInFlightProbe(t *testing.T) {
+	ctx := setupTestServer(t)
+	require.NoError(t, database.CreateCluster(ctx.Server.Db, &database.KafkaCluster{Name: "shared", Brokers: "localhost:1", SecurityConfig: "{}"}))
+
+	var started int32
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	joined := make(chan struct{}, 4)
+	ctx.Manager.SetClusterProbeJoinForTest(func() {
+		joined <- struct{}{}
+	})
+	ctx.Manager.SetClusterProbeForTest(func(context.Context, database.KafkaCluster) error {
+		if atomic.AddInt32(&started, 1) == 1 {
+			close(entered)
+		}
+		<-release
+		return nil
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			code, body := getClusterStatus(t, ctx, "shared")
+			assert.Equal(t, 200, code)
+			assert.Equal(t, "active", body["status"])
+		}()
+	}
+	<-entered
+	for i := 0; i < 4; i++ {
+		<-joined
+	}
+	close(release)
+	wg.Wait()
+	assert.Equal(t, int32(1), atomic.LoadInt32(&started))
 }

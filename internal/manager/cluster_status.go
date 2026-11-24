@@ -30,12 +30,48 @@ const (
 
 type ClusterProbe func(ctx context.Context, cluster database.KafkaCluster) error
 
+type clusterProbeMeta struct {
+	gen    uint64
+	flight *clusterStatusFlight
+}
+
+type clusterStatusFlight struct {
+	fp        string
+	gen       uint64
+	done      chan struct{}
+	status    string
+	err       error
+	abandoned bool
+}
+
 func probeCluster(ctx context.Context, cluster database.KafkaCluster) error {
 	return kafka.TestConnection(ctx, database.ClusterConfigFromRow(cluster))
 }
 
+func clusterProbeFingerprint(cluster database.KafkaCluster) string {
+	return cluster.Brokers + "\x00" + cluster.SecurityConfig
+}
+
 func (jm *JobManager) SetClusterProbeForTest(probe ClusterProbe) {
 	jm.clusterProbe = probe
+}
+
+func (jm *JobManager) SetClusterProbeSemWaitForTest(hook func()) {
+	jm.clusterProbeMu.Lock()
+	defer jm.clusterProbeMu.Unlock()
+	jm.clusterProbeSemWait = hook
+}
+
+func (jm *JobManager) SetClusterProbeJoinForTest(hook func()) {
+	jm.clusterProbeMu.Lock()
+	defer jm.clusterProbeMu.Unlock()
+	jm.clusterProbeJoin = hook
+}
+
+func (jm *JobManager) clusterProbeJoinHook() func() {
+	jm.clusterProbeMu.Lock()
+	defer jm.clusterProbeMu.Unlock()
+	return jm.clusterProbeJoin
 }
 
 func (jm *JobManager) probe(ctx context.Context, cluster database.KafkaCluster) error {
@@ -55,21 +91,104 @@ func (jm *JobManager) recordClusterHealth(name string, probeErr error) {
 	}
 }
 
-func (jm *JobManager) CheckClusterStatus(ctx context.Context, name string) (string, error) {
-	cluster, err := database.GetCluster(jm.Db, name)
-	if err != nil {
-		return "", err
-	}
-	if database.ClusterStatusIsRetired(cluster.Status) {
-		return cluster.Status, nil
-	}
-	ctx, cancel := context.WithTimeout(ctx, ClusterStatusTimeout)
-	defer cancel()
-	probeErr := jm.probe(ctx, *cluster)
-	if errors.Is(ctx.Err(), context.Canceled) && probeErr != nil {
-		return cluster.Status, probeErr
+func (jm *JobManager) recordClusterHealthIfCurrent(name string, gen uint64, probeErr error) {
+	if !jm.clusterProbeGenCurrent(name, gen) {
+		return
 	}
 	jm.recordClusterHealth(name, probeErr)
+}
+
+func (jm *JobManager) clusterProbeGenCurrent(name string, gen uint64) bool {
+	jm.clusterProbeMu.Lock()
+	defer jm.clusterProbeMu.Unlock()
+	if jm.clusterProbes == nil {
+		return false
+	}
+	meta, ok := jm.clusterProbes[name]
+	return ok && meta.gen == gen
+}
+
+func (jm *JobManager) bumpClusterProbeGen(name string) uint64 {
+	jm.clusterProbeMu.Lock()
+	defer jm.clusterProbeMu.Unlock()
+	if jm.clusterProbes == nil {
+		jm.clusterProbes = make(map[string]*clusterProbeMeta)
+	}
+	meta := jm.clusterProbes[name]
+	if meta == nil {
+		meta = &clusterProbeMeta{}
+		jm.clusterProbes[name] = meta
+	}
+	meta.gen++
+	return meta.gen
+}
+
+func (jm *JobManager) acquireClusterProbeSlot(ctx context.Context) error {
+	sem := jm.clusterProbeSem
+	if sem == nil {
+		return errors.New("cluster probe semaphore is not initialised")
+	}
+	select {
+	case sem <- struct{}{}:
+		return nil
+	default:
+	}
+	jm.clusterProbeMu.Lock()
+	hook := jm.clusterProbeSemWait
+	jm.clusterProbeMu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	select {
+	case sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-jm.backgroundContext().Done():
+		return jm.backgroundContext().Err()
+	}
+}
+
+func (jm *JobManager) releaseClusterProbeSlot() {
+	if jm.clusterProbeSem == nil {
+		return
+	}
+	<-jm.clusterProbeSem
+}
+
+func (jm *JobManager) joinOrStartClusterFlight(name, fp string) (*clusterStatusFlight, bool, uint64) {
+	jm.clusterProbeMu.Lock()
+	defer jm.clusterProbeMu.Unlock()
+	if jm.clusterProbes == nil {
+		jm.clusterProbes = make(map[string]*clusterProbeMeta)
+	}
+	meta := jm.clusterProbes[name]
+	if meta == nil {
+		meta = &clusterProbeMeta{}
+		jm.clusterProbes[name] = meta
+	}
+	if meta.flight != nil && meta.flight.fp == fp {
+		return meta.flight, true, meta.flight.gen
+	}
+	meta.gen++
+	flight := &clusterStatusFlight{fp: fp, gen: meta.gen, done: make(chan struct{})}
+	meta.flight = flight
+	return flight, false, flight.gen
+}
+
+func (jm *JobManager) finishClusterFlight(name string, flight *clusterStatusFlight, status string, err error, abandoned bool) {
+	flight.status = status
+	flight.err = err
+	flight.abandoned = abandoned
+	close(flight.done)
+	jm.clusterProbeMu.Lock()
+	defer jm.clusterProbeMu.Unlock()
+	if meta := jm.clusterProbes[name]; meta != nil && meta.flight == flight {
+		meta.flight = nil
+	}
+}
+
+func (jm *JobManager) statusAfterProbe(name string, probeErr error) (string, error) {
 	current, err := database.GetCluster(jm.Db, name)
 	if err != nil {
 		if probeErr != nil {
@@ -83,28 +202,92 @@ func (jm *JobManager) CheckClusterStatus(ctx context.Context, name string) (stri
 	return current.Status, probeErr
 }
 
+func (jm *JobManager) CheckClusterStatus(ctx context.Context, name string) (string, error) {
+	for {
+		cluster, err := database.GetCluster(jm.Db, name)
+		if err != nil {
+			return "", err
+		}
+		if database.ClusterStatusIsRetired(cluster.Status) {
+			return cluster.Status, nil
+		}
+		flight, joined, gen := jm.joinOrStartClusterFlight(name, clusterProbeFingerprint(*cluster))
+		if joined {
+			if hook := jm.clusterProbeJoinHook(); hook != nil {
+				hook()
+			}
+			select {
+			case <-flight.done:
+				if flight.abandoned {
+					continue
+				}
+				return flight.status, flight.err
+			case <-ctx.Done():
+				return cluster.Status, ctx.Err()
+			}
+		}
+		status, err, retry := jm.runClusterStatusFlight(ctx, name, *cluster, flight, gen)
+		if retry {
+			continue
+		}
+		return status, err
+	}
+}
+
+func (jm *JobManager) runClusterStatusFlight(ctx context.Context, name string, cluster database.KafkaCluster, flight *clusterStatusFlight, gen uint64) (string, error, bool) {
+	if err := jm.acquireClusterProbeSlot(ctx); err != nil {
+		jm.finishClusterFlight(name, flight, cluster.Status, err, true)
+		return cluster.Status, err, false
+	}
+	defer jm.releaseClusterProbeSlot()
+
+	current, err := database.GetCluster(jm.Db, name)
+	if err != nil {
+		jm.finishClusterFlight(name, flight, "", err, false)
+		return "", err, false
+	}
+	if database.ClusterStatusIsRetired(current.Status) {
+		jm.finishClusterFlight(name, flight, current.Status, nil, false)
+		return current.Status, nil, false
+	}
+	if clusterProbeFingerprint(*current) != flight.fp {
+		jm.finishClusterFlight(name, flight, current.Status, nil, true)
+		return "", nil, true
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, ClusterStatusTimeout)
+	defer cancel()
+	probeErr := jm.probe(probeCtx, *current)
+	if errors.Is(probeCtx.Err(), context.Canceled) && probeErr != nil {
+		jm.finishClusterFlight(name, flight, current.Status, probeErr, false)
+		return current.Status, probeErr, false
+	}
+	jm.recordClusterHealthIfCurrent(name, gen, probeErr)
+	status, err := jm.statusAfterProbe(name, probeErr)
+	jm.finishClusterFlight(name, flight, status, err, false)
+	return status, err, false
+}
+
 func (jm *JobManager) CheckAllClusterStatuses(ctx context.Context) {
 	clusters, err := database.ListClusters(jm.Db)
 	if err != nil {
 		logger.Error("Failed to list clusters for status checks: %v", err)
 		return
 	}
-	sem := make(chan struct{}, clusterStatusConcurrency)
 	var wg sync.WaitGroup
 	for _, cluster := range clusters {
 		if database.ClusterStatusIsRetired(cluster.Status) {
 			continue
 		}
 		select {
-		case sem <- struct{}{}:
 		case <-ctx.Done():
 			wg.Wait()
 			return
+		default:
 		}
 		wg.Add(1)
 		go func(name, previous string) {
 			defer wg.Done()
-			defer func() { <-sem }()
 			status, err := jm.CheckClusterStatus(ctx, name)
 			if status != previous && status != "" {
 				if err != nil {

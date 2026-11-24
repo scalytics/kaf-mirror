@@ -68,6 +68,11 @@ type JobManager struct {
 	Protection           *protection.Controller
 	restartJob           func(string) error
 	clusterProbe         ClusterProbe
+	clusterProbeSem      chan struct{}
+	clusterProbeMu       sync.Mutex
+	clusterProbes        map[string]*clusterProbeMeta
+	clusterProbeSemWait  func()
+	clusterProbeJoin     func()
 	bgCtx                context.Context
 	bgCancel             context.CancelFunc
 }
@@ -99,6 +104,8 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 		lastAIMetric:         make(map[string]database.ReplicationMetric),
 		lastComplianceReport: make(map[string]time.Time),
 		Protection:           protection.New(db, cfg.Protection),
+		clusterProbeSem:      make(chan struct{}, clusterStatusConcurrency),
+		clusterProbes:        make(map[string]*clusterProbeMeta),
 	}
 	jm.shutdownCtx, jm.shutdownCancel = context.WithCancel(context.Background())
 	jm.bgCtx, jm.bgCancel = context.WithCancel(jm.shutdownCtx)
@@ -2072,6 +2079,14 @@ func max(a, b int) int {
 }
 
 func (jm *JobManager) healthCheckCluster(cluster *database.KafkaCluster, clusterType string) error {
+	ctx, cancel := context.WithTimeout(jm.backgroundContext(), 30*time.Second)
+	defer cancel()
+	if err := jm.acquireClusterProbeSlot(ctx); err != nil {
+		return fmt.Errorf("failed to health-check %s cluster %s: %v", clusterType, cluster.Name, err)
+	}
+	defer jm.releaseClusterProbeSlot()
+	gen := jm.bumpClusterProbeGen(cluster.Name)
+
 	clusterConfig := database.ClusterConfigFromRow(*cluster)
 
 	adminClient, err := kafka.NewAdminClient(clusterConfig)
@@ -2080,21 +2095,18 @@ func (jm *JobManager) healthCheckCluster(cluster *database.KafkaCluster, cluster
 	}
 	defer adminClient.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	clusterInfo, err := adminClient.GetClusterInfo(ctx)
 	if err != nil {
-		jm.recordClusterHealth(cluster.Name, err)
+		jm.recordClusterHealthIfCurrent(cluster.Name, gen, err)
 		return fmt.Errorf("%s cluster %s is unreachable: %v", clusterType, cluster.Name, err)
 	}
 
 	if clusterInfo.BrokerCount == 0 {
 		err := fmt.Errorf("%s cluster %s has no active brokers", clusterType, cluster.Name)
-		jm.recordClusterHealth(cluster.Name, err)
+		jm.recordClusterHealthIfCurrent(cluster.Name, gen, err)
 		return err
 	}
-	jm.recordClusterHealth(cluster.Name, nil)
+	jm.recordClusterHealthIfCurrent(cluster.Name, gen, nil)
 
 	logger.Info("%s cluster %s health check passed: %d brokers, %d topics",
 		clusterType, cluster.Name, clusterInfo.BrokerCount, len(clusterInfo.Topics))

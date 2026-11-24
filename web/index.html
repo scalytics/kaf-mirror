@@ -1535,8 +1535,8 @@
                 const resumePoints = state.resume_points;
                 const mirrorGaps = state.mirror_gaps;
                 const partitions = asArray(progressData);
-                if (partitions.length === 0 && state.mirror_progress) {
-                    partitions.push(state.mirror_progress);
+                if (partitions.length === 0) {
+                    partitions.push(...asArray(state.mirror_progress));
                 }
 
                 let status = 'Analyzing...';
