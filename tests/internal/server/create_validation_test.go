@@ -181,3 +181,17 @@ func TestPurgeKeepsAnEmptyNamedClusterThatAJobUses(t *testing.T) {
 	_, err = database.GetCluster(db, "")
 	require.Error(t, err)
 }
+
+func TestUpdateJobWithABlankNameKeepsTheStoredName(t *testing.T) {
+	ctx := setupJobServer(t)
+	id := uuid.NewString()
+	require.NoError(t, database.CreateJob(ctx.Server.Db, &database.ReplicationJob{ID: id, Name: "keep", SourceClusterName: "src", TargetClusterName: "tgt", Status: "paused", BatchSize: 1000}))
+
+	status, body := sendJobRequest(t, ctx, http.MethodPut, "/api/v1/jobs/"+id, `{"name":"   ","source_cluster_name":"  ","target_cluster_name":"   "}`)
+	assert.Equal(t, http.StatusOK, status, body)
+	stored, err := database.GetJob(ctx.Server.Db, id)
+	require.NoError(t, err)
+	assert.Equal(t, "keep", stored.Name)
+	assert.Equal(t, "src", stored.SourceClusterName)
+	assert.Equal(t, "tgt", stored.TargetClusterName)
+}

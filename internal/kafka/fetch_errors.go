@@ -42,15 +42,14 @@ type fetchErrorLog struct {
 
 func (c *Consumer) handleFetchErrors(ctx context.Context, fetches kgo.Fetches) {
 	fetches.EachTopic(func(t kgo.FetchTopic) {
-		fetched, records := false, false
+		fetched := false
 		for _, p := range t.Partitions {
 			if p.Err == nil {
 				fetched = true
-				records = records || len(p.Records) > 0
 			}
 		}
 		if fetched {
-			c.topicFetched(t.Topic, t.TopicID, records)
+			c.topicFetched(t.Topic, t.TopicID)
 		}
 	})
 

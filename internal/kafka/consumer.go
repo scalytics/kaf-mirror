@@ -67,6 +67,7 @@ type Consumer struct {
 	fetchBackoff     time.Duration
 	fetchErrorLogs   map[fetchErrorKey]*fetchErrorLog
 	topicIDs         topicIDState
+	topicCommitMu    sync.Mutex
 }
 
 func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config.ReplicationConfig, jobID string, topics ...string) (*Consumer, error) {
@@ -111,6 +112,7 @@ func NewConsumer(cfg config.ClusterConfig, groupID string, replicationCfg config
 	}
 
 	consumer.Client = client
+	consumer.watchTopics(topics...)
 
 	logger.Info("Consumer: Successfully created Kafka client, job=%s, component=%s", jobID, "consumer")
 	return consumer, nil
@@ -405,8 +407,20 @@ func (c *Consumer) commitAcked(ctx context.Context, batches []*partitionBatch) {
 		commitCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), shutdownCommitTimeout)
 		defer cancel()
 	}
-	if err := c.Client.CommitRecords(commitCtx, commits...); err != nil {
-		logger.Error("Consumer: failed to commit %d partition offsets: %v, job=%s", len(commits), err, c.jobID)
+	c.topicCommitMu.Lock()
+	defer c.topicCommitMu.Unlock()
+	live := commits[:0]
+	for _, rec := range commits {
+		if c.isRevoked(topicPartition{topic: rec.Topic, partition: rec.Partition}) {
+			continue
+		}
+		live = append(live, rec)
+	}
+	if len(live) == 0 {
+		return
+	}
+	if err := c.Client.CommitRecords(commitCtx, live...); err != nil {
+		logger.Error("Consumer: failed to commit %d partition offsets: %v, job=%s", len(live), err, c.jobID)
 	}
 }
 
@@ -499,12 +513,13 @@ func (c *Consumer) RevokePartitions(revoked map[string][]int32) {
 
 func (c *Consumer) AssignPartitions(assigned map[string][]int32) {
 	c.partMu.Lock()
-	defer c.partMu.Unlock()
 	for topic, partitions := range assigned {
 		for _, partition := range partitions {
 			delete(c.revoked, topicPartition{topic: topic, partition: partition})
 		}
 	}
+	c.partMu.Unlock()
+	c.requestTopicCheck()
 }
 
 func (c *Consumer) setHighWaterMark(topic string, partition int32, high int64) {
@@ -577,7 +592,9 @@ func (c *Consumer) AddTopics(topics ...string) {
 	if len(topics) == 0 {
 		return
 	}
+	c.watchTopics(topics...)
 	c.Client.AddConsumeTopics(topics...)
+	c.requestTopicCheck()
 }
 
 // NewConsumerForTest creates a Consumer with preset offsets for unit tests.

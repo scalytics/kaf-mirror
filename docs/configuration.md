@@ -129,7 +129,9 @@ An example `security_config` value:
 
 ## Job API fields
 
-`POST /api/v1/jobs` needs `name`, `source_cluster_name`, `target_cluster_name` and at least one entry in `topic_mappings`, otherwise it answers HTTP 400. A field that is only spaces counts as empty. A source or target cluster that does not exist answers HTTP 404 with `Source cluster not found` or `Target cluster not found`, also for `PUT /api/v1/jobs/{id}`. A `name` that another job already has answers HTTP 409. The response has the stored `created_at` and `updated_at`.
+`POST /api/v1/jobs` needs `name`, `source_cluster_name`, `target_cluster_name` and at least one entry in `topic_mappings`, otherwise it answers HTTP 400. A field that is only spaces counts as empty. A source or target cluster that does not exist answers HTTP 404 with `Source cluster not found` or `Target cluster not found`, also for `PUT /api/v1/jobs/{id}`. `PUT /api/v1/jobs/{id}` keeps the stored value of a field that is omitted, empty or only spaces. A `name` that another job already has answers HTTP 409. The response has the stored `created_at` and `updated_at`.
+
+When a source topic is deleted and created again, kaf-mirror switches to the new Kafka topic ID and copies the new topic from its earliest offsets. It notes topic IDs from the source metadata when the job starts, when a topic is added, and from any successful fetch, including an empty one. It checks those IDs every 10 seconds and when a fetch answers `UNKNOWN_TOPIC_ID`. `GET /api/v1/jobs/{id}/metrics/current` reports `source_topic_recreations`, the number of switches since the job started, and `missing_source_topics`, the source topics that were deleted and do not exist yet. Both come from the last sample of the running job and are 0 and empty when the job is not running. The Prometheus gauges `kaf_mirror_source_topic_recreations` and `kaf_mirror_incident_source_topic_missing` report the same values.
 
 ## AI analysis
 

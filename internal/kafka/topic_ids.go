@@ -39,6 +39,7 @@ func (id topicID) String() string {
 type topicIDState struct {
 	mu          sync.Mutex
 	known       map[string]topicID
+	watched     map[string]bool
 	missing     map[string]time.Time
 	check       chan struct{}
 	every       time.Duration
@@ -61,20 +62,85 @@ func (c *Consumer) requestTopicCheck() {
 	}
 }
 
-func (c *Consumer) topicFetched(topic string, id topicID, records bool) {
+func (c *Consumer) watchTopics(topics ...string) {
 	c.topicIDs.mu.Lock()
 	defer c.topicIDs.mu.Unlock()
+	if c.topicIDs.watched == nil {
+		c.topicIDs.watched = make(map[string]bool)
+	}
+	for _, topic := range topics {
+		if topic != "" {
+			c.topicIDs.watched[topic] = true
+		}
+	}
+}
+
+func (c *Consumer) SetWatchedTopicsForTest(topics ...string) {
+	c.watchTopics(topics...)
+}
+
+func (c *Consumer) TopicIDForTest(topic string) (string, bool) {
+	id, ok := c.knownTopicIDs()[topic]
+	if !ok {
+		return "", false
+	}
+	return id.String(), true
+}
+
+func (c *Consumer) topicFetched(topic string, id topicID) {
+	var check bool
+	c.topicIDs.mu.Lock()
 	if _, ok := c.topicIDs.missing[topic]; ok {
 		delete(c.topicIDs.missing, topic)
 		logger.Info("Consumer: source topic %s is back, job=%s", topic, c.jobID)
 	}
-	if !records || id == (topicID{}) {
+	if id != (topicID{}) {
+		if existing, ok := c.topicIDs.known[topic]; ok && existing != id {
+			check = true
+		} else {
+			if c.topicIDs.known == nil {
+				c.topicIDs.known = make(map[string]topicID)
+			}
+			c.topicIDs.known[topic] = id
+		}
+	}
+	c.topicIDs.mu.Unlock()
+	if check {
+		c.requestTopicCheck()
+	}
+}
+
+func (c *Consumer) noteTopicID(topic string, id topicID) {
+	if id == (topicID{}) {
+		return
+	}
+	c.topicIDs.mu.Lock()
+	defer c.topicIDs.mu.Unlock()
+	if existing, ok := c.topicIDs.known[topic]; ok && existing != id {
 		return
 	}
 	if c.topicIDs.known == nil {
 		c.topicIDs.known = make(map[string]topicID)
 	}
 	c.topicIDs.known[topic] = id
+}
+
+func (c *Consumer) topicsToCheck() []string {
+	c.topicIDs.mu.Lock()
+	defer c.topicIDs.mu.Unlock()
+	seen := make(map[string]bool, len(c.topicIDs.known)+len(c.topicIDs.watched))
+	for topic := range c.topicIDs.known {
+		seen[topic] = true
+	}
+	for topic := range c.topicIDs.watched {
+		seen[topic] = true
+	}
+	topics := make([]string, 0, len(seen))
+	for topic := range seen {
+		topics = append(topics, topic)
+	}
+	sort.Strings(topics)
+	return topics
 }
 
 func (c *Consumer) knownTopicIDs() map[string]topicID {
@@ -117,6 +183,7 @@ func (c *Consumer) watchTopicIDs(ctx context.Context) {
 	check := c.topicCheckChan()
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
+	c.checkTopicIDs(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -129,15 +196,11 @@ func (c *Consumer) watchTopicIDs(ctx context.Context) {
 }
 
 func (c *Consumer) checkTopicIDs(ctx context.Context) {
-	known := c.knownTopicIDs()
-	if len(known) == 0 {
+	topics := c.topicsToCheck()
+	if len(topics) == 0 {
 		return
 	}
-	topics := make([]string, 0, len(known))
-	for topic := range known {
-		topics = append(topics, topic)
-	}
-	sort.Strings(topics)
+	known := c.knownTopicIDs()
 
 	req := kmsg.NewPtrMetadataRequest()
 	req.AllowAutoTopicCreation = false
@@ -162,17 +225,20 @@ func (c *Consumer) checkTopicIDs(ctx context.Context) {
 			continue
 		}
 		topic := *t.Topic
-		old, watched := known[topic]
-		if !watched {
-			continue
-		}
+		old, hadID := known[topic]
 		err := kerr.ErrorForCode(t.ErrorCode)
 		switch {
 		case errors.Is(err, kerr.UnknownTopicOrPartition):
-			c.topicMissing(topic)
+			if hadID {
+				c.topicMissing(topic)
+			}
 		case err != nil:
 			continue
-		case topicID(t.TopicID) == topicID{} || topicID(t.TopicID) == old:
+		case topicID(t.TopicID) == (topicID{}):
+			continue
+		case !hadID:
+			c.noteTopicID(topic, topicID(t.TopicID))
+		case topicID(t.TopicID) == old:
 			continue
 		default:
 			c.switchTopic(ctx, topic, old, topicID(t.TopicID), t.Partitions)
@@ -208,6 +274,14 @@ func (c *Consumer) switchTopic(ctx context.Context, topic string, old, id topicI
 		}
 		return
 	}
+	c.topicCommitMu.Lock()
+	defer c.topicCommitMu.Unlock()
+	c.topicIDs.mu.Lock()
+	if current, ok := c.topicIDs.known[topic]; ok && current == id {
+		c.topicIDs.mu.Unlock()
+		return
+	}
+	c.topicIDs.mu.Unlock()
 	if len(starts) > 0 {
 		if err := c.Client.CommitRecords(ctx, starts...); err != nil {
 			if ctx.Err() == nil {

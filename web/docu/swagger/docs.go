@@ -1376,7 +1376,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Update an existing replication job. Empty fields keep their stored value. An unknown source or target cluster answers 404, and a name that another job has answers 409. A missing or 0 batch_size keeps the stored value, and a stored 0 becomes 1000. A batch_size below 0 or above 102400 KB is rejected with 400.",
+                "description": "Update an existing replication job. Empty fields, including a field that is only spaces, keep their stored value. An unknown source or target cluster answers 404, and a name that another job has answers 409. A missing or 0 batch_size keeps the stored value, and a stored 0 becomes 1000. A batch_size below 0 or above 102400 KB is rejected with 400.",
                 "consumes": [
                     "application/json"
                 ],

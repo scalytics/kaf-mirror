@@ -77,6 +77,7 @@ func newRecreateRig(t *testing.T) *recreateRig {
 
 	r.consumer = kafka.NewConsumerForTest(nil, nil)
 	r.consumer.Client = client
+	r.consumer.SetWatchedTopicsForTest("kin")
 	r.consumer.SetTopicCheckIntervalForTest(20 * time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
 	r.ctx = ctx
@@ -197,6 +198,29 @@ func TestDeletedSourceTopicIsReportedUntilItIsCreatedAgain(t *testing.T) {
 	assert.Empty(t, metrics.MissingTopics)
 }
 
+func TestRecreatedSourceTopicWithNoRecordsSwitchesToTheNewTopicID(t *testing.T) {
+	r := newRecreateRig(t)
+	require.Eventually(t, func() bool {
+		_, ok := r.consumer.TopicIDForTest("kin")
+		return ok
+	}, 20*time.Second, 10*time.Millisecond)
+	oldID, ok := r.consumer.TopicIDForTest("kin")
+	require.True(t, ok)
+	assert.Equal(t, r.topicID(), oldID)
+
+	r.deleteTopic()
+	r.createTopic()
+	r.produce("new-0", "new-1", "new-2", "new-3")
+	newID := r.topicID()
+	require.NotEqual(t, oldID, newID)
+
+	r.waitFor("new-0", "new-1", "new-2", "new-3")
+	metrics := r.consumer.GetMetrics()
+	assert.Equal(t, int64(1), metrics.TopicRecreations)
+	assert.Empty(t, metrics.MissingTopics)
+	assert.Contains(t, r.logText(), "source topic kin was recreated, topic ID "+oldID+" changed to "+newID)
+}
+
 type metadataScript struct {
 	mu        sync.Mutex
 	requests  int
@@ -206,6 +230,21 @@ type metadataScript struct {
 }
 
 func (m *metadataScript) request(_ context.Context, req kmsg.Request) (kmsg.Response, error) {
+	if list, ok := req.(*kmsg.ListOffsetsRequest); ok {
+		resp := kmsg.NewPtrListOffsetsResponse()
+		for _, t := range list.Topics {
+			rt := kmsg.NewListOffsetsResponseTopic()
+			rt.Topic = t.Topic
+			for _, p := range t.Partitions {
+				rp := kmsg.NewListOffsetsResponseTopicPartition()
+				rp.Partition = p.Partition
+				rp.Offset = 0
+				rt.Partitions = append(rt.Partitions, rp)
+			}
+			resp.Topics = append(resp.Topics, rt)
+		}
+		return resp, nil
+	}
 	if _, ok := req.(*kmsg.MetadataRequest); !ok {
 		return nil, fmt.Errorf("unexpected request %T", req)
 	}
@@ -219,6 +258,9 @@ func (m *metadataScript) request(_ context.Context, req kmsg.Request) (kmsg.Resp
 	topic.Topic = kmsg.StringPtr("kin")
 	topic.TopicID = id
 	topic.ErrorCode = code
+	part := kmsg.NewMetadataResponseTopicPartition()
+	part.Partition = 0
+	topic.Partitions = append(topic.Partitions, part)
 	resp.Topics = append(resp.Topics, topic)
 	return resp, nil
 }
@@ -349,4 +391,52 @@ func TestSuccessfulEmptyFetchClearsTheMissingTopic(t *testing.T) {
 	require.NoError(t, <-done)
 	assert.Empty(t, meta.purges())
 	assert.Equal(t, int64(0), consumer.GetMetrics().TopicRecreations)
+}
+
+func emptyFetchWithID(id [16]byte) kgo.Fetches {
+	f := fetchOf("kin", partitionRecords{0, nil})
+	f[0].Topics[0].TopicID = id
+	return f
+}
+
+func TestSuccessfulEmptyFetchNotesTheTopicID(t *testing.T) {
+	meta := &metadataScript{answer: func(int) ([16]byte, int16) { return topicIDKin, 0 }}
+	script := &pollScript{next: func(n int) kgo.Fetches {
+		if n == 1 {
+			return emptyFetchWithID(topicIDKin)
+		}
+		return nil
+	}}
+	consumer := scriptedTopicConsumer(script, meta)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
+
+	require.Eventually(t, func() bool {
+		id, ok := consumer.TopicIDForTest("kin")
+		return ok && id == base64.RawURLEncoding.EncodeToString(topicIDKin[:])
+	}, 5*time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	assert.Equal(t, int64(0), consumer.GetMetrics().TopicRecreations)
+}
+
+func TestMetadataAtStartNotesTheTopicID(t *testing.T) {
+	meta := &metadataScript{answer: func(int) ([16]byte, int16) { return topicIDKin, 0 }}
+	script := &pollScript{next: func(int) kgo.Fetches { return nil }}
+	consumer := scriptedTopicConsumer(script, meta)
+	consumer.SetWatchedTopicsForTest("kin")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
+
+	require.Eventually(t, func() bool {
+		id, ok := consumer.TopicIDForTest("kin")
+		return ok && id == base64.RawURLEncoding.EncodeToString(topicIDKin[:])
+	}, 5*time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	assert.GreaterOrEqual(t, meta.count(), 1)
+	assert.Equal(t, int64(0), consumer.GetMetrics().TopicRecreations)
+	assert.Empty(t, meta.purges())
 }
