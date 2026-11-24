@@ -69,7 +69,7 @@ func unsafeForeignDir(dir string, info os.FileInfo) error {
 	if uid, gid, ok := fileOwner(info); ok {
 		owner = fmt.Sprintf("UID %d and GID %d", uid, gid)
 	}
-	return fmt.Errorf("%w: %s has mode %04o, belongs to %s and every user can write to it, so another user could replace the database files in it. Give the directory to the kaf-mirror user (chown %d %s), take away write access for others (chmod o-w %s, kaf-mirror then needs write access as the owner or through the group), or set the sticky bit (chmod +t %s)", ErrUnsafeDataDir, dir, mode.Perm(), owner, processUID(), dir, dir, dir)
+	return fmt.Errorf("%w: %s has mode %04o, belongs to %s and every user can write to it, so another user could replace the database files in it. To fix it, use storage that honors fsGroup, or set volumePermissions.enabled: true in the Helm values, or chown the directory to the kaf-mirror user outside Helm (chown %d %s). Setting the sticky bit (chmod +t %s) also works", ErrUnsafeDataDir, dir, mode.Perm(), owner, processUID(), dir, dir)
 }
 
 var warnedDirs sync.Map

@@ -566,7 +566,7 @@ Use the Helm chart in section 5. It is the supported way to run kaf-mirror in Ku
 
 ### 5. Run with Helm
 
-The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health`. The chart's default image tag is `v1.3.1`, which does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, make it available to the cluster, and point the chart at it:
+The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health` on storage that honors `fsGroup`. The chart's default image tag is `v1.3.1`, which does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, make it available to the cluster, and point the chart at it:
 
 ```bash
 docker build -t kaf-mirror:local .
@@ -578,6 +578,16 @@ image:
 VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml --wait
 kubectl port-forward svc/km-kaf-mirror 8088:8088
+```
+
+On kind or k3s with the default `local-path` storage, which does not honor `fsGroup`, kaf-mirror refuses to start on the volume. Turn on the init container that gives the volume to the kaf-mirror user:
+
+```bash
+cat > volume-permissions-values.yaml <<'VALUES'
+volumePermissions:
+  enabled: true
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f volume-permissions-values.yaml --wait
 ```
 
 Pass `-f km-values.yaml` first on every later `helm upgrade`, followed by the values files of the other settings you use. Helm does not keep values from an earlier upgrade, so an upgrade without `km-values.yaml` goes back to the default image.

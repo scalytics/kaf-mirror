@@ -23,7 +23,17 @@ kubectl port-forward svc/km-kaf-mirror 8088:8088
 
 The `kubectl get` line prints `kaf-mirror:local`.
 
-On kind or k3s with the default `local-path` provisioner, also pass `-f volume-permissions-values.yaml`. See "Storage permissions".
+On kind or k3s with the default `local-path` provisioner, kaf-mirror refuses to start on the volume, because the volume belongs to root and every user can write to it. Turn on the init container that gives it to the kaf-mirror user:
+
+```bash
+cat > volume-permissions-values.yaml <<'VALUES'
+volumePermissions:
+  enabled: true
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f volume-permissions-values.yaml --wait
+```
+
+See "Storage permissions".
 
 Each section below writes its own values file and adds it after `km-values.yaml`. Helm does not keep values from an earlier upgrade, so pass every values file you use on each upgrade, in the same order. For example, with TLS and the Secret example:
 
@@ -61,7 +71,7 @@ kubectl exec deploy/km-kaf-mirror -- sh -c 'rm /tmp/kaf-mirror-admin-reset-*'
 
 The pod runs as UID 100 and GID 101 with `fsGroup` 101. kaf-mirror needs write access to `/app/data`, as the owner or through group 101. With storage that honors `fsGroup`, the volume root belongs to group 101 and the default chart works. Most CSI drivers for block storage do, for example the AWS EBS, GCE PD and Azure Disk drivers.
 
-kaf-mirror refuses to start when `/app/data` belongs to another user and every user can write to it without the sticky bit, because any user could then replace the database files. The log names the directory, its mode and its owner. The `local-path` provisioner of kind and k3s does not honor `fsGroup`. It creates the directory as `root:root` with mode `0777`, so the default chart does not start on it. On those clusters, enable `volumePermissions`. A root init container then gives `/app/data` to UID 100 and GID 101 and sets mode `0770`. kaf-mirror owns the directory after that and sets it to mode `0700`:
+kaf-mirror refuses to start when `/app/data` belongs to another user and every user can write to it without the sticky bit, because any user could then replace the database files. The log names the directory, its mode and its owner, and says: use storage that honors fsGroup, or set volumePermissions.enabled: true in the Helm values, or chown the directory to the kaf-mirror user outside Helm. The `local-path` provisioner of kind and k3s does not honor `fsGroup`. It creates the directory as `root:root` with mode `0777`, so the default chart does not start on it. On those clusters, enable `volumePermissions`. A root init container then gives `/app/data` to UID 100 and GID 101 and sets mode `0770`. kaf-mirror owns the directory after that and sets it to mode `0700`:
 
 ```bash
 cat > volume-permissions-values.yaml <<'VALUES'

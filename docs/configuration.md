@@ -103,6 +103,20 @@ Jobs use the clusters stored in the database, not the `clusters` section of the 
 | `KAF_MIRROR_HALT` | Default name of the halt variable, see `protection.halt_env`. |
 | `EDITOR` | Editor that `mirror-cli config edit <section>` opens. Default `vim`. |
 
+## Data directory
+
+kaf-mirror refuses to start when the directory of the database belongs to another user and every user can write to it without the sticky bit, for example `root:root` with mode `0777`, because any user could replace the database files in it. A directory it can write to as the owner or through the group works, and so does a world-writable directory with the sticky bit. The error names the directory, its mode and its owner, and says: use storage that honors fsGroup, or set volumePermissions.enabled: true in the Helm values, or chown the directory to the kaf-mirror user outside Helm. On kind or k3s with the default `local-path` storage, which does not honor `fsGroup`, install the Helm chart with this values file:
+
+```bash
+cat > volume-permissions-values.yaml <<'VALUES'
+volumePermissions:
+  enabled: true
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f volume-permissions-values.yaml --wait
+```
+
+`km-values.yaml` is the image values file from the chart README. See "Storage permissions" in `deploy/helm/kaf-mirror/README.md`.
+
 ## Cluster API fields
 
 `POST /api/v1/clusters` and `PUT /api/v1/clusters/{name}` take these fields:

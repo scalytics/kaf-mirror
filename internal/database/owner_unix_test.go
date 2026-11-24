@@ -138,7 +138,7 @@ func TestServerRefusesAWorldWritableDataDirOfAnotherUser(t *testing.T) {
 	if !errors.Is(err, ErrUnsafeDataDir) {
 		t.Fatalf("OpenLockedDB: %v, want ErrUnsafeDataDir", err)
 	}
-	for _, want := range []string{dir, "mode 0777", "UID", "chmod +t"} {
+	for _, want := range []string{dir, "mode 0777", "UID", "use storage that honors fsGroup", "set volumePermissions.enabled: true in the Helm values", "chown the directory to the kaf-mirror user outside Helm", "chmod +t"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not name %q", err, want)
 		}
