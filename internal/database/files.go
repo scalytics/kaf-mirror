@@ -12,6 +12,7 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,10 +49,27 @@ func EnsurePrivateDir(dir string) error {
 		return err
 	}
 	if !ownedByProcess(info) {
+		if err := unsafeForeignDir(dir, info); err != nil {
+			return err
+		}
 		warnForeignDir(dir, info)
 		return nil
 	}
 	return os.Chmod(dir, privateDirMode)
+}
+
+var ErrUnsafeDataDir = errors.New("unsafe data directory")
+
+func unsafeForeignDir(dir string, info os.FileInfo) error {
+	mode := info.Mode()
+	if mode.Perm()&0002 == 0 || mode&os.ModeSticky != 0 {
+		return nil
+	}
+	owner := "another user"
+	if uid, gid, ok := fileOwner(info); ok {
+		owner = fmt.Sprintf("UID %d and GID %d", uid, gid)
+	}
+	return fmt.Errorf("%w: %s has mode %04o, belongs to %s and every user can write to it, so another user could replace the database files in it. Give the directory to the kaf-mirror user (chown %d %s), take away write access for others (chmod o-w %s, kaf-mirror then needs write access as the owner or through the group), or set the sticky bit (chmod +t %s)", ErrUnsafeDataDir, dir, mode.Perm(), owner, processUID(), dir, dir, dir)
 }
 
 var warnedDirs sync.Map

@@ -18,3 +18,9 @@ import "os"
 func ownedByProcess(os.FileInfo) bool {
 	return true
 }
+
+var processUID = func() int { return -1 }
+
+func fileOwner(os.FileInfo) (int, int, bool) {
+	return 0, 0, false
+}

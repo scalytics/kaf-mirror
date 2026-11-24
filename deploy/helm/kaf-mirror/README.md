@@ -57,7 +57,30 @@ kubectl exec deploy/km-kaf-mirror -- sh -c 'rm /tmp/kaf-mirror-admin-reset-*'
 
 ## Storage permissions
 
-The pod runs as UID 100 and GID 101 with `fsGroup` 101. kaf-mirror needs write access to `/app/data`, either as the owner, through group 101 or because the directory is world-writable. That covers volumes that honor `fsGroup` (the volume root is then group 101) and storage that ignores it, such as the `local-path` provisioner of kind and k3s, which creates the directory as `root:root` with mode `0777`. No manual `chown` is needed.
+The pod runs as UID 100 and GID 101 with `fsGroup` 101. kaf-mirror needs write access to `/app/data`, as the owner or through group 101. With storage that honors `fsGroup`, the volume root belongs to group 101 and the default chart works. Most CSI drivers for block storage do, for example the AWS EBS, GCE PD and Azure Disk drivers.
+
+kaf-mirror refuses to start when `/app/data` belongs to another user and every user can write to it without the sticky bit, because any user could then replace the database files. The log names the directory, its mode and its owner. The `local-path` provisioner of kind and k3s does not honor `fsGroup`. It creates the directory as `root:root` with mode `0777`, so the default chart does not start on it. Use storage that honors `fsGroup`, or a pre-created volume that belongs to UID 100 and GID 101. On kind, create the directory on the node and a PersistentVolume for it, then install the chart with the matching storage class:
+
+```bash
+docker exec kind-control-plane sh -c 'mkdir -p /var/lib/kaf-mirror && chown 100:101 /var/lib/kaf-mirror && chmod 0770 /var/lib/kaf-mirror'
+kubectl apply -f - <<'YAML'
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: km-kaf-mirror-data
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes: [ReadWriteOnce]
+  storageClassName: kaf-mirror-manual
+  hostPath:
+    path: /var/lib/kaf-mirror
+    type: Directory
+YAML
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml --set persistence.storageClass=kaf-mirror-manual --wait
+```
+
+The PVC of the chart asks for the `kaf-mirror-manual` class, and Kubernetes binds it to this volume. The pod must run on the node that has the directory, which is always the case on a one-node kind cluster.
 
 kaf-mirror sets `/app/data` to mode `0700` only when it owns the directory. If the directory belongs to another user, kaf-mirror leaves its mode alone and logs a warning when the directory is open to the group or others. The database, its `-wal` and `-shm` files and `kaf-mirror.db.lock` are always created with mode `0600`. An existing database file of another user that the group or others can read stops the start, because kaf-mirror cannot make it private.
 

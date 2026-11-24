@@ -67,6 +67,8 @@ func startupDBError(dbPath string, err error) string {
 	switch {
 	case errors.Is(err, database.ErrDatabaseInUse):
 		return fmt.Sprintf("Refusing to start: %v. If a restore or import is running, wait for it to finish. If another kaf-mirror process holds the database, stop it first.", err)
+	case errors.Is(err, database.ErrUnsafeDataDir):
+		return fmt.Sprintf("Refusing to start: %v", err)
 	case errors.Is(err, fs.ErrPermission):
 		return fmt.Sprintf("Refusing to start: %v. The directory that holds %s must be writable by UID %d or GID %d, the user and group kaf-mirror runs as.", err, dbPath, os.Geteuid(), os.Getegid())
 	default:

@@ -14,6 +14,7 @@
 package database
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,7 +42,7 @@ func openDataDir(t *testing.T, mode os.FileMode) string {
 }
 
 func TestServerStartsInADataDirOfAnotherUser(t *testing.T) {
-	for _, mode := range []os.FileMode{0777, 0775, 0755} {
+	for _, mode := range []os.FileMode{0777 | os.ModeSticky, 0775, 0770, 0755} {
 		dir := openDataDir(t, mode)
 		actAsAnotherUser(t)
 
@@ -57,7 +58,7 @@ func TestServerStartsInADataDirOfAnotherUser(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := info.Mode().Perm(); got != mode {
+		if got := info.Mode() & (os.ModePerm | os.ModeSticky); got != mode {
 			t.Fatalf("data directory mode %04o, want it left at %04o", got, mode)
 		}
 		info, err = os.Stat(dbPath)
@@ -88,7 +89,7 @@ func TestOwnDataDirIsStillMadePrivate(t *testing.T) {
 }
 
 func TestReadableDatabaseOfAnotherUserIsRefused(t *testing.T) {
-	dir := openDataDir(t, 0777)
+	dir := openDataDir(t, 0775)
 	dbPath := filepath.Join(dir, "kaf-mirror.db")
 	if err := os.WriteFile(dbPath, nil, 0600); err != nil {
 		t.Fatal(err)
@@ -126,5 +127,23 @@ func TestLockFileOfAnotherUserIsNotChanged(t *testing.T) {
 	inUse, err := IsDBLocked(dbPath)
 	if err != nil || inUse {
 		t.Fatalf("IsDBLocked: %v, %v", inUse, err)
+	}
+}
+
+func TestServerRefusesAWorldWritableDataDirOfAnotherUser(t *testing.T) {
+	dir := openDataDir(t, 0777)
+	actAsAnotherUser(t)
+
+	_, _, err := OpenLockedDB(filepath.Join(dir, "kaf-mirror.db"))
+	if !errors.Is(err, ErrUnsafeDataDir) {
+		t.Fatalf("OpenLockedDB: %v, want ErrUnsafeDataDir", err)
+	}
+	for _, want := range []string{dir, "mode 0777", "UID", "chmod +t"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not name %q", err, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "kaf-mirror.db")); !os.IsNotExist(err) {
+		t.Fatalf("the database was created in the unsafe directory: %v", err)
 	}
 }
