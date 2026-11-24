@@ -77,7 +77,11 @@ spec:
     path: /var/lib/kaf-mirror
     type: Directory
 YAML
-helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml --set persistence.storageClass=kaf-mirror-manual --wait
+cat > storage-values.yaml <<'VALUES'
+persistence:
+  storageClass: kaf-mirror-manual
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f storage-values.yaml --wait
 ```
 
 The PVC of the chart asks for the `kaf-mirror-manual` class, and Kubernetes binds it to this volume. The pod must run on the node that has the directory, which is always the case on a one-node kind cluster.
