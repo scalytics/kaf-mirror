@@ -1,0 +1,26 @@
+{
+  "index.html": {
+    "title": "kaf-mirror | Kafka replication for Kafka and KafScale",
+    "description": "kaf-mirror copies Kafka topics to another Kafka cluster, or into S3 through KafScale, with a dashboard, an audit trail and compliance reports. Apache 2.0.",
+    "canonical": "https://scalytics.github.io/kaf-mirror/",
+    "nav": "index.html"
+  },
+  "start.html": {
+    "title": "Get started | kaf-mirror",
+    "description": "Run kaf-mirror locally with Docker, or install the Helm chart. Commands are copied from the README.",
+    "canonical": "https://scalytics.github.io/kaf-mirror/start.html",
+    "nav": "start.html"
+  },
+  "docs.html": {
+    "title": "Docs | kaf-mirror",
+    "description": "Index of kaf-mirror documentation, the CLI reference and the Swagger API docs.",
+    "canonical": "https://scalytics.github.io/kaf-mirror/docs.html",
+    "nav": "docs.html"
+  },
+  "404.html": {
+    "title": "Page not found | kaf-mirror",
+    "description": "This page is not on the kaf-mirror site.",
+    "canonical": "https://scalytics.github.io/kaf-mirror/404.html",
+    "nav": "index.html"
+  }
+}
