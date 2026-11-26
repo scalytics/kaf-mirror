@@ -12,6 +12,8 @@
 package database
 
 import (
+	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -28,10 +30,10 @@ type ProtectionState struct {
 func GetProtectionState(db *sqlx.DB) (*ProtectionState, error) {
 	var st ProtectionState
 	err := db.Get(&st, `SELECT enabled, halted, COALESCE(halt_reason, '') as halt_reason, halted_at, COALESCE(halted_by, '') as halted_by FROM protection_state WHERE id = 1`)
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
 		return &ProtectionState{}, nil
 	}
-	return &st, nil
+	return &st, err
 }
 
 func SetProtectionEnabled(db *sqlx.DB, enabled bool) error {

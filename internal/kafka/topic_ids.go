@@ -203,6 +203,23 @@ func (c *Consumer) clearRevokeWait(revoked chan struct{}) {
 	}
 }
 
+func (c *Consumer) prepareRevokeWait(topic string) chan struct{} {
+	c.partMu.Lock()
+	defer c.partMu.Unlock()
+	revoked := make(chan struct{})
+	for tp := range c.assigned {
+		if tp.topic == topic {
+			c.topicIDs.mu.Lock()
+			c.topicIDs.revokeWait = revoked
+			c.topicIDs.revokeTopic = topic
+			c.topicIDs.mu.Unlock()
+			return revoked
+		}
+	}
+	close(revoked)
+	return revoked
+}
+
 func (c *Consumer) watchTopicIDs(ctx context.Context) {
 	c.topicIDs.mu.Lock()
 	every := c.topicIDs.every
@@ -321,15 +338,12 @@ func (c *Consumer) switchTopic(ctx context.Context, topic string, old, id topicI
 			return
 		}
 	}
-	revoked := make(chan struct{})
 	c.topicIDs.mu.Lock()
 	if c.topicIDs.known == nil {
 		c.topicIDs.known = make(map[string]topicID)
 	}
 	c.topicIDs.known[topic] = id
 	delete(c.topicIDs.missing, topic)
-	c.topicIDs.revokeWait = revoked
-	c.topicIDs.revokeTopic = topic
 	c.topicIDs.mu.Unlock()
 	c.mu.Lock()
 	delete(c.highWaterMarks, topic)
@@ -338,6 +352,7 @@ func (c *Consumer) switchTopic(ctx context.Context, topic string, old, id topicI
 	c.topicCommitMu.Unlock()
 
 	c.Client.PurgeTopicsFromConsuming(topic)
+	revoked := c.prepareRevokeWait(topic)
 	logger.Info("Consumer: waiting for the consumer group to drop topic %s before it reads the topic again, job=%s", topic, c.jobID)
 	wait := c.topicRejoinWait()
 	timer := time.NewTimer(wait)

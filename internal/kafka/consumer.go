@@ -61,6 +61,7 @@ type Consumer struct {
 	partMu           sync.Mutex
 	partCancels      map[topicPartition]context.CancelFunc
 	revoked          map[topicPartition]bool
+	assigned         map[topicPartition]bool
 	sleep            func(context.Context, time.Duration) error
 	now              func() time.Time
 	fetchErrors      int64
@@ -506,28 +507,41 @@ func (c *Consumer) releasePartitions(ctxs map[topicPartition]context.Context) {
 }
 
 func (c *Consumer) RevokePartitions(revoked map[string][]int32) {
-	defer c.sessionEnded(revoked)
 	c.partMu.Lock()
 	defer c.partMu.Unlock()
 	if c.revoked == nil {
 		c.revoked = make(map[topicPartition]bool)
 	}
 	for topic, partitions := range revoked {
+		if len(partitions) == 0 {
+			for tp := range c.assigned {
+				if tp.topic == topic {
+					delete(c.assigned, tp)
+				}
+			}
+		}
 		for _, partition := range partitions {
 			tp := topicPartition{topic: topic, partition: partition}
 			c.revoked[tp] = true
+			delete(c.assigned, tp)
 			if cancel, ok := c.partCancels[tp]; ok {
 				cancel()
 			}
 		}
 	}
+	c.sessionEnded(revoked)
 }
 
 func (c *Consumer) AssignPartitions(assigned map[string][]int32) {
 	c.partMu.Lock()
+	if c.assigned == nil {
+		c.assigned = make(map[topicPartition]bool)
+	}
 	for topic, partitions := range assigned {
 		for _, partition := range partitions {
-			delete(c.revoked, topicPartition{topic: topic, partition: partition})
+			tp := topicPartition{topic: topic, partition: partition}
+			delete(c.revoked, tp)
+			c.assigned[tp] = true
 		}
 	}
 	c.partMu.Unlock()

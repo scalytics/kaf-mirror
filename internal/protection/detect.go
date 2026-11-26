@@ -108,13 +108,15 @@ func (c *Controller) Ingest(topic string, key, value []byte) string {
 			base.n++
 		}
 	}
-	if len(key) > 0 && len(base.lastVal) < maxTrackedKeys {
+	if len(key) > 0 {
 		ks := string(key)
 		vh := valueHash(value)
-		if prev, ok := base.lastVal[ks]; ok && prev != vh {
-			hit.rewritten = true
+		if prev, ok := base.lastVal[ks]; ok {
+			hit.rewritten = prev != vh
+			base.lastVal[ks] = vh
+		} else if len(base.lastVal) < maxTrackedKeys {
+			base.lastVal[ks] = vh
 		}
-		base.lastVal[ks] = vh
 	}
 	c.hits = append(c.hits, hit)
 	return c.evaluatePayloadLocked()

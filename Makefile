@@ -175,6 +175,7 @@ check: test-smoke
 
 test-smoke:
 	@echo "Running smoke tests..."
+	@node --test tests/web/*.test.cjs
 	@go test ./...
 
 vet:

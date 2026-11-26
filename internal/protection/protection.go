@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"kaf-mirror/internal/config"
@@ -23,6 +24,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 )
+
+const guardPollInterval = 200 * time.Millisecond
 
 const (
 	RoleProd  = "prod"
@@ -53,13 +56,27 @@ type Status struct {
 	Experimental      bool   `json:"experimental"`
 }
 
+type guardSnap struct {
+	enabled           bool
+	halted            bool
+	haltReason        string
+	refuseWriteToProd bool
+	readErr           error
+}
+
 type Controller struct {
-	mu        sync.Mutex
-	db        *sqlx.DB
-	cfg       config.ProtectionConfig
-	samples   map[string][]timedSample
-	hits      []ingestHit
-	baselines map[string]*topicBaseline
+	mu          sync.Mutex
+	db          *sqlx.DB
+	cfg         config.ProtectionConfig
+	samples     map[string][]timedSample
+	hits        []ingestHit
+	baselines   map[string]*topicBaseline
+	pendingHalt string
+	guardGen    uint64
+	guard       atomic.Pointer[guardSnap]
+	pollStop    chan struct{}
+	pollOnce    sync.Once
+	pollWG      sync.WaitGroup
 }
 
 type timedSample struct {
@@ -69,24 +86,44 @@ type timedSample struct {
 
 func New(db *sqlx.DB, cfg config.ProtectionConfig) *Controller {
 	cfg = cfg.WithDefaults()
-	return &Controller{db: db, cfg: cfg}
+	c := &Controller{db: db, cfg: cfg, pollStop: make(chan struct{})}
+	c.refreshGuard()
+	c.pollWG.Add(1)
+	go c.pollGuard()
+	return c
+}
+
+func (c *Controller) Close() {
+	c.pollOnce.Do(func() { close(c.pollStop) })
+	c.pollWG.Wait()
+}
+
+func (c *Controller) pollGuard() {
+	defer c.pollWG.Done()
+	ticker := time.NewTicker(guardPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			c.refreshGuard()
+		case <-c.pollStop:
+			return
+		}
+	}
 }
 
 func (c *Controller) Status() Status {
-	st, _ := database.GetProtectionState(c.db)
-	if st == nil {
-		st = &database.ProtectionState{}
-	}
+	status, _ := c.status()
+	return status
+}
+
+func (c *Controller) status() (Status, error) {
+	st, err := database.GetProtectionState(c.db)
 	fileHit, envHit := c.tripwires()
-	halted := st.Enabled && (st.Halted || fileHit || envHit)
-	reason := st.HaltReason
-	if halted && reason == "" {
-		if fileHit {
-			reason = "halt file present"
-		} else if envHit {
-			reason = "halt env set"
-		}
-	}
+	c.mu.Lock()
+	pendingHalt := c.pendingHalt
+	c.mu.Unlock()
+	halted, reason := haltDecision(st.Enabled, st.Halted, st.HaltReason, pendingHalt, fileHit, envHit)
 	haltedAt := ""
 	if st.HaltedAt != nil {
 		haltedAt = st.HaltedAt.UTC().Format(time.RFC3339)
@@ -102,12 +139,12 @@ func (c *Controller) Status() Status {
 		RefuseWriteToProd: st.Enabled && c.cfg.RefuseWriteToProd,
 		AutoHaltEnabled:   st.Enabled && c.cfg.AutoHalt.Enabled,
 		Experimental:      true,
-	}
+	}, err
 }
 
 func (c *Controller) Enabled() bool {
-	st, err := database.GetProtectionState(c.db)
-	return err == nil && st != nil && st.Enabled
+	snap := c.guard.Load()
+	return snap != nil && snap.readErr == nil && snap.enabled
 }
 
 func (c *Controller) Halted() bool {
@@ -115,7 +152,10 @@ func (c *Controller) Halted() bool {
 }
 
 func (c *Controller) SetEnabled(enabled bool) error {
-	return database.SetProtectionEnabled(c.db, enabled)
+	err := database.SetProtectionEnabled(c.db, enabled)
+	c.bumpGuard()
+	c.refreshGuard()
+	return err
 }
 
 func (c *Controller) Halt(reason, by string) error {
@@ -125,25 +165,106 @@ func (c *Controller) Halt(reason, by string) error {
 	if reason == "" {
 		reason = "admin halt"
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pendingHalt = reason
+	c.guardGen++
+	if prev := c.guard.Load(); prev != nil && prev.readErr == nil {
+		next := *prev
+		next.halted = true
+		next.haltReason = reason
+		c.guard.Store(&next)
+	}
 	return database.SetProtectionHalted(c.db, true, reason, by)
 }
 
 func (c *Controller) Resume() error {
-	return database.SetProtectionHalted(c.db, false, "", "")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := database.SetProtectionHalted(c.db, false, "", ""); err != nil {
+		return err
+	}
+	c.pendingHalt = ""
+	c.guardGen++
+	st, err := database.GetProtectionState(c.db)
+	fileHit, envHit := c.tripwires()
+	c.publishLocked(st, err, fileHit, envHit)
+	return nil
 }
 
 func (c *Controller) GuardStart(targetRole string) error {
-	st := c.Status()
-	if !st.Enabled {
+	snap := c.guard.Load()
+	if snap == nil || snap.readErr != nil {
+		if snap == nil || snap.readErr == nil {
+			return fmt.Errorf("cannot read replication protection state: guard not ready")
+		}
+		return fmt.Errorf("cannot read replication protection state: %w", snap.readErr)
+	}
+	if !snap.enabled {
 		return nil
 	}
-	if st.Halted {
-		return fmt.Errorf("replication halted: %s", st.HaltReason)
+	if snap.halted {
+		return fmt.Errorf("replication halted: %s", snap.haltReason)
 	}
-	if st.RefuseWriteToProd && NormalizeRole(targetRole) == RoleProd {
+	if snap.refuseWriteToProd && NormalizeRole(targetRole) == RoleProd {
 		return fmt.Errorf("refusing to replicate into a prod cluster while protection is enabled")
 	}
 	return nil
+}
+
+func (c *Controller) bumpGuard() {
+	c.mu.Lock()
+	c.guardGen++
+	c.mu.Unlock()
+}
+
+func (c *Controller) refreshGuard() {
+	c.mu.Lock()
+	gen := c.guardGen
+	c.mu.Unlock()
+
+	st, err := database.GetProtectionState(c.db)
+	fileHit, envHit := c.tripwires()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.guardGen != gen {
+		return
+	}
+	c.publishLocked(st, err, fileHit, envHit)
+}
+
+func (c *Controller) publishLocked(st *database.ProtectionState, readErr error, fileHit, envHit bool) {
+	if readErr != nil || st == nil {
+		if readErr == nil {
+			readErr = fmt.Errorf("missing protection state")
+		}
+		c.guard.Store(&guardSnap{readErr: readErr})
+		return
+	}
+	halted, reason := haltDecision(st.Enabled, st.Halted, st.HaltReason, c.pendingHalt, fileHit, envHit)
+	c.guard.Store(&guardSnap{
+		enabled:           st.Enabled,
+		halted:            halted,
+		haltReason:        reason,
+		refuseWriteToProd: st.Enabled && c.cfg.RefuseWriteToProd,
+	})
+}
+
+func haltDecision(enabled, dbHalted bool, dbReason, pending string, fileHit, envHit bool) (bool, string) {
+	reason := dbReason
+	if pending != "" {
+		reason = pending
+	}
+	halted := enabled && (dbHalted || pending != "" || fileHit || envHit)
+	if halted && reason == "" {
+		if fileHit {
+			reason = "halt file present"
+		} else if envHit {
+			reason = "halt env set"
+		}
+	}
+	return halted, reason
 }
 
 func (c *Controller) Observe(s Sample) (haltReason string) {

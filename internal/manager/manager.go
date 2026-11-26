@@ -130,7 +130,7 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 	jm.restartJob = jm.ForceRestartJob
 	logger.Info("AI analysis is %s", ai.Status(aiConfig))
 	if cfg.Protection.Enabled {
-		_ = database.SetProtectionEnabled(db, true)
+		_ = jm.Protection.SetEnabled(true)
 	}
 
 	if strings.EqualFold(cfg.Server.Mode, "test") {
@@ -213,6 +213,9 @@ func (jm *JobManager) reconcileAndStartJobs() error {
 }
 
 func (jm *JobManager) Close() {
+	if jm.Protection != nil {
+		jm.Protection.Close()
+	}
 	jm.closeOnce.Do(func() {
 		atomic.StoreInt32(&jm.closing, 1)
 		if jm.bgCancel != nil {
@@ -747,10 +750,15 @@ func (jm *JobManager) StartJob(jobID string) error {
 	}
 
 	if inspector, ok := kafMirror.(kafka.RecordInspector); ok && jm.Protection != nil {
+		inspector.SetRecordGuard(func() error {
+			return jm.Protection.GuardStart(targetCluster.Role)
+		})
 		inspector.SetRecordHook(func(topic string, key, value []byte) {
 			if reason := jm.Protection.Ingest(topic, key, value); reason != "" {
 				logger.Error("protection auto-halt: %s", reason)
-				_ = jm.Protection.Halt(reason, "auto")
+				if err := jm.Protection.Halt(reason, "auto"); err != nil {
+					logger.Error("cannot persist protection auto-halt: %v", err)
+				}
 				go jm.HaltRunningJobs(reason)
 			}
 		})

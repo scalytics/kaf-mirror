@@ -6,7 +6,7 @@ Thanks for helping improve **kaf-mirror**. This guide covers how to propose chan
 - **Discuss first**: For significant changes, open an issue to align on scope and design.
 - **Branches & PRs**: Fork/branch from `main`, keep commits focused, and include a clear PR description referencing any related issues.
 - **Code style**: Follow idiomatic Go. Run `go fmt` on touched files and keep dependencies tidy.
-- **Tests**: Add or update tests for any behavioral change. Run `go test ./...` before submitting.
+- **Tests**: Add or update tests for any behavioral change. Run `go test ./...` before submitting. `make test` and `make test-smoke` also run `node --test tests/web/*.test.cjs`, so those targets need Node.js.
 - **Documentation**: Update README/config samples/CLI help when behavior or flags change.
 
 ## Licensing
@@ -25,5 +25,7 @@ Thanks for helping improve **kaf-mirror**. This guide covers how to propose chan
 go fmt ./...
 go test ./...
 ```
+
+`make test-smoke` runs the web smoke tests and then `go test ./...`. The web tests need Node.js (`node --test`). `make test` runs that smoke target.
 
 If you need help or review, mention maintainers in the PR and link to the related issue or discussion.

@@ -54,7 +54,7 @@ func newRecreateRig(t *testing.T) *recreateRig {
 	return newRecreateRigWithAssign(t, nil)
 }
 
-func newRecreateRigWithAssign(t *testing.T, onAssigned func()) *recreateRig {
+func newRecreateRigWithAssign(t *testing.T, onAssigned func(context.Context, map[string][]int32)) *recreateRig {
 	consumer := kafka.NewConsumerForTest(nil, nil)
 	cluster, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(2, "kin"))
 	require.NoError(t, err)
@@ -69,10 +69,10 @@ func newRecreateRigWithAssign(t *testing.T, onAssigned func()) *recreateRig {
 		kgo.DisableAutoCommit(),
 		kgo.MetadataMinAge(10*time.Millisecond),
 		kgo.MetadataMaxAge(100*time.Millisecond),
-		kgo.OnPartitionsAssigned(func(_ context.Context, _ *kgo.Client, assigned map[string][]int32) {
+		kgo.OnPartitionsAssigned(func(ctx context.Context, _ *kgo.Client, assigned map[string][]int32) {
 			consumer.AssignPartitions(assigned)
 			if onAssigned != nil {
-				onAssigned()
+				onAssigned(ctx, assigned)
 			}
 		}),
 		kgo.OnPartitionsRevoked(func(_ context.Context, _ *kgo.Client, revoked map[string][]int32) {
@@ -86,6 +86,11 @@ func newRecreateRigWithAssign(t *testing.T, onAssigned func()) *recreateRig {
 	t.Cleanup(client.Close)
 
 	r := &recreateRig{t: t, admin: kadm.NewClient(producer), producer: producer, done: make(chan error, 1)}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("consumer log:\n%s", r.logText())
+		}
+	})
 	logger.SetOutput(writerFunc(func(p []byte) (int, error) {
 		r.logMu.Lock()
 		defer r.logMu.Unlock()
@@ -308,6 +313,7 @@ func scriptedTopicConsumer(script *pollScript, meta *metadataScript) *kafka.Cons
 
 func scriptedTopicConsumerRevoke(script *pollScript, meta *metadataScript, autoRevoke bool) *kafka.Consumer {
 	consumer := kafka.NewConsumerForTest(nil, nil)
+	consumer.AssignPartitions(map[string][]int32{"kin": {0}})
 	consumer.Client = &mocks.MockKgoClient{
 		PollFetchesFunc: script.poll,
 		RequestFunc:     meta.request,
@@ -585,15 +591,25 @@ func TestSwitchDuringTheFirstRebalanceReadsTheNewTopic(t *testing.T) {
 	release := func() bool {
 		return r.consumer.GetMetrics().TopicRecreations == 1 || strings.Contains(r.logText(), "waiting for the consumer group to drop topic kin")
 	}
-	r = newRecreateRigWithAssign(t, func() {
+	r = newRecreateRigWithAssign(t, func(ctx context.Context, assigned map[string][]int32) {
+		if len(assigned["kin"]) == 0 {
+			return
+		}
 		first.Do(func() {
 			close(entered)
 			for !ready.Load() || !release() {
+				if ctx.Err() != nil {
+					return
+				}
 				runtime.Gosched()
 			}
 		})
 	})
-	<-entered
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("consumer did not enter an assignment containing kin")
+	}
 	require.Eventually(t, func() bool {
 		_, ok := r.consumer.TopicIDForTest("kin")
 		return ok
@@ -690,4 +706,77 @@ func TestSwitchResubscribesAfterTheRevokeWaitTimesOut(t *testing.T) {
 	require.NoError(t, <-done)
 	assert.Equal(t, []string{"kin"}, meta.adds())
 	assert.Equal(t, []string{"kin"}, meta.purges())
+}
+
+func TestSwitchWaitsWhenAssignmentArrivesAsFetchingStops(t *testing.T) {
+	meta := &metadataScript{answer: func(int) ([16]byte, int16) { return topicIDNew, 0 }}
+	script := &pollScript{next: func(n int) kgo.Fetches {
+		if n == 1 {
+			return emptyFetchWithID(topicIDKin)
+		}
+		return nil
+	}}
+	consumer := scriptedTopicConsumerRevoke(script, meta, false)
+	consumer.RevokePartitions(map[string][]int32{"kin": {0}})
+	consumer.Client = &mocks.MockKgoClient{
+		PollFetchesFunc: script.poll,
+		RequestFunc:     meta.request,
+		PurgeTopicsFunc: func(topics ...string) {
+			meta.mu.Lock()
+			meta.purged = append(meta.purged, topics...)
+			meta.mu.Unlock()
+			consumer.AssignPartitions(map[string][]int32{"kin": {0}})
+		},
+		AddConsumeTopicsFunc: func(topics ...string) {
+			meta.mu.Lock()
+			meta.added = append(meta.added, topics...)
+			meta.mu.Unlock()
+		},
+		CommitRecordsFunc: func(_ context.Context, rs ...*kgo.Record) error {
+			meta.mu.Lock()
+			meta.committed = append(meta.committed, rs...)
+			meta.mu.Unlock()
+			return nil
+		},
+	}
+	consumer.SetTopicCheckIntervalForTest(time.Millisecond)
+	consumer.SetTopicRejoinWaitForTest(time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
+	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+
+	require.Eventually(t, func() bool { return len(meta.purges()) > 0 }, 5*time.Second, time.Millisecond)
+	require.Never(t, func() bool { return len(meta.adds()) > 0 }, 50*time.Millisecond, time.Millisecond)
+	consumer.RevokePartitions(map[string][]int32{"kin": {0}})
+	require.Eventually(t, func() bool {
+		return len(meta.adds()) == 1 && consumer.GetMetrics().TopicRecreations == 1
+	}, 5*time.Second, time.Millisecond)
+	assert.Equal(t, []string{"kin"}, meta.adds())
+}
+
+func TestSwitchWithoutOwnedPartitionsDoesNotWaitForARevoke(t *testing.T) {
+	meta := &metadataScript{answer: func(int) ([16]byte, int16) { return topicIDNew, 0 }}
+	script := &pollScript{next: func(n int) kgo.Fetches {
+		if n == 1 {
+			return emptyFetchWithID(topicIDKin)
+		}
+		return nil
+	}}
+	consumer := scriptedTopicConsumerRevoke(script, meta, false)
+	consumer.RevokePartitions(map[string][]int32{"kin": {0}})
+	consumer.AssignPartitions(map[string][]int32{"other": {0}})
+	consumer.SetTopicCheckIntervalForTest(time.Millisecond)
+	consumer.SetTopicRejoinWaitForTest(time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
+	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+
+	require.Eventually(t, func() bool {
+		return len(meta.adds()) == 1 && consumer.GetMetrics().TopicRecreations == 1
+	}, 5*time.Second, time.Millisecond, "must not wait an hour for an impossible revoke")
+	assert.Equal(t, []string{"kin"}, meta.purges())
+	assert.Equal(t, []string{"kin"}, meta.adds())
+	assert.Equal(t, int64(-1), meta.commits()[0].Offset)
 }
