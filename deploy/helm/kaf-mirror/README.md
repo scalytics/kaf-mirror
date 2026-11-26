@@ -4,7 +4,7 @@ The chart runs kaf-mirror as a single pod with a ConfigMap for its config, a Per
 
 ## Install
 
-The default image tag is `v1.3.1`. That published image does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, load it into the cluster, and point the chart at it. `image.pullPolicy` is `IfNotPresent`, so the node that runs the pod must already have the image.
+The default image tag is `v2.0.0`. To run the current `main` branch instead, build the image from this repository, load it into the cluster, and point the chart at it. `image.pullPolicy` is `IfNotPresent`, so the node that runs the pod must already have the image.
 
 ```bash
 docker build -t kaf-mirror:local .
@@ -16,7 +16,7 @@ On kind, when kind uses the same Docker daemon as the build:
 kind load docker-image kaf-mirror:local
 ```
 
-When Docker is rootless, or you need `sudo` to talk to it, kind cannot see that daemon. Save the image and load the archive:
+With Docker Engine 29 and its containerd image store, the default for new installs, `kind load docker-image` can print `ctr: content digest sha256:... not found` and a failure message. When it does, or when Docker is rootless or you need `sudo` to talk to it, so kind cannot see that daemon, save the image and load the archive:
 
 ```bash
 docker save kaf-mirror:local -o kaf-mirror-local.tar
@@ -294,7 +294,7 @@ Start `kubectl port-forward svc/km-kaf-mirror 8088:8088` again.
 | `nameOverride` | `""` | Replaces the chart name `kaf-mirror` in the `app.kubernetes.io/name` label and in the full object name `<release>-<name>`. |
 | `fullnameOverride` | `""` | Sets the full object name. Empty uses `<release>-kaf-mirror`, or `<release>` when the release name already contains the chart name. The commands on this page use the release `km`, so the objects are named `km-kaf-mirror`. |
 | `image.repository` | `ghcr.io/scalytics/kaf-mirror` | Image repository. |
-| `image.tag` | `v1.3.1` | Image tag. It follows `appVersion`. Until a newer tag is published, set this to an image built from this repository, as in the Install section. |
+| `image.tag` | `v2.0.0` | Image tag. It follows `appVersion`. To run the current `main` branch, set this to an image built from this repository, as in the Install section. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
 | `replicaCount` | `1` | Must be 1. SQLite is not shared, so any other value fails the render. |
 | `terminationGracePeriodSeconds` | `45` | Seconds Kubernetes waits after `SIGTERM` before it kills the pod. Must be greater than `config.server.shutdownTimeoutSeconds`. |

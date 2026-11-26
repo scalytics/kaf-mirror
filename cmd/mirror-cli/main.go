@@ -3426,12 +3426,15 @@ func createJobsCommand() *cobra.Command {
 				}
 				jobOptions = append(jobOptions, "All")
 
-				var selectedJob string
 				prompt := &survey.Select{
 					Message: "Select job to start:",
 					Options: jobOptions,
 				}
-				survey.AskOne(prompt, &selectedJob)
+				selectedJob, err := selectJob(prompt)
+				if err != nil {
+					cliErrorf("Operation cancelled: %v\n", err)
+					return
+				}
 
 				if selectedJob == "All" {
 					req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/jobs/start-all", BackendURL), nil)
@@ -3454,6 +3457,10 @@ func createJobsCommand() *cobra.Command {
 				if len(parts) == 2 {
 					jobID = strings.TrimSuffix(parts[1], ")")
 				}
+			}
+			if jobID == "" {
+				cliErrorln("Operation cancelled: no job selected, pass the job id")
+				return
 			}
 
 			if err := startJob(token, jobID); err != nil {
@@ -3516,12 +3523,15 @@ func createJobsCommand() *cobra.Command {
 				}
 				jobOptions = append(jobOptions, "All")
 
-				var selectedJob string
 				prompt := &survey.Select{
 					Message: "Select job to stop:",
 					Options: jobOptions,
 				}
-				survey.AskOne(prompt, &selectedJob)
+				selectedJob, err := selectJob(prompt)
+				if err != nil {
+					cliErrorf("Operation cancelled: %v\n", err)
+					return
+				}
 
 				if selectedJob == "All" {
 					req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/jobs/stop-all", BackendURL), nil)
@@ -3545,6 +3555,10 @@ func createJobsCommand() *cobra.Command {
 				if len(parts) == 2 {
 					jobID = strings.TrimSuffix(parts[1], ")")
 				}
+			}
+			if jobID == "" {
+				cliErrorln("Operation cancelled: no job selected, pass the job id")
+				return
 			}
 
 			if err := stopJob(token, jobID); err != nil {
@@ -3606,18 +3620,25 @@ func createJobsCommand() *cobra.Command {
 					return
 				}
 
-				var selectedJob string
 				prompt := &survey.Select{
 					Message: "Select job to pause:",
 					Options: jobOptions,
 				}
-				survey.AskOne(prompt, &selectedJob)
+				selectedJob, err := selectJob(prompt)
+				if err != nil {
+					cliErrorf("Operation cancelled: %v\n", err)
+					return
+				}
 
 				// Extract job ID from selection
 				parts := strings.Split(selectedJob, " (")
 				if len(parts) == 2 {
 					jobID = strings.TrimSuffix(parts[1], ")")
 				}
+			}
+			if jobID == "" {
+				cliErrorln("Operation cancelled: no job selected, pass the job id")
+				return
 			}
 
 			if err := pauseJob(token, jobID); err != nil {
@@ -3673,12 +3694,15 @@ func createJobsCommand() *cobra.Command {
 				}
 				jobOptions = append(jobOptions, "All")
 
-				var selectedJob string
 				prompt := &survey.Select{
 					Message: "Select job to restart:",
 					Options: jobOptions,
 				}
-				survey.AskOne(prompt, &selectedJob)
+				selectedJob, err := selectJob(prompt)
+				if err != nil {
+					cliErrorf("Operation cancelled: %v\n", err)
+					return
+				}
 
 				if selectedJob == "All" {
 					req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/jobs/restart-all", BackendURL), nil)
@@ -3703,6 +3727,10 @@ func createJobsCommand() *cobra.Command {
 				if len(parts) == 2 {
 					jobID = strings.TrimSuffix(parts[1], ")")
 				}
+			}
+			if jobID == "" {
+				cliErrorln("Operation cancelled: no job selected, pass the job id")
+				return
 			}
 
 			if err := restartJob(token, jobID); err != nil {
@@ -3757,18 +3785,25 @@ func createJobsCommand() *cobra.Command {
 					jobOptions = append(jobOptions, fmt.Sprintf("%s (%s)", job["name"].(string), job["id"].(string)))
 				}
 
-				var selectedJob string
 				prompt := &survey.Select{
 					Message: "Select job to delete:",
 					Options: jobOptions,
 				}
-				survey.AskOne(prompt, &selectedJob)
+				selectedJob, err := selectJob(prompt)
+				if err != nil {
+					cliErrorf("Operation cancelled: %v\n", err)
+					return
+				}
 
 				// Extract job ID from selection
 				parts := strings.Split(selectedJob, " (")
 				if len(parts) == 2 {
 					jobID = strings.TrimSuffix(parts[1], ")")
 				}
+			}
+			if jobID == "" {
+				cliErrorln("Operation cancelled: no job selected, pass the job id")
+				return
 			}
 
 			confirm, err := confirmAction(cmd, fmt.Sprintf("Are you sure you want to delete job '%s'? This action cannot be undone.", jobID))
@@ -3839,18 +3874,25 @@ func createJobsCommand() *cobra.Command {
 					jobOptions = append(jobOptions, fmt.Sprintf("%s (%s)", job["name"].(string), job["id"].(string)))
 				}
 
-				var selectedJob string
 				prompt := &survey.Select{
 					Message: "Select job to view status:",
 					Options: jobOptions,
 				}
-				survey.AskOne(prompt, &selectedJob)
+				selectedJob, err := selectJob(prompt)
+				if err != nil {
+					cliErrorf("Operation cancelled: %v\n", err)
+					return
+				}
 
 				// Extract job ID from selection
 				parts := strings.Split(selectedJob, " (")
 				if len(parts) == 2 {
 					jobID = strings.TrimSuffix(parts[1], ")")
 				}
+			}
+			if jobID == "" {
+				cliErrorln("Operation cancelled: no job selected, pass the job id")
+				return
 			}
 
 			req, _ := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/jobs/%s", BackendURL, jobID), nil)
@@ -3944,18 +3986,25 @@ func createJobsCommand() *cobra.Command {
 					jobOptions = append(jobOptions, fmt.Sprintf("%s (%s)", job["name"].(string), job["id"].(string)))
 				}
 
-				var selectedJob string
 				prompt := &survey.Select{
 					Message: "Select job to view status:",
 					Options: jobOptions,
 				}
-				survey.AskOne(prompt, &selectedJob)
+				selectedJob, err := selectJob(prompt)
+				if err != nil {
+					cliErrorf("Operation cancelled: %v\n", err)
+					return
+				}
 
 				// Extract job ID from selection
 				parts := strings.Split(selectedJob, " (")
 				if len(parts) == 2 {
 					jobID = strings.TrimSuffix(parts[1], ")")
 				}
+			}
+			if jobID == "" {
+				cliErrorln("Operation cancelled: no job selected, pass the job id")
+				return
 			}
 
 			req, _ := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/jobs/%s/mirror/state", BackendURL, jobID), nil)
@@ -4024,18 +4073,25 @@ func createJobsCommand() *cobra.Command {
 					jobOptions = append(jobOptions, fmt.Sprintf("%s (%s)", job["name"].(string), job["id"].(string)))
 				}
 
-				var selectedJob string
 				prompt := &survey.Select{
 					Message: "Select job to analyze:",
 					Options: jobOptions,
 				}
-				survey.AskOne(prompt, &selectedJob)
+				selectedJob, err := selectJob(prompt)
+				if err != nil {
+					cliErrorf("Operation cancelled: %v\n", err)
+					return
+				}
 
 				// Extract job ID from selection
 				parts := strings.Split(selectedJob, " (")
 				if len(parts) == 2 {
 					jobID = strings.TrimSuffix(parts[1], ")")
 				}
+			}
+			if jobID == "" {
+				cliErrorln("Operation cancelled: no job selected, pass the job id")
+				return
 			}
 
 			period, _ := cmd.Flags().GetString("period")
@@ -4098,18 +4154,25 @@ func createJobsCommand() *cobra.Command {
 				}
 				jobOptions = append(jobOptions, "All")
 
-				var selectedJob string
 				prompt := &survey.Select{
 					Message: "Select job to perform health check on:",
 					Options: jobOptions,
 				}
-				survey.AskOne(prompt, &selectedJob)
+				selectedJob, err := selectJob(prompt)
+				if err != nil {
+					cliErrorf("Operation cancelled: %v\n", err)
+					return
+				}
 
 				if selectedJob == "All" {
 					jobID = "All"
 				} else {
 					jobID = jobMap[selectedJob]
 				}
+			}
+			if jobID == "" {
+				cliErrorln("Operation cancelled: no job selected, pass the job id")
+				return
 			}
 
 			if jobID == "All" {
@@ -4213,13 +4276,20 @@ func createJobsCommand() *cobra.Command {
 					jobMap[displayName] = job["id"].(string)
 				}
 
-				var selectedJob string
 				prompt := &survey.Select{
 					Message: "Select job to force-restart:",
 					Options: jobOptions,
 				}
-				survey.AskOne(prompt, &selectedJob)
+				selectedJob, err := selectJob(prompt)
+				if err != nil {
+					cliErrorf("Operation cancelled: %v\n", err)
+					return
+				}
 				jobID = jobMap[selectedJob]
+			}
+			if jobID == "" {
+				cliErrorln("Operation cancelled: no job selected, pass the job id")
+				return
 			}
 
 			req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/jobs/%s/force-restart", BackendURL, jobID), nil)

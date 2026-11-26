@@ -13,12 +13,14 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/AlecAivazis/survey/v2/terminal"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -156,4 +158,29 @@ func displayConfigValue(path, value string) string {
 		return maskSensitiveValue(value)
 	}
 	return value
+}
+
+var jobSelectionHasTerminal = func() bool {
+	return isTerminal(os.Stdin)
+}
+
+var askJobSelection = func(prompt *survey.Select, answer *string) error {
+	return survey.AskOne(prompt, answer)
+}
+
+func selectJob(prompt *survey.Select) (string, error) {
+	if !jobSelectionHasTerminal() {
+		return "", errors.New("no terminal to select a job, pass the job id")
+	}
+	var selected string
+	if err := askJobSelection(prompt, &selected); err != nil {
+		if errors.Is(err, terminal.InterruptErr) {
+			return "", errors.New("job selection aborted")
+		}
+		return "", fmt.Errorf("job selection failed: %w", err)
+	}
+	if selected == "" {
+		return "", errors.New("no job selected, pass the job id")
+	}
+	return selected, nil
 }

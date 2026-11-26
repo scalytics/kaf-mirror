@@ -134,7 +134,7 @@ binaries:
 	@go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(MIRROR_CLI_BINARY) ./cmd/mirror-cli
 
 release-binaries:
-	@test -n "$(VERSION)" || { echo "Set VERSION, for example make release-binaries VERSION=v1.4.0"; exit 1; }
+	@test -n "$(VERSION)" || { echo "Set VERSION, for example make release-binaries VERSION=v2.0.0"; exit 1; }
 	@mkdir -p $(RELEASE_DIR)
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=$(RELEASE_CC) go build -v -ldflags="-s -w -X main.Version=$(VERSION)" -o $(RELEASE_DIR)/kaf-mirror-linux-amd64 ./cmd/kaf-mirror
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=$(RELEASE_CC) go build -v -ldflags="-s -w" -o $(RELEASE_DIR)/admin-cli-linux-amd64 ./cmd/admin-cli
