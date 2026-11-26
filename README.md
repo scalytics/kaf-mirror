@@ -4,7 +4,7 @@
 [![CodeQL](https://github.com/scalytics/kaf-mirror/actions/workflows/codeql.yml/badge.svg)](https://github.com/scalytics/kaf-mirror/actions/workflows/codeql.yml)
 [![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://kafmirror.scalytics.io/)
 
-**Copy your Kafka topics to any other Kafka cluster, or into S3 through KafScale, with a dashboard, audit trail and compliance reports. Apache 2.0.**
+**Mirror Kafka topics between any two Kafka clusters, with a dashboard, audit trail and compliance reports. Apache 2.0.**
 
 **kaf-mirror** is a high-performance, AI-enhanced Kafka replication tool designed for robust and intelligent data mirroring between Kafka clusters.
 
@@ -29,79 +29,18 @@
 - **Secrets:** Cluster and config APIs return `***` for credentials. PUT with `***` or an empty secret leaves the stored value unchanged.
 - **Replication halt (experimental):** Off until an admin enables it. Freezes all jobs if the source cluster is compromised so the replica does not keep copying the attack. See [docs/protection.md](docs/protection.md).
 
-## Back up your Kafka to S3 in 10 minutes
+## Use cases
 
-Replication keeps a hot standby in sync. It also copies deletes, bad writes and
-anything done with stolen producer credentials. For a backup, mirror into
-[KafScale](https://github.com/KafScale/platform), a Kafka-compatible broker that
-stores immutable segments in S3, and keep that copy on separate credentials.
-
-Prerequisites: Go, Docker (for the local MinIO bucket), `make`, and a reachable
-source Kafka cluster.
-
-**1. Start KafScale with a local S3 bucket (MinIO)**
-
-```bash
-git clone https://github.com/KafScale/platform.git && cd platform
-make demo
-```
-
-The broker listens on `127.0.0.1:39092`. Segments land in the MinIO bucket
-`kafscale`.
-
-**2. Build and start kaf-mirror**
-
-In a second terminal, from this repo:
-
-```bash
-mkdir -p bin
-go build -o bin/kaf-mirror ./cmd/kaf-mirror
-go build -o bin/mirror-cli ./cmd/mirror-cli
-KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true ./bin/kaf-mirror
-```
-
-KafScale does not implement `InitProducerId`, so idempotent writes must be off
-when it is the target. On the first start kaf-mirror creates `admin@localhost`
-with a random password and writes it to `data/kaf-mirror-bootstrap-<random>`,
-next to the database. The path is printed on stdout as `Password File`. In a
-third terminal, read the password, then delete the file:
-
-```bash
-cat data/kaf-mirror-bootstrap-*
-rm data/kaf-mirror-bootstrap-*
-```
-
-**3. Add the clusters and start a job**
-
-```bash
-./bin/mirror-cli login admin@localhost   # asks for the password
-./bin/mirror-cli clusters add   # your source cluster
-./bin/mirror-cli clusters add   # target: brokers 127.0.0.1:39092
-./bin/mirror-cli jobs add       # pick source, target and topics
-./bin/mirror-cli jobs start
-./bin/mirror-cli jobs status full
-```
-
-`clusters add` and `jobs add` are interactive. Source offsets are committed only
-after KafScale acknowledges the write, so a stopped job resumes where it left
-off. For production, run KafScale from its Helm chart against a real S3 bucket
-and consider [replication halt](docs/protection.md), which freezes jobs if the
-source looks compromised.
-
-### Use cases
-
-- **Backup vs replication.** Use kaf-mirror between two Kafka clusters for a
-  hot standby, and into KafScale on S3 for a backup that a bad delete does not
-  reach. See [Kafka backup vs replication](https://www.scalytics.io/kafka-backup-vs-replication).
+- **Hot standby and backup.** Use kaf-mirror between two Kafka clusters for a
+  hot standby. For a backup that a bad delete does not reach, mirror into a
+  separate target such as KafScale on S3. See [Kafka backup vs replication](https://www.scalytics.io/kafka-backup-vs-replication).
 - **DORA and NIS2.** The audit trail and scheduled compliance reports help show
   how the copy is run and checked. See the
   [Kafka DORA and NIS2 checklist](https://www.scalytics.io/kafka-dora-nis2-checklist).
 - **Migration and failover drills** between Kafka-protocol clusters, with
   same-name, exact or regex topic mapping.
 
-More on the backup pattern: [KafShield, Kafka backup and disaster recovery on S3](https://www.scalytics.io/kafshield).
-
-### Need it managed or supported?
+## Need it managed or supported?
 
 kaf-mirror is part of [Lascaris](https://www.scalytics.io/lascaris). Scalytics
 can run it for you in your own cloud, or support your team running it on-prem
@@ -632,6 +571,63 @@ Pass `-f km-values.yaml` first on every later `helm upgrade`, followed by the va
 *   **Bootstrap password:** it is written to `/app/data/kaf-mirror-bootstrap-<random>` on the PVC. Read it with `kubectl exec deploy/km-kaf-mirror -- sh -c 'cat /app/data/kaf-mirror-bootstrap-*'`, then delete the file.
 
 All values are listed in [deploy/helm/kaf-mirror/README.md](deploy/helm/kaf-mirror/README.md).
+
+## Back up to S3 with KafScale
+
+A replica copies deletes, bad writes and anything done with stolen producer
+credentials. For a backup, mirror into a separate target on its own credentials.
+[KafScale](https://github.com/KafScale/platform) is one option: a
+Kafka-compatible broker that stores immutable segments in S3. Any other
+Kafka-compatible target is set up the same way. More on the pattern:
+[KafShield, Kafka backup and disaster recovery on S3](https://www.scalytics.io/kafshield).
+
+Prerequisites: Go, Docker (for the local MinIO bucket), `make`, and a reachable
+source Kafka cluster.
+
+Start KafScale with a local MinIO bucket. The broker listens on
+`127.0.0.1:39092`:
+
+```bash
+git clone https://github.com/KafScale/platform.git && cd platform
+make demo
+```
+
+In a second terminal, from this repo, build and start kaf-mirror. KafScale does
+not implement `InitProducerId`, so idempotent writes must be off when it is the
+target:
+
+```bash
+mkdir -p bin
+go build -o bin/kaf-mirror ./cmd/kaf-mirror
+go build -o bin/mirror-cli ./cmd/mirror-cli
+KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true ./bin/kaf-mirror
+```
+
+On the first start kaf-mirror writes the `admin@localhost` password to
+`data/kaf-mirror-bootstrap-<random>` and prints the path as `Password File`. In
+a third terminal, read the password, then delete the file:
+
+```bash
+cat data/kaf-mirror-bootstrap-*
+rm data/kaf-mirror-bootstrap-*
+```
+
+Add the clusters and start a job. `clusters add` and `jobs add` are
+interactive. The target brokers are `127.0.0.1:39092`:
+
+```bash
+./bin/mirror-cli login admin@localhost   # asks for the password
+./bin/mirror-cli clusters add   # your source cluster
+./bin/mirror-cli clusters add   # target: brokers 127.0.0.1:39092
+./bin/mirror-cli jobs add       # pick source, target and topics
+./bin/mirror-cli jobs start
+./bin/mirror-cli jobs status full
+```
+
+Source offsets are committed only after KafScale acknowledges the write, so a
+stopped job resumes where it left off. For production, run KafScale from its Helm
+chart against a real S3 bucket and consider [replication halt](docs/protection.md),
+which freezes jobs if the source looks compromised.
 
 ## Security
 

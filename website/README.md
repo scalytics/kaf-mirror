@@ -24,8 +24,8 @@ that uses `{{SITE}}` for the address.
 
 ## Demo video
 
-`media/demo.mp4` and its poster `media/demo-poster.jpg`
-are copied to the site as they are. The home page embeds the video with
+`media/demo.webm` (VP9), `media/demo.mp4` (H.264) and the poster
+`media/demo-poster.jpg` are copied to the site as they are. The home page embeds the video with
 controls and no autoplay.
 
 ## Deploy

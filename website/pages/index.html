@@ -9,7 +9,7 @@
         </div>
         <div class="kafscale">
           <h2>Need a backup, not just a replica?</h2>
-          <p>A replica follows every change, including deletes, bad writes and anything done with stolen producer credentials. For a backup, mirror into a target that keeps history out of the producers' reach, and give it separate credentials. <a href="https://kafscale.io" rel="noopener noreferrer">KafScale</a>, a Kafka-compatible broker that stores immutable segments in S3, is one option. Any Kafka-compatible target is configured the same way. The KafScale steps are in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/README.md#back-up-your-kafka-to-s3-in-10-minutes" rel="noopener noreferrer">README</a>.</p>
+          <p>A replica follows every change, including deletes, bad writes and anything done with stolen producer credentials. For a backup, mirror into a target that keeps history out of the producers' reach, and give it separate credentials. <a href="https://kafscale.io" rel="noopener noreferrer">KafScale</a>, a Kafka-compatible broker that stores immutable segments in S3, is one option. Any Kafka-compatible target is configured the same way. The KafScale steps are in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/README.md#back-up-to-s3-with-kafscale" rel="noopener noreferrer">README</a>.</p>
         </div>
       </div>
     </section>
@@ -20,6 +20,7 @@
         <p>Two Apache Kafka clusters, one kaf-mirror, about two minutes. The terminal uses the <code>mirror-cli</code> shell, where Tab completes commands.</p>
         <div class="video-frame">
           <video controls preload="none" playsinline width="1600" height="900" poster="media/demo-poster.jpg" aria-describedby="demo-steps">
+            <source src="media/demo.webm" type="video/webm">
             <source src="media/demo.mp4" type="video/mp4">
             <p>Your browser cannot play this video. <a href="media/demo.mp4">Download the MP4</a>.</p>
           </video>
