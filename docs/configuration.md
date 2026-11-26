@@ -21,7 +21,7 @@ This page lists every config key and environment variable that kaf-mirror reads.
 | `server.mode` | empty | `development` or `production`. In `production` kaf-mirror does not start without TLS unless `server.allow_insecure` is `true`. `test` turns off the background work and is only for tests. |
 | `server.web_path` | `./web` | Directory with the web UI and the docs served at `/docu`. |
 | `server.allow_insecure` | `false` | Allows a listener without TLS in `production`. |
-| `server.shutdown_timeout` | `30s` | Time kaf-mirror has to stop its jobs and the API server on `SIGTERM` or `SIGINT`. See "Graceful Shutdown" in the README. |
+| `server.shutdown_timeout` | `30s` | Time kaf-mirror has to stop its jobs and the API server on `SIGTERM` or `SIGINT`. See "Graceful Shutdown" in [resilience.md](resilience.md). |
 | `server.tls.enabled` | `false` | Serves HTTPS. |
 | `server.tls.cert_file` | empty | Path to the server certificate. |
 | `server.tls.key_file` | empty | Path to the server key. |
