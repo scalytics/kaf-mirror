@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 ### Breaking
+- Builds require Go 1.27.4 or newer. CI, releases and the Docker builder use Go 1.27.4.
 - kaf-mirror refuses to start when its data directory belongs to another user and every user can write to it without the sticky bit, for example `root:root` with mode `0777`. Any user could replace the database files in such a directory. The error names the directory, its mode and its owner and says how to fix it. A group-writable directory, such as a volume with `fsGroup` 101, and a world-writable directory with the sticky bit still work. The `local-path` provisioner of kind and k3s does not honor `fsGroup` and creates `root:root` `0777` directories, so the default Helm chart no longer starts on it. The error says: use storage that honors fsGroup, or set volumePermissions.enabled: true in the Helm values, or chown the directory to the kaf-mirror user outside Helm. On kind and k3s, add a values file with the setting below and pass it with `-f` after `km-values.yaml`. `volumePermissions` is off by default. See "Storage permissions" in the chart README (#85).
 
   ```yaml
