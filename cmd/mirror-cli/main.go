@@ -46,6 +46,20 @@ var (
 	client     = httpClient
 )
 
+var errCommandFailed = errors.New("command failed")
+
+var commandFailed bool
+
+func cliErrorf(format string, args ...any) {
+	commandFailed = true
+	fmt.Printf(format, args...)
+}
+
+func cliErrorln(message string) {
+	commandFailed = true
+	fmt.Println(message)
+}
+
 // ValidateBrokerString validates broker strings based on provider type
 func ValidateBrokerString(brokers, provider string) error {
 	switch provider {
@@ -231,25 +245,25 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := http.Post(loginURL, "application/json", bytes.NewBuffer(reqBody))
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
-				fmt.Printf("Error: Login failed: %s\n", resp.Status)
+				cliErrorf("Error: Login failed: %s\n", resp.Status)
 				return
 			}
 
 			var tokenResp map[string]string
 			if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-				fmt.Printf("Error: Failed to parse login response: %v\n", err)
+				cliErrorf("Error: Failed to parse login response: %v\n", err)
 				return
 			}
 
 			token := tokenResp["token"]
 			if err := SaveToken(token); err != nil {
-				fmt.Printf("Error: Failed to save token: %v\n", err)
+				cliErrorf("Error: Failed to save token: %v\n", err)
 				return
 			}
 
@@ -270,32 +284,32 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/users", BackendURL), nil)
 			if err != nil {
-				fmt.Printf("Error: Failed to build request: %v\n", err)
+				cliErrorf("Error: Failed to build request: %v\n", err)
 				return
 			}
 			req.Header.Set("Authorization", "Bearer "+token)
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
-				fmt.Printf("Error: Failed to list users: %s\n", resp.Status)
+				cliErrorf("Error: Failed to list users: %s\n", resp.Status)
 				return
 			}
 
 			var users []map[string]interface{}
 			if err := json.NewDecoder(resp.Body).Decode(&users); err != nil {
-				fmt.Printf("Error: Failed to parse response: %v\n", err)
+				cliErrorf("Error: Failed to parse response: %v\n", err)
 				return
 			}
 
@@ -317,13 +331,13 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
@@ -343,7 +357,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			}
 
 			if user["role"] != "admin" && (role == "admin" || role == "operator") {
-				fmt.Println("Error: You do not have permission to create admin or operator users.")
+				cliErrorln("Error: You do not have permission to create admin or operator users.")
 				return
 			}
 
@@ -360,7 +374,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/users", BackendURL), bytes.NewBuffer(reqBody))
 			if err != nil {
-				fmt.Printf("Error: Failed to build request: %v\n", err)
+				cliErrorf("Error: Failed to build request: %v\n", err)
 				return
 			}
 			req.Header.Set("Authorization", "Bearer "+token)
@@ -368,19 +382,19 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusCreated {
-				fmt.Printf("Error: Failed to create user: %s\n", resp.Status)
+				cliErrorf("Error: Failed to create user: %s\n", resp.Status)
 				return
 			}
 
 			secretFile, err := writePasswordFile("", password)
 			if err != nil {
-				fmt.Printf("Error: User created, but the password file could not be written: %v\n", err)
+				cliErrorf("Error: User created, but the password file could not be written: %v\n", err)
 				fmt.Printf("Run 'mirror-cli users reset-password %s' to set a new password.\n", username)
 				return
 			}
@@ -405,13 +419,13 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
@@ -421,7 +435,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			} else {
 				users, err := fetchUsers(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch users: %v\n", err)
+					cliErrorf("Error: Failed to fetch users: %v\n", err)
 					return
 				}
 				var usernames []string
@@ -438,7 +452,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			}
 
 			if user["username"] == username {
-				fmt.Println("Error: You cannot change your own role.")
+				cliErrorln("Error: You cannot change your own role.")
 				return
 			}
 
@@ -465,13 +479,13 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
-				fmt.Printf("Error: Failed to set user role: %s\n", resp.Status)
+				cliErrorf("Error: Failed to set user role: %s\n", resp.Status)
 				return
 			}
 
@@ -486,7 +500,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -495,25 +509,25 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
-				fmt.Printf("Error: Failed to reset token: %s\n", resp.Status)
+				cliErrorf("Error: Failed to reset token: %s\n", resp.Status)
 				return
 			}
 
 			var tokenResp map[string]string
 			if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-				fmt.Printf("Error: Failed to parse response: %v\n", err)
+				cliErrorf("Error: Failed to parse response: %v\n", err)
 				return
 			}
 
 			newToken := tokenResp["token"]
 			if err := SaveToken(newToken); err != nil {
-				fmt.Printf("Error: Failed to save token: %v\n", err)
+				cliErrorf("Error: Failed to save token: %v\n", err)
 				return
 			}
 
@@ -529,7 +543,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -538,13 +552,13 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusNoContent {
-				fmt.Printf("Error: Failed to delete user: %s\n", resp.Status)
+				cliErrorf("Error: Failed to delete user: %s\n", resp.Status)
 				return
 			}
 
@@ -561,18 +575,18 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" {
-				fmt.Println("Error: You must be an admin to perform this action.")
+				cliErrorln("Error: You must be an admin to perform this action.")
 				return
 			}
 
@@ -582,7 +596,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			} else {
 				users, err := fetchUsers(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch users: %v\n", err)
+					cliErrorf("Error: Failed to fetch users: %v\n", err)
 					return
 				}
 				var usernames []string
@@ -592,7 +606,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 					}
 				}
 				if len(usernames) == 0 {
-					fmt.Println("Error: No other users found to reset password for.")
+					cliErrorln("Error: No other users found to reset password for.")
 					return
 				}
 				prompt := &survey.Select{
@@ -605,7 +619,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			}
 
 			if user["username"] == username {
-				fmt.Println("Error: You cannot reset your own password. Use 'change-password' instead.")
+				cliErrorln("Error: You cannot reset your own password. Use 'change-password' instead.")
 				return
 			}
 
@@ -624,19 +638,19 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
-				fmt.Printf("Error: Failed to reset user password: %s\n", resp.Status)
+				cliErrorf("Error: Failed to reset user password: %s\n", resp.Status)
 				return
 			}
 
 			var resetResp map[string]string
 			if err := json.NewDecoder(resp.Body).Decode(&resetResp); err != nil {
-				fmt.Printf("Error: Failed to parse response: %v\n", err)
+				cliErrorf("Error: Failed to parse response: %v\n", err)
 				return
 			}
 
@@ -648,13 +662,13 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 					if errors.As(err, &pathErr) {
 						err = pathErr.Err
 					}
-					fmt.Printf("Error: Failed to write the file given with --password-file: %v\n", err)
+					cliErrorf("Error: Failed to write the file given with --password-file: %v\n", err)
 					return
 				}
 			} else {
 				tempPath, err := writePasswordFile("", newPassword)
 				if err != nil {
-					fmt.Printf("Error: Failed to write the password file in the temp directory: %v\n", err)
+					cliErrorf("Error: Failed to write the password file in the temp directory: %v\n", err)
 					return
 				}
 				fileLine = "  Password File: " + tempPath
@@ -691,7 +705,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -700,19 +714,19 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
-				fmt.Printf("Error: Failed to list clusters: %s\n", resp.Status)
+				cliErrorf("Error: Failed to list clusters: %s\n", resp.Status)
 				return
 			}
 
 			var clusters []map[string]interface{}
 			if err := json.NewDecoder(resp.Body).Decode(&clusters); err != nil {
-				fmt.Printf("Error: Failed to parse response: %v\n", err)
+				cliErrorf("Error: Failed to parse response: %v\n", err)
 				return
 			}
 
@@ -749,7 +763,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -805,7 +819,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 					// Validate broker string format
 					if err := ValidateBrokerString(brokers, provider); err != nil {
-						fmt.Printf("Error: %v\n", err)
+						cliErrorf("Error: %v\n", err)
 						var retry bool
 						promptRetry := &survey.Confirm{Message: "Would you like to re-enter the broker string?"}
 						if err := survey.AskOne(promptRetry, &retry); err != nil || !retry {
@@ -844,7 +858,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				testBody, _ := json.Marshal(clusterData)
 				req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/clusters/test", BackendURL), bytes.NewBuffer(testBody))
 				if err != nil {
-					fmt.Printf("Error: Failed to build request: %v\n", err)
+					cliErrorf("Error: Failed to build request: %v\n", err)
 					return
 				}
 				req.Header.Set("Authorization", "Bearer "+token)
@@ -852,14 +866,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 				resp, err := httpClient.Do(req)
 				if err != nil {
-					fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+					cliErrorf("Error: Failed to connect to backend: %v\n", err)
 					return
 				}
 
 				if resp.StatusCode != http.StatusOK {
 					body, _ := ioutil.ReadAll(resp.Body)
 					resp.Body.Close()
-					fmt.Printf("Error: Connection test failed: %s\n%s\n", resp.Status, body)
+					cliErrorf("Error: Connection test failed: %s\n%s\n", resp.Status, body)
 					var reEnter bool
 					prompt := &survey.Confirm{
 						Message: "Would you like to re-enter the details?",
@@ -932,14 +946,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := client.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusCreated {
 				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Failed to create cluster: %s\n%s\n", resp.Status, body)
+				cliErrorf("Error: Failed to create cluster: %s\n%s\n", resp.Status, body)
 				return
 			}
 
@@ -969,18 +983,18 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" {
-				fmt.Println("Error: You must be an admin to perform this action.")
+				cliErrorln("Error: You must be an admin to perform this action.")
 				return
 			}
 
@@ -990,7 +1004,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			} else {
 				clusters, err := fetchClusters(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch clusters: %v\n", err)
+					cliErrorf("Error: Failed to fetch clusters: %v\n", err)
 					return
 				}
 				if len(clusters) == 0 {
@@ -1026,14 +1040,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusAccepted {
 				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Failed to remove cluster: %s\n%s\n", resp.Status, body)
+				cliErrorf("Error: Failed to remove cluster: %s\n%s\n", resp.Status, body)
 				return
 			}
 
@@ -1048,18 +1062,18 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" {
-				fmt.Println("Error: You must be an admin to perform this action.")
+				cliErrorln("Error: You must be an admin to perform this action.")
 				return
 			}
 
@@ -1068,13 +1082,13 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusNoContent {
-				fmt.Printf("Error: Failed to purge clusters: %s\n", resp.Status)
+				cliErrorf("Error: Failed to purge clusters: %s\n", resp.Status)
 				return
 			}
 
@@ -1090,18 +1104,18 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" {
-				fmt.Println("Error: You must be an admin to perform this action.")
+				cliErrorln("Error: You must be an admin to perform this action.")
 				return
 			}
 
@@ -1111,7 +1125,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			} else {
 				clusters, err := fetchClusters(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch clusters: %v\n", err)
+					cliErrorf("Error: Failed to fetch clusters: %v\n", err)
 					return
 				}
 				if len(clusters) == 0 {
@@ -1142,14 +1156,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
 				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Failed to restore cluster: %s\n%s\n", resp.Status, body)
+				cliErrorf("Error: Failed to restore cluster: %s\n%s\n", resp.Status, body)
 				return
 			}
 
@@ -1165,7 +1179,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -1175,7 +1189,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			} else {
 				clusters, err := fetchClusters(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch clusters: %v\n", err)
+					cliErrorf("Error: Failed to fetch clusters: %v\n", err)
 					return
 				}
 				if len(clusters) == 0 {
@@ -1199,14 +1213,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			if clusterName == "All" {
 				clusters, err := fetchClusters(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch clusters: %v\n", err)
+					cliErrorf("Error: Failed to fetch clusters: %v\n", err)
 					return
 				}
 				for _, cluster := range clusters {
 					name := cluster["name"].(string)
 					fmt.Printf("Testing connection to cluster '%s'...\n", name)
 					if err := testClusterConnectionVerbose(token, name); err != nil {
-						fmt.Printf("Error: Cluster connection test failed for '%s': %v\n", name, err)
+						cliErrorf("Error: Cluster connection test failed for '%s': %v\n", name, err)
 					} else {
 						fmt.Printf("✓ Connection to cluster '%s' successful.\n", name)
 					}
@@ -1214,7 +1228,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			} else {
 				fmt.Printf("Testing connection to cluster '%s'...\n", clusterName)
 				if err := testClusterConnectionVerbose(token, clusterName); err != nil {
-					fmt.Printf("Error: Cluster connection test failed: %v\n", err)
+					cliErrorf("Error: Cluster connection test failed: %v\n", err)
 					return
 				}
 				fmt.Printf("✓ Connection to cluster '%s' successful.\n", clusterName)
@@ -1230,7 +1244,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -1240,7 +1254,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			} else {
 				clusters, err := fetchClusters(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch clusters: %v\n", err)
+					cliErrorf("Error: Failed to fetch clusters: %v\n", err)
 					return
 				}
 				if len(clusters) == 0 {
@@ -1263,19 +1277,19 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			req.Header.Set("Authorization", "Bearer "+token)
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
-				fmt.Printf("Error: Failed to fetch cluster details: %s\n", resp.Status)
+				cliErrorf("Error: Failed to fetch cluster details: %s\n", resp.Status)
 				return
 			}
 
 			var currentCluster map[string]interface{}
 			if err := json.NewDecoder(resp.Body).Decode(&currentCluster); err != nil {
-				fmt.Printf("Error: Failed to parse cluster details: %v\n", err)
+				cliErrorf("Error: Failed to parse cluster details: %v\n", err)
 				return
 			}
 
@@ -1354,7 +1368,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 					// Validate broker string format
 					if err := ValidateBrokerString(newBrokers, provider); err != nil {
-						fmt.Printf("Error: %v\n", err)
+						cliErrorf("Error: %v\n", err)
 						var retry bool
 						promptRetry := &survey.Confirm{Message: "Would you like to re-enter the broker string?"}
 						if err := survey.AskOne(promptRetry, &retry); err != nil || !retry {
@@ -1406,14 +1420,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 				resp, err = client.Do(req)
 				if err != nil {
-					fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+					cliErrorf("Error: Failed to connect to backend: %v\n", err)
 					return
 				}
 				defer resp.Body.Close()
 
 				if resp.StatusCode != http.StatusOK {
 					body, _ := ioutil.ReadAll(resp.Body)
-					fmt.Printf("Error: Connection test failed: %s\n", resp.Status)
+					cliErrorf("Error: Connection test failed: %s\n", resp.Status)
 					if len(body) > 0 {
 						fmt.Printf("Failed to connect to cluster: %s\n", string(body))
 					}
@@ -1466,14 +1480,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err = client.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
 				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Failed to update cluster: %s\n", resp.Status)
+				cliErrorf("Error: Failed to update cluster: %s\n", resp.Status)
 				if len(body) > 0 {
 					fmt.Printf("Server response: %s\n", string(body))
 				}
@@ -1496,13 +1510,13 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
@@ -1517,7 +1531,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -1531,7 +1545,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 				abortCancelled()
 			}
 			if len(newPassword) < 12 {
-				fmt.Println("Error: password must be at least 12 characters.")
+				cliErrorln("Error: password must be at least 12 characters.")
 				return
 			}
 
@@ -1546,13 +1560,13 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
-				fmt.Printf("Error: Failed to change password: %s\n", resp.Status)
+				cliErrorf("Error: Failed to change password: %s\n", resp.Status)
 				return
 			}
 
@@ -1569,11 +1583,11 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			home, err := os.UserHomeDir()
 			if err != nil {
-				fmt.Printf("Error: Failed to get home directory: %v\n", err)
+				cliErrorf("Error: Failed to get home directory: %v\n", err)
 				return
 			}
 			if err := os.Remove(filepath.Join(home, ".kaf-mirror", "token")); err != nil {
-				fmt.Printf("Error: Failed to logout: %v\n", err)
+				cliErrorf("Error: Failed to logout: %v\n", err)
 				return
 			}
 			fmt.Println("Logout successful.")
@@ -1593,14 +1607,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in.")
+				cliErrorln("Error: You must be logged in.")
 				return
 			}
 			req, _ := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/protection/", BackendURL), nil)
 			req.Header.Set("Authorization", "Bearer "+token)
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: %v\n", err)
+				cliErrorf("Error: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
@@ -1614,14 +1628,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in.")
+				cliErrorln("Error: You must be logged in.")
 				return
 			}
 			req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/protection/enable", BackendURL), nil)
 			req.Header.Set("Authorization", "Bearer "+token)
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: %v\n", err)
+				cliErrorf("Error: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
@@ -1635,14 +1649,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in.")
+				cliErrorln("Error: You must be logged in.")
 				return
 			}
 			req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/protection/disable", BackendURL), nil)
 			req.Header.Set("Authorization", "Bearer "+token)
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: %v\n", err)
+				cliErrorf("Error: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
@@ -1657,7 +1671,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in.")
+				cliErrorln("Error: You must be logged in.")
 				return
 			}
 			reason := "admin halt"
@@ -1670,7 +1684,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			req.Header.Set("Content-Type", "application/json")
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: %v\n", err)
+				cliErrorf("Error: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
@@ -1684,14 +1698,14 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in.")
+				cliErrorln("Error: You must be logged in.")
 				return
 			}
 			req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/protection/resume", BackendURL), nil)
 			req.Header.Set("Authorization", "Bearer "+token)
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: %v\n", err)
+				cliErrorf("Error: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
@@ -1702,8 +1716,48 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 
 	rootCmd.AddCommand(loginCmd, logoutCmd, usersCmd, clustersCmd, jobsCmd, configCmd, tlsCmd, newDashboardCmd(), whoamiCmd, docsCmd, protectionCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.SilenceErrors = true
+	rootCmd.SilenceUsage = true
+	exitNonZeroOnFailure(rootCmd)
 
 	return rootCmd
+}
+
+func exitNonZeroOnFailure(cmd *cobra.Command) {
+	if cmd.Run != nil && cmd.RunE == nil {
+		run := cmd.Run
+		cmd.Run = nil
+		cmd.RunE = func(c *cobra.Command, args []string) error {
+			commandFailed = false
+			run(c, args)
+			if commandFailed {
+				return errCommandFailed
+			}
+			return nil
+		}
+	} else if cmd.Run == nil && cmd.RunE == nil && cmd.HasSubCommands() && cmd.Args == nil {
+		cmd.Args = rejectUnknownSubcommand
+		cmd.RunE = func(c *cobra.Command, args []string) error {
+			return pflag.ErrHelp
+		}
+	}
+	for _, child := range cmd.Commands() {
+		exitNonZeroOnFailure(child)
+	}
+}
+
+func rejectUnknownSubcommand(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	msg := fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath())
+	if suggestions := cmd.SuggestionsFor(args[0]); len(suggestions) > 0 {
+		msg += "\n\nDid you mean this?\n"
+		for _, s := range suggestions {
+			msg += "\t" + s + "\n"
+		}
+	}
+	return errors.New(msg)
 }
 
 func main() {
@@ -1736,7 +1790,10 @@ func main() {
 		runShell(rootCmd)
 	} else {
 		if err := rootCmd.Execute(); err != nil {
-			fmt.Println(err)
+			if !errors.Is(err, errCommandFailed) {
+				fmt.Fprintf(os.Stderr, "%s %s\n", rootCmd.ErrPrefix(), err)
+				fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", rootCmd.CommandPath())
+			}
 			os.Exit(1)
 		}
 	}
@@ -1814,13 +1871,15 @@ func runShell(rootCmd *cobra.Command) {
 
 		cmd, _, err := rootCmd.Find(fullArgs)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
+			cliErrorf("Error: %v\n", err)
 			return
 		}
 
 		if cmd.Run != nil || cmd.RunE != nil {
 			rootCmd.SetArgs(fullArgs)
-			rootCmd.Execute()
+			if err := rootCmd.Execute(); err != nil && !errors.Is(err, errCommandFailed) {
+				fmt.Printf("Error: %v\n", err)
+			}
 
 			if !isTerminalCommand(fullArgs) {
 				if len(fullArgs) >= 2 && fullArgs[0] == "config" && fullArgs[1] == "edit" {
@@ -1857,7 +1916,7 @@ func runShell(rootCmd *cobra.Command) {
 			return
 		}
 
-		fmt.Printf("Error: Unknown command: %s\n", strings.Join(fullArgs, " "))
+		cliErrorf("Error: Unknown command: %s\n", strings.Join(fullArgs, " "))
 
 		if !isTerminalCommand(fullArgs) {
 			if len(fullArgs) >= 2 && fullArgs[0] == "config" && fullArgs[1] == "edit" {
@@ -2047,13 +2106,13 @@ func runSystem(cmd *cobra.Command, args []string) {
 
 	yamlData, err := yaml.Marshal(&configData)
 	if err != nil {
-		fmt.Printf("Error marshalling YAML: %v\n", err)
+		cliErrorf("Error marshalling YAML: %v\n", err)
 		return
 	}
 
 	err = ioutil.WriteFile("configs/default.yml", yamlData, 0644)
 	if err != nil {
-		fmt.Printf("Error writing config file: %v\n", err)
+		cliErrorf("Error writing config file: %v\n", err)
 		return
 	}
 
@@ -2674,14 +2733,14 @@ func createDocsCommand() *cobra.Command {
 			// Create output directory
 			dir := filepath.Dir(filename)
 			if err := os.MkdirAll(dir, 0755); err != nil {
-				fmt.Printf("Error: Failed to create directory: %v\n", err)
+				cliErrorf("Error: Failed to create directory: %v\n", err)
 				return
 			}
 
 			// Create the output file
 			file, err := os.Create(filename)
 			if err != nil {
-				fmt.Printf("Error: Failed to create file: %v\n", err)
+				cliErrorf("Error: Failed to create file: %v\n", err)
 				return
 			}
 			defer file.Close()
@@ -2690,7 +2749,7 @@ func createDocsCommand() *cobra.Command {
 
 			// Generate consolidated documentation
 			if err := generateConsolidatedDocs(rootCmd, file); err != nil {
-				fmt.Printf("Error generating documentation: %v\n", err)
+				cliErrorf("Error generating documentation: %v\n", err)
 				return
 			}
 
@@ -2936,20 +2995,20 @@ func listClusterTopics(token, clusterName string) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+		cliErrorf("Error: Failed to connect to backend: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(resp.Body)
-		fmt.Printf("Error: Failed to list topics: %s\n%s\n", resp.Status, body)
+		cliErrorf("Error: Failed to list topics: %s\n%s\n", resp.Status, body)
 		return
 	}
 
 	var topics []string
 	if err := json.NewDecoder(resp.Body).Decode(&topics); err != nil {
-		fmt.Printf("Error: Failed to parse response: %v\n", err)
+		cliErrorf("Error: Failed to parse response: %v\n", err)
 		return
 	}
 
@@ -3004,12 +3063,12 @@ func fetchTopicDetails(token, clusterName string, topics []string) ([]map[string
 func createReplicationJob(token string) {
 	clusters, err := fetchClusters(token)
 	if err != nil {
-		fmt.Printf("Error: Failed to fetch clusters: %v\n", err)
+		cliErrorf("Error: Failed to fetch clusters: %v\n", err)
 		return
 	}
 
 	if len(clusters) < 2 {
-		fmt.Println("Error: At least two clusters are required to create a replication job.")
+		cliErrorln("Error: At least two clusters are required to create a replication job.")
 		return
 	}
 
@@ -3039,20 +3098,20 @@ func createReplicationJob(token string) {
 	survey.AskOne(promptTarget, &targetCluster)
 
 	if sourceCluster == targetCluster {
-		fmt.Println("Error: Source and target clusters cannot be the same.")
+		cliErrorln("Error: Source and target clusters cannot be the same.")
 		return
 	}
 
 	// Health checks
 	fmt.Println("Performing cluster health checks...")
 	if err := testClusterConnectionVerbose(token, sourceCluster); err != nil {
-		fmt.Printf("Error: Source cluster '%s' is unreachable: %v\n", sourceCluster, err)
+		cliErrorf("Error: Source cluster '%s' is unreachable: %v\n", sourceCluster, err)
 		return
 	}
 	fmt.Printf("✓ Source cluster '%s' is healthy.\n", sourceCluster)
 
 	if err := testClusterConnectionVerbose(token, targetCluster); err != nil {
-		fmt.Printf("Error: Target cluster '%s' is unreachable: %v\n", targetCluster, err)
+		cliErrorf("Error: Target cluster '%s' is unreachable: %v\n", targetCluster, err)
 		return
 	}
 	fmt.Printf("✓ Target cluster '%s' is healthy.\n", targetCluster)
@@ -3061,7 +3120,7 @@ func createReplicationJob(token string) {
 	fmt.Printf("Fetching topics from source cluster '%s'...\n", sourceCluster)
 	topics, err := fetchTopics(token, sourceCluster)
 	if err != nil {
-		fmt.Printf("Error: Failed to fetch topics from source cluster: %v\n", err)
+		cliErrorf("Error: Failed to fetch topics from source cluster: %v\n", err)
 		return
 	}
 
@@ -3189,14 +3248,14 @@ func createReplicationJob(token string) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+		cliErrorf("Error: Failed to connect to backend: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := ioutil.ReadAll(resp.Body)
-		fmt.Printf("Error: Failed to create job: %s\n", resp.Status)
+		cliErrorf("Error: Failed to create job: %s\n", resp.Status)
 		fmt.Printf("Response: %s\n", string(body))
 		return
 	}
@@ -3219,13 +3278,13 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			jobs, err := fetchJobs(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch jobs: %v\n", err)
+				cliErrorf("Error: Failed to fetch jobs: %v\n", err)
 				return
 			}
 
@@ -3289,18 +3348,18 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" && user["role"] != "operator" {
-				fmt.Println("Error: You must be an admin or operator to perform this action.")
+				cliErrorln("Error: You must be an admin or operator to perform this action.")
 				return
 			}
 
@@ -3316,18 +3375,18 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" && user["role"] != "operator" {
-				fmt.Println("Error: You must be an admin or operator to perform this action.")
+				cliErrorln("Error: You must be an admin or operator to perform this action.")
 				return
 			}
 
@@ -3337,7 +3396,7 @@ func createJobsCommand() *cobra.Command {
 			} else {
 				jobs, err := fetchJobs(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch jobs: %v\n", err)
+					cliErrorf("Error: Failed to fetch jobs: %v\n", err)
 					return
 				}
 
@@ -3371,12 +3430,12 @@ func createJobsCommand() *cobra.Command {
 					req.Header.Set("Authorization", "Bearer "+token)
 					resp, err := httpClient.Do(req)
 					if err != nil {
-						fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+						cliErrorf("Error: Failed to connect to backend: %v\n", err)
 						return
 					}
 					defer resp.Body.Close()
 					if resp.StatusCode != http.StatusOK {
-						fmt.Printf("Error: Failed to start all jobs: %s\n", resp.Status)
+						cliErrorf("Error: Failed to start all jobs: %s\n", resp.Status)
 						return
 					}
 					fmt.Println("All jobs started successfully.")
@@ -3390,7 +3449,7 @@ func createJobsCommand() *cobra.Command {
 			}
 
 			if err := startJob(token, jobID); err != nil {
-				fmt.Printf("Error: Failed to start job: %v\n", err)
+				cliErrorf("Error: Failed to start job: %v\n", err)
 				return
 			}
 
@@ -3406,18 +3465,18 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" && user["role"] != "operator" {
-				fmt.Println("Error: You must be an admin or operator to perform this action.")
+				cliErrorln("Error: You must be an admin or operator to perform this action.")
 				return
 			}
 
@@ -3427,7 +3486,7 @@ func createJobsCommand() *cobra.Command {
 			} else {
 				jobs, err := fetchJobs(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch jobs: %v\n", err)
+					cliErrorf("Error: Failed to fetch jobs: %v\n", err)
 					return
 				}
 
@@ -3461,12 +3520,12 @@ func createJobsCommand() *cobra.Command {
 					req.Header.Set("Authorization", "Bearer "+token)
 					resp, err := httpClient.Do(req)
 					if err != nil {
-						fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+						cliErrorf("Error: Failed to connect to backend: %v\n", err)
 						return
 					}
 					defer resp.Body.Close()
 					if resp.StatusCode != http.StatusOK {
-						fmt.Printf("Error: Failed to stop all jobs: %s\n", resp.Status)
+						cliErrorf("Error: Failed to stop all jobs: %s\n", resp.Status)
 						return
 					}
 					fmt.Println("All jobs stopped successfully.")
@@ -3481,7 +3540,7 @@ func createJobsCommand() *cobra.Command {
 			}
 
 			if err := stopJob(token, jobID); err != nil {
-				fmt.Printf("Error: Failed to stop job: %v\n", err)
+				cliErrorf("Error: Failed to stop job: %v\n", err)
 				return
 			}
 
@@ -3497,18 +3556,18 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" && user["role"] != "operator" {
-				fmt.Println("Error: You must be an admin or operator to perform this action.")
+				cliErrorln("Error: You must be an admin or operator to perform this action.")
 				return
 			}
 
@@ -3518,7 +3577,7 @@ func createJobsCommand() *cobra.Command {
 			} else {
 				jobs, err := fetchJobs(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch jobs: %v\n", err)
+					cliErrorf("Error: Failed to fetch jobs: %v\n", err)
 					return
 				}
 
@@ -3554,7 +3613,7 @@ func createJobsCommand() *cobra.Command {
 			}
 
 			if err := pauseJob(token, jobID); err != nil {
-				fmt.Printf("Error: Failed to pause job: %v\n", err)
+				cliErrorf("Error: Failed to pause job: %v\n", err)
 				return
 			}
 
@@ -3570,18 +3629,18 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" && user["role"] != "operator" {
-				fmt.Println("Error: You must be an admin or operator to perform this action.")
+				cliErrorln("Error: You must be an admin or operator to perform this action.")
 				return
 			}
 
@@ -3591,7 +3650,7 @@ func createJobsCommand() *cobra.Command {
 			} else {
 				jobs, err := fetchJobs(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch jobs: %v\n", err)
+					cliErrorf("Error: Failed to fetch jobs: %v\n", err)
 					return
 				}
 
@@ -3618,13 +3677,13 @@ func createJobsCommand() *cobra.Command {
 					req.Header.Set("Authorization", "Bearer "+token)
 					resp, err := httpClient.Do(req)
 					if err != nil {
-						fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+						cliErrorf("Error: Failed to connect to backend: %v\n", err)
 						return
 					}
 					defer resp.Body.Close()
 					if resp.StatusCode != http.StatusOK {
 						body, _ := ioutil.ReadAll(resp.Body)
-						fmt.Printf("Error: Failed to restart all jobs: %s - %s\n", resp.Status, string(body))
+						cliErrorf("Error: Failed to restart all jobs: %s - %s\n", resp.Status, string(body))
 						return
 					}
 					fmt.Println("All jobs restarted successfully.")
@@ -3639,7 +3698,7 @@ func createJobsCommand() *cobra.Command {
 			}
 
 			if err := restartJob(token, jobID); err != nil {
-				fmt.Printf("Error: Failed to restart job: %v\n", err)
+				cliErrorf("Error: Failed to restart job: %v\n", err)
 				return
 			}
 
@@ -3655,18 +3714,18 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" {
-				fmt.Println("Error: You must be an admin to perform this action.")
+				cliErrorln("Error: You must be an admin to perform this action.")
 				return
 			}
 
@@ -3676,7 +3735,7 @@ func createJobsCommand() *cobra.Command {
 			} else {
 				jobs, err := fetchJobs(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch jobs: %v\n", err)
+					cliErrorf("Error: Failed to fetch jobs: %v\n", err)
 					return
 				}
 
@@ -3719,14 +3778,14 @@ func createJobsCommand() *cobra.Command {
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusNoContent {
 				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Failed to delete job: %s - %s\n", resp.Status, string(body))
+				cliErrorf("Error: Failed to delete job: %s - %s\n", resp.Status, string(body))
 				return
 			}
 
@@ -3748,7 +3807,7 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -3758,7 +3817,7 @@ func createJobsCommand() *cobra.Command {
 			} else {
 				jobs, err := fetchJobs(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch jobs: %v\n", err)
+					cliErrorf("Error: Failed to fetch jobs: %v\n", err)
 					return
 				}
 
@@ -3792,20 +3851,20 @@ func createJobsCommand() *cobra.Command {
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
 				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Failed to get job status: %s - %s\n", resp.Status, string(body))
+				cliErrorf("Error: Failed to get job status: %s - %s\n", resp.Status, string(body))
 				return
 			}
 
 			var job map[string]interface{}
 			if err := json.NewDecoder(resp.Body).Decode(&job); err != nil {
-				fmt.Printf("Error: Failed to parse job response: %v\n", err)
+				cliErrorf("Error: Failed to parse job response: %v\n", err)
 				return
 			}
 
@@ -3853,7 +3912,7 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -3863,7 +3922,7 @@ func createJobsCommand() *cobra.Command {
 			} else {
 				jobs, err := fetchJobs(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch jobs: %v\n", err)
+					cliErrorf("Error: Failed to fetch jobs: %v\n", err)
 					return
 				}
 
@@ -3897,26 +3956,26 @@ func createJobsCommand() *cobra.Command {
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
 				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Failed to get job status: %s - %s\n", resp.Status, string(body))
+				cliErrorf("Error: Failed to get job status: %s - %s\n", resp.Status, string(body))
 				return
 			}
 
 			var state map[string]interface{}
 			if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
-				fmt.Printf("Error: Failed to parse job response: %v\n", err)
+				cliErrorf("Error: Failed to parse job response: %v\n", err)
 				return
 			}
 
 			prettyJSON, err := json.MarshalIndent(state, "", "  ")
 			if err != nil {
-				fmt.Printf("Error: Failed to format JSON: %v\n", err)
+				cliErrorf("Error: Failed to format JSON: %v\n", err)
 				return
 			}
 			fmt.Println(string(prettyJSON))
@@ -3933,7 +3992,7 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -3943,7 +4002,7 @@ func createJobsCommand() *cobra.Command {
 			} else {
 				jobs, err := fetchJobs(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch jobs: %v\n", err)
+					cliErrorf("Error: Failed to fetch jobs: %v\n", err)
 					return
 				}
 
@@ -3979,14 +4038,14 @@ func createJobsCommand() *cobra.Command {
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusAccepted {
 				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Failed to trigger analysis: %s - %s\n", resp.Status, string(body))
+				cliErrorf("Error: Failed to trigger analysis: %s - %s\n", resp.Status, string(body))
 				return
 			}
 
@@ -4003,13 +4062,13 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			jobs, err := fetchJobs(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch jobs: %v\n", err)
+				cliErrorf("Error: Failed to fetch jobs: %v\n", err)
 				return
 			}
 
@@ -4055,7 +4114,7 @@ func createJobsCommand() *cobra.Command {
 
 					jobDetails, err := fetchJob(token, jobID)
 					if err != nil {
-						fmt.Printf("Error fetching details for job %s: %v\n", jobName, err)
+						cliErrorf("Error fetching details for job %s: %v\n", jobName, err)
 						allJobsHealthy = false
 						continue
 					}
@@ -4065,7 +4124,7 @@ func createJobsCommand() *cobra.Command {
 
 					fmt.Printf("Checking source cluster '%s'...\n", sourceCluster)
 					if err := testClusterConnectionVerbose(token, sourceCluster); err != nil {
-						fmt.Printf("  Error: Source cluster '%s' is unreachable: %v\n", sourceCluster, err)
+						cliErrorf("  Error: Source cluster '%s' is unreachable: %v\n", sourceCluster, err)
 						allJobsHealthy = false
 					} else {
 						fmt.Printf("  ✓ Source cluster '%s' is healthy.\n", sourceCluster)
@@ -4073,7 +4132,7 @@ func createJobsCommand() *cobra.Command {
 
 					fmt.Printf("Checking target cluster '%s'...\n", targetCluster)
 					if err := testClusterConnectionVerbose(token, targetCluster); err != nil {
-						fmt.Printf("  Error: Target cluster '%s' is unreachable: %v\n", targetCluster, err)
+						cliErrorf("  Error: Target cluster '%s' is unreachable: %v\n", targetCluster, err)
 						allJobsHealthy = false
 					} else {
 						fmt.Printf("  ✓ Target cluster '%s' is healthy.\n", targetCluster)
@@ -4087,7 +4146,7 @@ func createJobsCommand() *cobra.Command {
 			} else {
 				jobDetails, err := fetchJob(token, jobID)
 				if err != nil {
-					fmt.Printf("Error fetching details for job %s: %v\n", jobID, err)
+					cliErrorf("Error fetching details for job %s: %v\n", jobID, err)
 					return
 				}
 				jobName := jobDetails["name"].(string)
@@ -4098,14 +4157,14 @@ func createJobsCommand() *cobra.Command {
 
 				fmt.Printf("Checking source cluster '%s'...\n", sourceCluster)
 				if err := testClusterConnectionVerbose(token, sourceCluster); err != nil {
-					fmt.Printf("Error: Source cluster '%s' is unreachable: %v\n", sourceCluster, err)
+					cliErrorf("Error: Source cluster '%s' is unreachable: %v\n", sourceCluster, err)
 				} else {
 					fmt.Printf("✓ Source cluster '%s' is healthy.\n", sourceCluster)
 				}
 
 				fmt.Printf("Checking target cluster '%s'...\n", targetCluster)
 				if err := testClusterConnectionVerbose(token, targetCluster); err != nil {
-					fmt.Printf("Error: Target cluster '%s' is unreachable: %v\n", targetCluster, err)
+					cliErrorf("Error: Target cluster '%s' is unreachable: %v\n", targetCluster, err)
 				} else {
 					fmt.Printf("✓ Target cluster '%s' is healthy.\n", targetCluster)
 				}
@@ -4121,7 +4180,7 @@ func createJobsCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -4131,7 +4190,7 @@ func createJobsCommand() *cobra.Command {
 			} else {
 				jobs, err := fetchJobs(token)
 				if err != nil {
-					fmt.Printf("Error: Failed to fetch jobs: %v\n", err)
+					cliErrorf("Error: Failed to fetch jobs: %v\n", err)
 					return
 				}
 				if len(jobs) == 0 {
@@ -4161,14 +4220,14 @@ func createJobsCommand() *cobra.Command {
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
 				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Failed to force-restart job: %s\n%s\n", resp.Status, body)
+				cliErrorf("Error: Failed to force-restart job: %s\n%s\n", resp.Status, body)
 				return
 			}
 
@@ -4214,14 +4273,14 @@ func testAIConnection(endpoint, apiKey, model, provider string) bool {
 	}
 
 	if err != nil {
-		fmt.Printf("Error creating request: %v\n", err)
+		cliErrorf("Error creating request: %v\n", err)
 		return false
 	}
 
 	chatEndpoint := endpoint + "/chat/completions"
 	req, err := http.NewRequest("POST", chatEndpoint, bytes.NewBuffer(reqBody))
 	if err != nil {
-		fmt.Printf("Error creating HTTP request: %v\n", err)
+		cliErrorf("Error creating HTTP request: %v\n", err)
 		return false
 	}
 
@@ -4330,24 +4389,24 @@ func testCustomAIConnection(endpoint, apiKey, apiSecret string) ([]string, error
 func manageAIConfiguration() {
 	token, err := LoadToken()
 	if err != nil {
-		fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+		cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 		return
 	}
 
 	user, err := fetchMe(token)
 	if err != nil {
-		fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+		cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 		return
 	}
 
 	if user["role"] != "admin" {
-		fmt.Println("Error: You must be an admin to perform this action.")
+		cliErrorln("Error: You must be an admin to perform this action.")
 		return
 	}
 
 	currentConfig, err := fetchCurrentConfig(token)
 	if err != nil {
-		fmt.Printf("Error: Failed to fetch current configuration: %v\n", err)
+		cliErrorf("Error: Failed to fetch current configuration: %v\n", err)
 		return
 	}
 
@@ -4428,24 +4487,24 @@ func manageAIConfiguration() {
 func manageServerConfiguration() {
 	token, err := LoadToken()
 	if err != nil {
-		fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+		cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 		return
 	}
 
 	user, err := fetchMe(token)
 	if err != nil {
-		fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+		cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 		return
 	}
 
 	if user["role"] != "admin" {
-		fmt.Println("Error: You must be an admin to perform this action.")
+		cliErrorln("Error: You must be an admin to perform this action.")
 		return
 	}
 
 	currentConfig, err := fetchCurrentConfig(token)
 	if err != nil {
-		fmt.Printf("Error: Failed to fetch current configuration: %v\n", err)
+		cliErrorf("Error: Failed to fetch current configuration: %v\n", err)
 		return
 	}
 
@@ -4571,24 +4630,24 @@ func manageServerConfiguration() {
 func manageMonitoringConfiguration() {
 	token, err := LoadToken()
 	if err != nil {
-		fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+		cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 		return
 	}
 
 	user, err := fetchMe(token)
 	if err != nil {
-		fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+		cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 		return
 	}
 
 	if user["role"] != "admin" {
-		fmt.Println("Error: You must be an admin to perform this action.")
+		cliErrorln("Error: You must be an admin to perform this action.")
 		return
 	}
 
 	currentConfig, err := fetchCurrentConfig(token)
 	if err != nil {
-		fmt.Printf("Error: Failed to fetch current configuration: %v\n", err)
+		cliErrorf("Error: Failed to fetch current configuration: %v\n", err)
 		return
 	}
 
@@ -5008,7 +5067,7 @@ func createConfigCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -5018,20 +5077,20 @@ func createConfigCommand() *cobra.Command {
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
 				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Failed to get config: %s - %s\n", resp.Status, string(body))
+				cliErrorf("Error: Failed to get config: %s - %s\n", resp.Status, string(body))
 				return
 			}
 
 			body, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
-				fmt.Printf("Error: Failed to read response body: %v\n", err)
+				cliErrorf("Error: Failed to read response body: %v\n", err)
 				return
 			}
 
@@ -5046,18 +5105,18 @@ func createConfigCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" {
-				fmt.Println("Error: You must be an admin to perform this action.")
+				cliErrorln("Error: You must be an admin to perform this action.")
 				return
 			}
 
@@ -5104,25 +5163,25 @@ func createConfigCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" {
-				fmt.Println("Error: You must be an admin to perform this action.")
+				cliErrorln("Error: You must be an admin to perform this action.")
 				return
 			}
 
 			fmt.Println("Verifying server connectivity and current configuration...")
 			currentConfig, err := fetchCurrentConfig(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch current running configuration: %v\n", err)
+				cliErrorf("Error: Failed to fetch current running configuration: %v\n", err)
 				fmt.Println("Make sure the server is running and accessible.")
 				return
 			}
@@ -5138,20 +5197,20 @@ func createConfigCommand() *cobra.Command {
 
 			configBytes, err = ioutil.ReadFile(configFile)
 			if err != nil {
-				fmt.Printf("Error: Failed to read config file: %v\n", err)
+				cliErrorf("Error: Failed to read config file: %v\n", err)
 				return
 			}
 
 			var tempConfig configData
 			if err := yaml.Unmarshal(configBytes, &tempConfig); err != nil {
-				fmt.Printf("Error: Invalid YAML configuration: %v\n", err)
+				cliErrorf("Error: Invalid YAML configuration: %v\n", err)
 				return
 			}
 
 			fmt.Println("Creating backup of current running configuration...")
 			currentConfigYAML, err := json.Marshal(currentConfig)
 			if err != nil {
-				fmt.Printf("Error: Failed to marshal current config: %v\n", err)
+				cliErrorf("Error: Failed to marshal current config: %v\n", err)
 				return
 			}
 
@@ -5159,7 +5218,7 @@ func createConfigCommand() *cobra.Command {
 			json.Unmarshal(currentConfigYAML, &currentConfigMap)
 			backupYAML, err := yaml.Marshal(currentConfigMap)
 			if err != nil {
-				fmt.Printf("Error: Failed to convert current config to YAML: %v\n", err)
+				cliErrorf("Error: Failed to convert current config to YAML: %v\n", err)
 				return
 			}
 
@@ -5167,7 +5226,7 @@ func createConfigCommand() *cobra.Command {
 			backupFile := fmt.Sprintf("%s-backup-%s.yml", strings.TrimSuffix(configFile, ".yml"), timestamp)
 
 			if err := ioutil.WriteFile(backupFile, backupYAML, 0644); err != nil {
-				fmt.Printf("Error: Failed to create backup file: %v\n", err)
+				cliErrorf("Error: Failed to create backup file: %v\n", err)
 				return
 			}
 			fmt.Printf("✓ Current configuration backed up to: %s\n", backupFile)
@@ -5202,13 +5261,13 @@ func createConfigCommand() *cobra.Command {
 
 			var yamlConfig map[string]interface{}
 			if err := yaml.Unmarshal(configBytes, &yamlConfig); err != nil {
-				fmt.Printf("Error: Failed to parse YAML config: %v\n", err)
+				cliErrorf("Error: Failed to parse YAML config: %v\n", err)
 				return
 			}
 
 			jsonBytes, err := json.Marshal(yamlConfig)
 			if err != nil {
-				fmt.Printf("Error: Failed to convert config to JSON: %v\n", err)
+				cliErrorf("Error: Failed to convert config to JSON: %v\n", err)
 				return
 			}
 
@@ -5219,14 +5278,14 @@ func createConfigCommand() *cobra.Command {
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			if err != nil {
-				fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+				cliErrorf("Error: Failed to connect to backend: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
 				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Printf("Error: Failed to save config: %s - %s\n", resp.Status, string(body))
+				cliErrorf("Error: Failed to save config: %s - %s\n", resp.Status, string(body))
 				fmt.Printf("Current configuration backup available at: %s\n", backupFile)
 				return
 			}
@@ -5669,13 +5728,13 @@ func createComplianceEditCommands() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			cfg, err := fetchCurrentConfig(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch config: %v\n", err)
+				cliErrorf("Error: Failed to fetch config: %v\n", err)
 				return
 			}
 
@@ -5766,25 +5825,25 @@ func createAIEditCommands() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" {
-				fmt.Println("Error: You must be an admin to perform this action.")
+				cliErrorln("Error: You must be an admin to perform this action.")
 				return
 			}
 
 			// Fetch current AI configuration
 			currentConfig, err := fetchCurrentConfig(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch current configuration: %v\n", err)
+				cliErrorf("Error: Failed to fetch current configuration: %v\n", err)
 				return
 			}
 
@@ -5863,31 +5922,31 @@ func createAIEditCommands() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" {
-				fmt.Println("Error: You must be an admin to perform this action.")
+				cliErrorln("Error: You must be an admin to perform this action.")
 				return
 			}
 
 			// Fetch current AI configuration
 			currentConfig, err := fetchCurrentConfig(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch current configuration: %v\n", err)
+				cliErrorf("Error: Failed to fetch current configuration: %v\n", err)
 				return
 			}
 
 			aiConfig, exists := currentConfig["AI"].(map[string]interface{})
 			if !exists {
-				fmt.Println("Error: AI configuration not found. Please configure AI provider first.")
+				cliErrorln("Error: AI configuration not found. Please configure AI provider first.")
 				return
 			}
 
@@ -5897,7 +5956,7 @@ func createAIEditCommands() *cobra.Command {
 			model := getConfigValueAsString(aiConfig, "Model")
 
 			if provider == "" || endpoint == "" || token_val == "" || model == "" {
-				fmt.Println("Error: AI configuration incomplete. Please configure provider, endpoint, token, and model first.")
+				cliErrorln("Error: AI configuration incomplete. Please configure provider, endpoint, token, and model first.")
 				fmt.Printf("Current values - Provider: %s, Endpoint: %s, Model: %s, Token: %s\n",
 					provider, endpoint, model, maskSensitiveValue(token_val))
 				return
@@ -5960,12 +6019,12 @@ func createAIEditCommands() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action.")
+				cliErrorln("Error: You must be logged in to perform this action.")
 				return
 			}
 			currentConfig, err := fetchCurrentConfig(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch current configuration: %v\n", err)
+				cliErrorf("Error: Failed to fetch current configuration: %v\n", err)
 				return
 			}
 
@@ -5998,18 +6057,18 @@ func createAIEditCommands() *cobra.Command {
 func updateConfigParameter(path, value string) {
 	token, err := LoadToken()
 	if err != nil {
-		fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+		cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 		return
 	}
 
 	user, err := fetchMe(token)
 	if err != nil {
-		fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+		cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 		return
 	}
 
 	if user["role"] != "admin" {
-		fmt.Println("Error: You must be an admin to perform this action.")
+		cliErrorln("Error: You must be an admin to perform this action.")
 		return
 	}
 
@@ -6020,7 +6079,7 @@ func updateConfigParameter(path, value string) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+		cliErrorf("Error: Failed to connect to backend: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -6029,12 +6088,12 @@ func updateConfigParameter(path, value string) {
 	if resp.StatusCode == http.StatusOK {
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			fmt.Printf("Error: Failed to read current config: %v\n", err)
+			cliErrorf("Error: Failed to read current config: %v\n", err)
 			return
 		}
 
 		if err := json.Unmarshal(body, &currentConfig); err != nil {
-			fmt.Printf("Error: Failed to parse current config: %v\n", err)
+			cliErrorf("Error: Failed to parse current config: %v\n", err)
 			return
 		}
 	} else {
@@ -6080,7 +6139,7 @@ func updateConfigParameter(path, value string) {
 	// Convert back to JSON for sending
 	jsonData, err := json.Marshal(currentConfig)
 	if err != nil {
-		fmt.Printf("Error: Failed to marshal config: %v\n", err)
+		cliErrorf("Error: Failed to marshal config: %v\n", err)
 		return
 	}
 
@@ -6090,14 +6149,14 @@ func updateConfigParameter(path, value string) {
 
 	resp, err = client.Do(req)
 	if err != nil {
-		fmt.Printf("Error: Failed to connect to backend: %v\n", err)
+		cliErrorf("Error: Failed to connect to backend: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(resp.Body)
-		fmt.Printf("Error: Failed to update config: %s - %s\n", resp.Status, string(body))
+		cliErrorf("Error: Failed to update config: %s - %s\n", resp.Status, string(body))
 		return
 	}
 
@@ -6135,18 +6194,18 @@ func createTLSCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" {
-				fmt.Println("Error: You must be an admin to perform this action.")
+				cliErrorln("Error: You must be an admin to perform this action.")
 				return
 			}
 
@@ -6173,7 +6232,7 @@ func createTLSCommand() *cobra.Command {
 
 			// Create output directory
 			if err := os.MkdirAll(outputDir, 0755); err != nil {
-				fmt.Printf("Error: Failed to create output directory: %v\n", err)
+				cliErrorf("Error: Failed to create output directory: %v\n", err)
 				return
 			}
 
@@ -6235,20 +6294,20 @@ echo "   3. Configure CLI client certificates: mirror-cli tls configure-client"
 			// Write script to temporary file
 			scriptFile, err := ioutil.TempFile("", "gen-certs-*.sh")
 			if err != nil {
-				fmt.Printf("Error: Failed to create script file: %v\n", err)
+				cliErrorf("Error: Failed to create script file: %v\n", err)
 				return
 			}
 			defer os.Remove(scriptFile.Name())
 
 			if _, err := scriptFile.WriteString(caScript); err != nil {
-				fmt.Printf("Error: Failed to write script: %v\n", err)
+				cliErrorf("Error: Failed to write script: %v\n", err)
 				return
 			}
 			scriptFile.Close()
 
 			// Make script executable
 			if err := os.Chmod(scriptFile.Name(), 0755); err != nil {
-				fmt.Printf("Error: Failed to make script executable: %v\n", err)
+				cliErrorf("Error: Failed to make script executable: %v\n", err)
 				return
 			}
 
@@ -6258,7 +6317,7 @@ echo "   3. Configure CLI client certificates: mirror-cli tls configure-client"
 			execCmd.Stderr = os.Stderr
 
 			if err := execCmd.Run(); err != nil {
-				fmt.Printf("Error: Failed to generate certificates: %v\n", err)
+				cliErrorf("Error: Failed to generate certificates: %v\n", err)
 				fmt.Println("Make sure OpenSSL is installed on your system.")
 				return
 			}
@@ -6291,13 +6350,13 @@ echo "   3. Configure CLI client certificates: mirror-cli tls configure-client"
 			// Store TLS configuration in user home directory
 			home, err := os.UserHomeDir()
 			if err != nil {
-				fmt.Printf("Error: Failed to get home directory: %v\n", err)
+				cliErrorf("Error: Failed to get home directory: %v\n", err)
 				return
 			}
 
 			configDir := filepath.Join(home, ".kaf-mirror")
 			if err := os.MkdirAll(configDir, 0700); err != nil {
-				fmt.Printf("Error: Failed to create config directory: %v\n", err)
+				cliErrorf("Error: Failed to create config directory: %v\n", err)
 				return
 			}
 
@@ -6310,13 +6369,13 @@ echo "   3. Configure CLI client certificates: mirror-cli tls configure-client"
 
 			configBytes, err := yaml.Marshal(tlsConfig)
 			if err != nil {
-				fmt.Printf("Error: Failed to marshal TLS config: %v\n", err)
+				cliErrorf("Error: Failed to marshal TLS config: %v\n", err)
 				return
 			}
 
 			configFile := filepath.Join(configDir, "tls-config.yml")
 			if err := ioutil.WriteFile(configFile, configBytes, 0600); err != nil {
-				fmt.Printf("Error: Failed to write TLS config: %v\n", err)
+				cliErrorf("Error: Failed to write TLS config: %v\n", err)
 				return
 			}
 
@@ -6336,7 +6395,7 @@ echo "   3. Configure CLI client certificates: mirror-cli tls configure-client"
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
@@ -6380,18 +6439,18 @@ echo "   3. Configure CLI client certificates: mirror-cli tls configure-client"
 		Run: func(cmd *cobra.Command, args []string) {
 			token, err := LoadToken()
 			if err != nil {
-				fmt.Println("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
+				cliErrorln("Error: You must be logged in to perform this action. Please run 'mirror-cli login'.")
 				return
 			}
 
 			user, err := fetchMe(token)
 			if err != nil {
-				fmt.Printf("Error: Failed to fetch user profile: %v\n", err)
+				cliErrorf("Error: Failed to fetch user profile: %v\n", err)
 				return
 			}
 
 			if user["role"] != "admin" {
-				fmt.Println("Error: You must be an admin to perform this action.")
+				cliErrorln("Error: You must be an admin to perform this action.")
 				return
 			}
 
@@ -6409,19 +6468,19 @@ echo "   3. Configure CLI client certificates: mirror-cli tls configure-client"
 
 			// Validate files exist and are readable
 			if _, err := os.Stat(certFile); os.IsNotExist(err) {
-				fmt.Printf("Error: Certificate file does not exist: %s\n", certFile)
+				cliErrorf("Error: Certificate file does not exist: %s\n", certFile)
 				return
 			}
 
 			if _, err := os.Stat(keyFile); os.IsNotExist(err) {
-				fmt.Printf("Error: Key file does not exist: %s\n", keyFile)
+				cliErrorf("Error: Key file does not exist: %s\n", keyFile)
 				return
 			}
 
 			// Test certificate and key compatibility
 			fmt.Println("Validating certificate and key compatibility...")
 			if err := validateCertificateKeyPair(certFile, keyFile); err != nil {
-				fmt.Printf("Error: Certificate and key validation failed: %v\n", err)
+				cliErrorf("Error: Certificate and key validation failed: %v\n", err)
 				return
 			}
 
@@ -6455,13 +6514,13 @@ echo "   3. Configure CLI client certificates: mirror-cli tls configure-client"
 				// Store TLS configuration
 				home, err := os.UserHomeDir()
 				if err != nil {
-					fmt.Printf("Error: Failed to get home directory: %v\n", err)
+					cliErrorf("Error: Failed to get home directory: %v\n", err)
 					return
 				}
 
 				configDir := filepath.Join(home, ".kaf-mirror")
 				if err := os.MkdirAll(configDir, 0700); err != nil {
-					fmt.Printf("Error: Failed to create config directory: %v\n", err)
+					cliErrorf("Error: Failed to create config directory: %v\n", err)
 					return
 				}
 
@@ -6485,13 +6544,13 @@ echo "   3. Configure CLI client certificates: mirror-cli tls configure-client"
 
 				configBytes, err := yaml.Marshal(tlsConfig)
 				if err != nil {
-					fmt.Printf("Error: Failed to marshal TLS config: %v\n", err)
+					cliErrorf("Error: Failed to marshal TLS config: %v\n", err)
 					return
 				}
 
 				configFile := filepath.Join(configDir, "tls-config.yml")
 				if err := ioutil.WriteFile(configFile, configBytes, 0600); err != nil {
-					fmt.Printf("Error: Failed to write TLS config: %v\n", err)
+					cliErrorf("Error: Failed to write TLS config: %v\n", err)
 					return
 				}
 
