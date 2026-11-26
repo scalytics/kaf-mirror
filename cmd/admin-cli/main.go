@@ -181,7 +181,7 @@ and for emergency maintenance. It interacts directly with the database.`,
 						return fmt.Errorf("failed to load configuration: %w", err)
 					}
 				} else {
-					loadedConfigPath = viper.ConfigFileUsed()
+					loadedConfigPath = config.LoadedConfigFile()
 					if !dbSet && cfg.Database.Path != "" {
 						dbPath = cfg.Database.Path
 					}

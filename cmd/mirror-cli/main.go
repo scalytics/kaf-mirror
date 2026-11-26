@@ -1726,7 +1726,6 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 func exitNonZeroOnFailure(cmd *cobra.Command) {
 	if cmd.Run != nil && cmd.RunE == nil {
 		run := cmd.Run
-		cmd.Run = nil
 		cmd.RunE = func(c *cobra.Command, args []string) error {
 			commandFailed = false
 			run(c, args)
@@ -1740,10 +1739,35 @@ func exitNonZeroOnFailure(cmd *cobra.Command) {
 		cmd.RunE = func(c *cobra.Command, args []string) error {
 			return pflag.ErrHelp
 		}
+		if cmd.Annotations == nil {
+			cmd.Annotations = map[string]string{}
+		}
+		cmd.Annotations[menuCommand] = "true"
 	}
 	for _, child := range cmd.Commands() {
 		exitNonZeroOnFailure(child)
 	}
+}
+
+const menuCommand = "menu"
+
+func shellEntersMenu(cmd *cobra.Command, fullArgs []string) bool {
+	if cmd.Annotations[menuCommand] != "true" {
+		return false
+	}
+	path := strings.Fields(cmd.CommandPath())
+	if len(path) > 0 && path[0] == cmd.Root().Name() {
+		path = path[1:]
+	}
+	if len(path) != len(fullArgs) {
+		return false
+	}
+	for i := range path {
+		if path[i] != fullArgs[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func rejectUnknownSubcommand(cmd *cobra.Command, args []string) error {
@@ -1824,109 +1848,7 @@ func runShell(rootCmd *cobra.Command) {
 	}
 
 	executor := func(in string) {
-		in = strings.TrimSpace(in)
-		if in == "" {
-			currentCmd := rootCmd
-			for _, arg := range currentContext {
-				foundCmd, _, err := currentCmd.Find([]string{arg})
-				if err == nil {
-					currentCmd = foundCmd
-				}
-			}
-
-			if len(currentContext) > 0 {
-				fmt.Printf("\n=== %s ===\n", strings.Title(strings.Join(currentContext, " ")))
-				if currentCmd.Long != "" {
-					fmt.Printf("%s\n\n", currentCmd.Long)
-				} else if currentCmd.Short != "" {
-					fmt.Printf("%s\n\n", currentCmd.Short)
-				}
-			}
-
-			fmt.Println("Available commands:")
-			for _, subCmd := range currentCmd.Commands() {
-				fmt.Printf("  %-15s %s\n", subCmd.Name(), subCmd.Short)
-			}
-			fmt.Println()
-			fmt.Println("Navigation:")
-			fmt.Println("  back / ..       Go back one level")
-			fmt.Println("  root / /        Go to root menu")
-			fmt.Println("  exit            Exit CLI")
-			fmt.Println()
-			return
-		} else if in == "exit" {
-			os.Exit(0)
-		} else if in == "back" || in == ".." {
-			if len(currentContext) > 0 {
-				currentContext = currentContext[:len(currentContext)-1]
-			}
-			return
-		} else if in == "root" || in == "/" {
-			currentContext = []string{}
-			return
-		}
-
-		args := strings.Fields(in)
-		fullArgs := append(currentContext, args...)
-
-		cmd, _, err := rootCmd.Find(fullArgs)
-		if err != nil {
-			cliErrorf("Error: %v\n", err)
-			return
-		}
-
-		if cmd.Run != nil || cmd.RunE != nil {
-			rootCmd.SetArgs(fullArgs)
-			if err := rootCmd.Execute(); err != nil && !errors.Is(err, errCommandFailed) {
-				fmt.Printf("Error: %v\n", err)
-			}
-
-			if !isTerminalCommand(fullArgs) {
-				if len(fullArgs) >= 2 && fullArgs[0] == "config" && fullArgs[1] == "edit" {
-					if len(fullArgs) > 2 {
-						currentContext = fullArgs[:len(fullArgs)-1]
-					}
-				}
-			} else {
-				currentContext = []string{}
-			}
-			return
-		}
-
-		if cmd.HasSubCommands() {
-			currentContext = fullArgs
-
-			fmt.Printf("\n=== %s ===\n", strings.Title(strings.Join(fullArgs, " ")))
-			if cmd.Long != "" {
-				fmt.Printf("%s\n\n", cmd.Long)
-			} else if cmd.Short != "" {
-				fmt.Printf("%s\n\n", cmd.Short)
-			}
-
-			fmt.Println("Available commands:")
-			for _, subCmd := range cmd.Commands() {
-				fmt.Printf("  %-15s %s\n", subCmd.Name(), subCmd.Short)
-			}
-			fmt.Println()
-			fmt.Println("Navigation:")
-			fmt.Println("  back / ..       Go back one level")
-			fmt.Println("  root / /        Go to root menu")
-			fmt.Println("  exit            Exit CLI")
-			fmt.Println()
-			return
-		}
-
-		cliErrorf("Error: Unknown command: %s\n", strings.Join(fullArgs, " "))
-
-		if !isTerminalCommand(fullArgs) {
-			if len(fullArgs) >= 2 && fullArgs[0] == "config" && fullArgs[1] == "edit" {
-				if len(fullArgs) > 2 {
-					currentContext = fullArgs[:len(fullArgs)-1]
-				}
-			}
-		} else {
-			currentContext = []string{}
-		}
+		currentContext = applyShellInput(rootCmd, currentContext, in)
 	}
 
 	p := prompt.New(
@@ -1943,6 +1865,90 @@ func runShell(rootCmd *cobra.Command) {
 	)
 
 	p.Run()
+}
+
+func applyShellInput(rootCmd *cobra.Command, currentContext []string, in string) []string {
+	in = strings.TrimSpace(in)
+	if in == "" {
+		currentCmd := rootCmd
+		for _, arg := range currentContext {
+			foundCmd, _, err := currentCmd.Find([]string{arg})
+			if err == nil {
+				currentCmd = foundCmd
+			}
+		}
+		printShellMenu(currentContext, currentCmd)
+		return currentContext
+	} else if in == "exit" {
+		os.Exit(0)
+		return nil
+	} else if in == "back" || in == ".." {
+		if len(currentContext) > 0 {
+			currentContext = currentContext[:len(currentContext)-1]
+		}
+		return currentContext
+	} else if in == "root" || in == "/" {
+		return []string{}
+	}
+
+	args := strings.Fields(in)
+	fullArgs := append(currentContext, args...)
+
+	cmd, _, err := rootCmd.Find(fullArgs)
+	if err != nil {
+		cliErrorf("Error: %v\n", err)
+		return currentContext
+	}
+
+	if shellEntersMenu(cmd, fullArgs) || (cmd.Run == nil && cmd.RunE == nil && cmd.HasSubCommands()) {
+		printShellMenu(fullArgs, cmd)
+		return fullArgs
+	}
+
+	if cmd.Run != nil || cmd.RunE != nil {
+		rootCmd.SetArgs(fullArgs)
+		if err := rootCmd.Execute(); err != nil && !errors.Is(err, errCommandFailed) {
+			fmt.Printf("Error: %v\n", err)
+		}
+		return shellContextAfterCommand(currentContext, fullArgs)
+	}
+
+	cliErrorf("Error: Unknown command: %s\n", strings.Join(fullArgs, " "))
+	return shellContextAfterCommand(currentContext, fullArgs)
+}
+
+func printShellMenu(fullArgs []string, cmd *cobra.Command) {
+	if len(fullArgs) > 0 {
+		fmt.Printf("\n=== %s ===\n", strings.Title(strings.Join(fullArgs, " ")))
+		if cmd.Long != "" {
+			fmt.Printf("%s\n\n", cmd.Long)
+		} else if cmd.Short != "" {
+			fmt.Printf("%s\n\n", cmd.Short)
+		}
+	}
+
+	fmt.Println("Available commands:")
+	for _, subCmd := range cmd.Commands() {
+		fmt.Printf("  %-15s %s\n", subCmd.Name(), subCmd.Short)
+	}
+	fmt.Println()
+	fmt.Println("Navigation:")
+	fmt.Println("  back / ..       Go back one level")
+	fmt.Println("  root / /        Go to root menu")
+	fmt.Println("  exit            Exit CLI")
+	fmt.Println()
+}
+
+func shellContextAfterCommand(currentContext, fullArgs []string) []string {
+	if !isTerminalCommand(fullArgs) {
+		if len(fullArgs) >= 2 && fullArgs[0] == "config" && fullArgs[1] == "edit" {
+			if len(fullArgs) > 2 {
+				return fullArgs[:len(fullArgs)-1]
+			}
+		}
+		return currentContext
+	}
+	return []string{}
 }
 
 // getNestedConfigValue safely retrieves a nested configuration value

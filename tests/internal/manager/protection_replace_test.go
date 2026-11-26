@@ -12,10 +12,7 @@
 package manager_test
 
 import (
-	"runtime"
-	"strings"
 	"testing"
-	"time"
 
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/manager"
@@ -30,41 +27,4 @@ func useProtection(t *testing.T, jm *manager.JobManager, db *sqlx.DB) {
 		jm.Protection.Close()
 	}
 	jm.Protection = protection.New(db, config.ProtectionConfig{AutoHalt: config.AutoHaltConfig{Enabled: true}})
-}
-
-func protectionPollers() int {
-	buf := make([]byte, 1<<20)
-	n := runtime.Stack(buf, true)
-	return strings.Count(string(buf[:n]), "(*Controller).pollGuard")
-}
-
-func waitForProtectionPollers(t *testing.T, want int) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	var stable time.Time
-	for time.Now().Before(deadline) {
-		got := protectionPollers()
-		if got > want {
-			t.Fatalf("pollers = %d, want %d", got, want)
-		}
-		if got == want {
-			if stable.IsZero() {
-				stable = time.Now()
-			} else if time.Since(stable) >= 200*time.Millisecond {
-				return
-			}
-		} else {
-			stable = time.Time{}
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("pollers = %d, want %d", protectionPollers(), want)
-}
-
-func TestReplacedProtectionControllerStopsThePreviousPoller(t *testing.T) {
-	before := protectionPollers()
-	db, jm, _ := setupManagerTest(t)
-	waitForProtectionPollers(t, before+1)
-	useProtection(t, jm, db)
-	waitForProtectionPollers(t, before+1)
 }

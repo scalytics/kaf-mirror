@@ -13,6 +13,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,40 @@ func TestBackupDatabaseDoesNotNeedAConfigFile(t *testing.T) {
 	}
 	if _, err := os.Stat(out); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBackupFullUsesDefaultYmlWhenProdIsMerged(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	t.Setenv("CONFIG_PATH", "")
+	t.Cleanup(func() { viper.Reset() })
+	configDir := filepath.Join(root, "configs")
+	if err := os.Mkdir(configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(root, "kaf-mirror.db")
+	defaultBody := []byte(fmt.Sprintf("database:\n  path: %q\nlogging:\n  file: kaf-mirror.log\n", dbPath))
+	prodBody := []byte(fmt.Sprintf("database:\n  path: %q\n", filepath.Join(root, "prod.db")))
+	if err := os.WriteFile(filepath.Join(configDir, "default.yml"), defaultBody, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "prod.yml"), prodBody, 0600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(root, "backup")
+	if err := os.Mkdir(out, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"backup", "full", out}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(onlyBackupDir(t, out), "config.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, defaultBody) {
+		t.Fatalf("backed up %q, want default.yml", got)
 	}
 }
 

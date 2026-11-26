@@ -49,6 +49,45 @@ func TestUnknownSubcommandExitsWithAnError(t *testing.T) {
 	}
 }
 
+func TestClusterAddRunRemainsCallable(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := NewRootCmd()
+	add, _, err := root.Find([]string{"clusters", "add"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() { add.Run(add, nil) })
+	if !strings.Contains(out, "Error:") {
+		t.Fatalf("clusters add Run did not run:\n%s", out)
+	}
+}
+
+func TestShellGroupCommandsEnterMenus(t *testing.T) {
+	root := NewRootCmd()
+	var ctx []string
+	out := captureStdout(t, func() {
+		ctx = applyShellInput(root, ctx, "clusters")
+	})
+	if len(ctx) != 1 || ctx[0] != "clusters" {
+		t.Fatalf("context after clusters: %v", ctx)
+	}
+	if !strings.Contains(out, "Available commands:") || !strings.Contains(out, "list") {
+		t.Fatalf("clusters menu:\n%s", out)
+	}
+	ctx = applyShellInput(root, ctx, "back")
+	if len(ctx) != 0 {
+		t.Fatalf("context after back: %v", ctx)
+	}
+	ctx = applyShellInput(root, nil, "jobs")
+	if len(ctx) != 1 || ctx[0] != "jobs" {
+		t.Fatalf("context after jobs: %v", ctx)
+	}
+	ctx = applyShellInput(root, ctx, "root")
+	if len(ctx) != 0 {
+		t.Fatalf("context after root: %v", ctx)
+	}
+}
+
 func TestHelpAndBareGroupExitZero(t *testing.T) {
 	if _, err := execute(t, "--help"); err != nil {
 		t.Fatal(err)
