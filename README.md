@@ -592,16 +592,25 @@ git clone https://github.com/KafScale/platform.git && cd platform
 make demo
 ```
 
-In a second terminal, from this repo, build and start kaf-mirror. KafScale does
-not implement `InitProducerId`, so idempotent writes must be off when it is the
-target:
+In a second terminal, from this repo, build and start kaf-mirror:
 
 ```bash
 mkdir -p bin
 go build -o bin/kaf-mirror ./cmd/kaf-mirror
 go build -o bin/mirror-cli ./cmd/mirror-cli
-KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true ./bin/kaf-mirror
+./bin/kaf-mirror
 ```
+
+kaf-mirror with idempotent writes on, the default, is verified to mirror into and
+out of [KafScale v2.1.0](https://github.com/KafScale/platform/releases/tag/v2.1.0)
+and later. Set `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` only for KafScale before v2.1.0.
+
+With KafScale v2.1.0, run the broker with `KAFSCALE_AUTO_CREATE_TOPICS=false`.
+Otherwise a Metadata request creates the target topic with 1 partition, and the
+job fails with a partition count mismatch
+([KafScale issue 446](https://github.com/KafScale/platform/issues/446)). The
+KafScale `make demo` target starts its broker with auto-create on and does not
+read this setting from the environment.
 
 On the first start kaf-mirror writes the `admin@localhost` password to
 `data/kaf-mirror-bootstrap-<random>` and prints the path as `Password File`. In
