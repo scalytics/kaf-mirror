@@ -7,7 +7,7 @@
   },
   "start.html": {
     "title": "Get started | kaf-mirror",
-    "description": "Run kaf-mirror locally with Docker, or install the Helm chart. Commands are copied from the README.",
+    "description": "Run kaf-mirror locally with Docker, or install the Helm chart. Commands are copied from the getting started guide.",
     "canonical": "https://kafmirror.scalytics.io/start.html",
     "nav": "start.html"
   },

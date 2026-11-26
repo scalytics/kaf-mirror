@@ -33,7 +33,7 @@ What it is not:
 
 ## Optional
 
-- [Back up Kafka to S3 with KafScale](https://github.com/scalytics/kaf-mirror/blob/main/README.md#back-up-to-s3-with-kafscale)
+- [Back up Kafka to S3 with KafScale](https://github.com/scalytics/kaf-mirror/blob/main/docs/kafscale-backup.md)
 - [Kafka backup vs replication](https://www.scalytics.io/kafka-backup-vs-replication)
 - [Kafka DORA and NIS2 checklist](https://www.scalytics.io/kafka-dora-nis2-checklist)
 - [KafScale](https://kafscale.io)

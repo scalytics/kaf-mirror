@@ -137,17 +137,17 @@ func TestGeneratedCompletionDocs(t *testing.T) {
 }
 
 func TestReadmeShellCompletionMatchesGeneratedDocs(t *testing.T) {
-	raw, err := os.ReadFile("../../README.md")
+	raw, err := os.ReadFile("../../docs/shell-completion.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	readme := string(raw)
+	doc := string(raw)
 	for _, line := range strings.Split(shellCompletionDocs, "\n") {
 		if line == "" || strings.HasPrefix(line, "## ") {
 			continue
 		}
-		if !strings.Contains(readme, line) {
-			t.Fatalf("README misses a shell completion line: %q", line)
+		if !strings.Contains(doc, line) {
+			t.Fatalf("docs/shell-completion.md misses a shell completion line: %q", line)
 		}
 	}
 	if !strings.Contains(shellCompletionDocs, "Bash 3.2") {

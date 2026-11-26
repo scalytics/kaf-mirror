@@ -83,7 +83,7 @@ func TestEveryTemplateValueIsInValuesAndReadme(t *testing.T) {
 
 func TestEveryDocumentedHelmCommandKeepsTheImageValues(t *testing.T) {
 	helmCmd := regexp.MustCompile(`(?m)^helm (install|upgrade)\b.*(?:\\\n.*)*`)
-	for _, doc := range []string{filepath.Join(chartDir, "README.md"), "../../README.md"} {
+	for _, doc := range []string{filepath.Join(chartDir, "README.md"), "../../docs/kubernetes.md"} {
 		cmds := helmCmd.FindAllString(readFile(t, doc), -1)
 		if len(cmds) == 0 {
 			t.Errorf("%s has no helm install or upgrade command", doc)
@@ -109,7 +109,7 @@ func TestEveryDocumentedHelmCommandKeepsTheImageValues(t *testing.T) {
 
 func TestInstallDocsNameTheImageLoadAndPodSecurity(t *testing.T) {
 	chart := readFile(t, filepath.Join(chartDir, "README.md"))
-	root := readFile(t, "../../README.md")
+	root := readFile(t, "../../docs/kubernetes.md") + "\n" + readFile(t, "../../docs/security.md")
 	config := readFile(t, "../../docs/configuration.md")
 	for _, doc := range []string{chart, root} {
 		for _, phrase := range []string{

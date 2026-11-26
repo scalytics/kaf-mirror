@@ -151,7 +151,7 @@ kubectl exec deploy/km-kaf-mirror -- ./admin-cli --db-path /app/data/kaf-mirror.
 kubectl exec deploy/km-kaf-mirror -- rm /app/data/kaf-mirror-backup.db
 ```
 
-Breaking: the backup refuses to overwrite an existing file, so delete the old copy in the pod first or pick a new name. `admin-cli restore database` takes `kaf-mirror.db.lock` and holds it through the rename, so it cannot run in the kaf-mirror pod while the server runs, and the server will not start while the restore holds the lock. A leftover `-wal` file is not enough to block a restore. Processes that open the database without the lock are not detected, so scale the deployment to 0 first. Then run `admin-cli restore database` with `--yes` in a separate pod that mounts the same PVC. The chart has no helper for that yet. Restore is supported on Linux and macOS, not on Windows. See "Backup and Data Management" in the main README.
+Breaking: the backup refuses to overwrite an existing file, so delete the old copy in the pod first or pick a new name. `admin-cli restore database` takes `kaf-mirror.db.lock` and holds it through the rename, so it cannot run in the kaf-mirror pod while the server runs, and the server will not start while the restore holds the lock. A leftover `-wal` file is not enough to block a restore. Processes that open the database without the lock are not detected, so scale the deployment to 0 first. Then run `admin-cli restore database` with `--yes` in a separate pod that mounts the same PVC. The chart has no helper for that yet. Restore is supported on Linux and macOS, not on Windows. See "Backup and Data Management" in the [administration guide](../../../docs/administration.md).
 
 ## TLS
 
@@ -177,7 +177,7 @@ curl -sk https://localhost:8088/health
 
 ## Kafka TLS
 
-For brokers with a private CA or mTLS, keep the CA certificate and the client certificate and key in a Secret and set `kafkaTLS.existingSecret`. The chart mounts every key of the Secret read-only at `/app/kafka-tls` with mode `0440`, readable by the pod group 101. Those files must be regular files of at most 1 MiB; a symlink to a regular file, as used by Kubernetes Secret mounts, is accepted. Then set `ca_file`, `cert_file` and `key_file` to those paths in `security_config` of the cluster you create with the API, or in `config.sourceSecurity` and `config.targetSecurity`. See "TLS with a private CA or mTLS" in the [main README](../../../README.md#tls-with-a-private-ca-or-mtls).
+For brokers with a private CA or mTLS, keep the CA certificate and the client certificate and key in a Secret and set `kafkaTLS.existingSecret`. The chart mounts every key of the Secret read-only at `/app/kafka-tls` with mode `0440`, readable by the pod group 101. Those files must be regular files of at most 1 MiB; a symlink to a regular file, as used by Kubernetes Secret mounts, is accepted. Then set `ca_file`, `cert_file` and `key_file` to those paths in `security_config` of the cluster you create with the API, or in `config.sourceSecurity` and `config.targetSecurity`. See "TLS with a private CA or mTLS" in the [security guide](../../../docs/security.md#tls-with-a-private-ca-or-mtls).
 
 ```bash
 kubectl create secret generic km-kafka-tls --from-file=ca.crt=./ca.crt --from-file=tls.crt=./tls.crt --from-file=tls.key=./tls.key
