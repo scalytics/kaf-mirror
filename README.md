@@ -295,38 +295,6 @@ make binaries
 ```
 `make release-binaries VERSION=v1.4.0` builds the release assets into `dist/` with the same commands the release workflow uses. It needs `x86_64-linux-gnu-gcc` for the Linux builds. Each binary is built from its package, for example `go build ./cmd/admin-cli`, not from a single `main.go`.
 
-## Shell completion
-
-Both `mirror-cli` and `admin-cli` support `completion bash|zsh|fish|powershell`. Generation works offline without login, configuration, or a database. Put both binaries on your `PATH` first (for a local build, `export PATH="$PWD/bin:$PATH"`).
-
-For Bash, install your system's `bash-completion` package, then run:
-
-```bash
-mkdir -p "$HOME/.local/share/bash-completion/completions"
-mirror-cli completion bash > "$HOME/.local/share/bash-completion/completions/mirror-cli"
-admin-cli completion bash > "$HOME/.local/share/bash-completion/completions/admin-cli"
-source "$HOME/.local/share/bash-completion/completions/mirror-cli"
-source "$HOME/.local/share/bash-completion/completions/admin-cli"
-```
-
-The files are loaded automatically in new sessions by `bash-completion`.
-
-For Zsh, run:
-
-```zsh
-mkdir -p "$HOME/.zsh/completions"
-mirror-cli completion zsh > "$HOME/.zsh/completions/_mirror-cli"
-admin-cli completion zsh > "$HOME/.zsh/completions/_admin-cli"
-```
-
-Add these lines to `~/.zshrc`, placing the `fpath` line before any existing `compinit` call (only one `compinit` call is needed), then start a new shell:
-
-```zsh
-fpath=("$HOME/.zsh/completions" $fpath)
-autoload -Uz compinit
-compinit
-```
-
 ### 2. Admin and Management
 
 All ongoing management is performed via the `mirror-cli`, which interacts with the secure, role-based API.
@@ -765,6 +733,38 @@ docker run -d --name kaf-mirror -p 8080:8080 \
 ```
 
 In Kubernetes with the Helm chart, keep the keytab in a Secret and `krb5.conf` in a ConfigMap, and set `kerberos.keytabSecret` and `kerberos.krb5ConfigMap`. The chart mounts them at `/app/kerberos/keytab` and `/app/kerberos/krb5`. See "Kerberos" in [deploy/helm/kaf-mirror/README.md](deploy/helm/kaf-mirror/README.md).
+
+## Shell completion
+
+Both `mirror-cli` and `admin-cli` support `completion bash|zsh|fish|powershell`. Generation works offline without login, configuration, or a database. Put both binaries on your `PATH` first (for a local build, `export PATH="$PWD/bin:$PATH"`).
+
+For Bash, install the `bash-completion` package, version 2 or later. The scripts do not work with the macOS system Bash 3.2. On macOS use Zsh, or install a current Bash and `bash-completion@2` with Homebrew. Then run:
+
+```bash
+mkdir -p "$HOME/.local/share/bash-completion/completions"
+mirror-cli completion bash > "$HOME/.local/share/bash-completion/completions/mirror-cli"
+admin-cli completion bash > "$HOME/.local/share/bash-completion/completions/admin-cli"
+source "$HOME/.local/share/bash-completion/completions/mirror-cli"
+source "$HOME/.local/share/bash-completion/completions/admin-cli"
+```
+
+The files are loaded automatically in new sessions by `bash-completion`.
+
+For Zsh, run:
+
+```zsh
+mkdir -p "$HOME/.zsh/completions"
+mirror-cli completion zsh > "$HOME/.zsh/completions/_mirror-cli"
+admin-cli completion zsh > "$HOME/.zsh/completions/_admin-cli"
+```
+
+Add these lines to `~/.zshrc`, placing the `fpath` line before any existing `compinit` call (only one `compinit` call is needed), then start a new shell:
+
+```zsh
+fpath=("$HOME/.zsh/completions" $fpath)
+autoload -Uz compinit
+compinit
+```
 
 ## API Documentation
 

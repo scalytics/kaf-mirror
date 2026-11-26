@@ -13,7 +13,7 @@ A command that fails exits with status 1. That includes an unknown subcommand, s
 
 Both `mirror-cli` and `admin-cli` support `completion bash|zsh|fish|powershell`. Generation works offline without login, configuration, or a database. Put both binaries on your `PATH` first (for a local build, `export PATH="$PWD/bin:$PATH"`).
 
-For Bash, install your system's `bash-completion` package, then run:
+For Bash, install the `bash-completion` package, version 2 or later. The scripts do not work with the macOS system Bash 3.2. On macOS use Zsh, or install a current Bash and `bash-completion@2` with Homebrew. Then run:
 
 ```bash
 mkdir -p "$HOME/.local/share/bash-completion/completions"
@@ -198,11 +198,11 @@ To load completions in your current shell session:
 
 To load completions for every new session, execute once:
 
-#### Linux:
+**Linux:**
 
 	mirror-cli completion bash > /etc/bash_completion.d/mirror-cli
 
-#### macOS:
+**macOS:**
 
 	mirror-cli completion bash > $(brew --prefix)/etc/bash_completion.d/mirror-cli
 
@@ -212,7 +212,7 @@ You will need to start a new shell for this setup to take effect.
 ### Usage
 
 ```
-mirror-cli completion bash
+mirror-cli completion bash [flags]
 ```
 
 ### Options
@@ -293,11 +293,11 @@ To load completions in your current shell session:
 
 To load completions for every new session, execute once:
 
-#### Linux:
+**Linux:**
 
 	mirror-cli completion zsh > "${fpath[1]}/_mirror-cli"
 
-#### macOS:
+**macOS:**
 
 	mirror-cli completion zsh > $(brew --prefix)/share/zsh/site-functions/_mirror-cli
 

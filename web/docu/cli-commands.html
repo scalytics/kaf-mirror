@@ -227,7 +227,7 @@
 <br>
 <p>Both <code>mirror-cli</code> and <code>admin-cli</code> support <code>completion bash|zsh|fish|powershell</code>. Generation works offline without login, configuration, or a database. Put both binaries on your <code>PATH</code> first (for a local build, <code>export PATH=&#34;$PWD/bin:$PATH&#34;</code>).</p>
 <br>
-<p>For Bash, install your system&#39;s <code>bash-completion</code> package, then run:</p>
+<p>For Bash, install the <code>bash-completion</code> package, version 2 or later. The scripts do not work with the macOS system Bash 3.2. On macOS use Zsh, or install a current Bash and <code>bash-completion@2</code> with Homebrew. Then run:</p>
 <br>
 <pre><code>mkdir -p &#34;$HOME/.local/share/bash-completion/completions&#34;
 mirror-cli completion bash &gt; &#34;$HOME/.local/share/bash-completion/completions/mirror-cli&#34;
@@ -398,11 +398,11 @@ compinit
 <br>
 <p>To load completions for every new session, execute once:</p>
 <br>
-<h4 id="linux">Linux:</h4>
+<p><strong>Linux:</strong></p>
 <br>
 <p>	mirror-cli completion bash &gt; /etc/bash_completion.d/mirror-cli</p>
 <br>
-<h4 id="macos">macOS:</h4>
+<p><strong>macOS:</strong></p>
 <br>
 <p>	mirror-cli completion bash &gt; $(brew --prefix)/etc/bash_completion.d/mirror-cli</p>
 <br>
@@ -411,7 +411,7 @@ compinit
 <br>
 <h3 id="usage">Usage</h3>
 <br>
-<pre><code>mirror-cli completion bash
+<pre><code>mirror-cli completion bash [flags]
 </code></pre>
 <br>
 <h3 id="options">Options</h3>
@@ -487,11 +487,11 @@ compinit
 <br>
 <p>To load completions for every new session, execute once:</p>
 <br>
-<h4 id="linux">Linux:</h4>
+<p><strong>Linux:</strong></p>
 <br>
 <p>	mirror-cli completion zsh &gt; &#34;${fpath[1]}/_mirror-cli&#34;</p>
 <br>
-<h4 id="macos">macOS:</h4>
+<p><strong>macOS:</strong></p>
 <br>
 <p>	mirror-cli completion zsh &gt; $(brew --prefix)/share/zsh/site-functions/_mirror-cli</p>
 <br>

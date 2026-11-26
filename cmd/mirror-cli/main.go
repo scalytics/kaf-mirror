@@ -209,7 +209,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			versionFlag, _ := cmd.Flags().GetBool("version")
 			if versionFlag {
 				fmt.Println(Version)
-				os.Exit(0)
+				exitCLI(0)
 			}
 		},
 	}
@@ -626,7 +626,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			confirm, err := confirmAction(cmd, fmt.Sprintf("Are you sure you want to reset the password for user '%s'?", username))
 			if err != nil {
 				fmt.Printf("Password reset cancelled: %v\n", err)
-				os.Exit(1)
+				exitCLI(1)
 			}
 			if !confirm {
 				fmt.Println("Password reset cancelled.")
@@ -1028,7 +1028,7 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 			confirm, err := confirmAction(cmd, fmt.Sprintf("Are you sure you want to remove cluster '%s'? This action will mark it for deletion.", clusterName))
 			if err != nil {
 				fmt.Printf("Cluster removal cancelled: %v\n", err)
-				os.Exit(1)
+				exitCLI(1)
 			}
 			if !confirm {
 				fmt.Println("Cluster removal cancelled.")
@@ -1715,6 +1715,8 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 	})
 
 	rootCmd.AddCommand(loginCmd, logoutCmd, usersCmd, clustersCmd, jobsCmd, configCmd, tlsCmd, newDashboardCmd(), whoamiCmd, docsCmd, protectionCmd)
+	rootCmd.InitDefaultHelpCmd()
+	rootCmd.InitDefaultCompletionCmd()
 	rootCmd.SilenceErrors = true
 	rootCmd.SilenceUsage = true
 	exitNonZeroOnFailure(rootCmd)
@@ -1733,7 +1735,7 @@ func exitNonZeroOnFailure(cmd *cobra.Command) {
 			}
 			return nil
 		}
-	} else if cmd.Run == nil && cmd.RunE == nil && cmd.HasSubCommands() && cmd.Args == nil {
+	} else if cmd.Run == nil && cmd.RunE == nil && cmd.HasSubCommands() && (cmd.Args == nil || cmd.Name() == "completion") {
 		cmd.Args = rejectUnknownSubcommand
 		cmd.RunE = func(c *cobra.Command, args []string) error {
 			return pflag.ErrHelp
@@ -1822,8 +1824,16 @@ func main() {
 	}
 }
 
+func shellExitRequested(in string, breakline bool) bool {
+	return breakline && strings.TrimSpace(in) == "exit"
+}
+
 func runShell(rootCmd *cobra.Command) {
 	var currentContext []string
+	restore := saveTerminalState(os.Stdin)
+	setTerminalRestorer(restore)
+	defer setTerminalRestorer(nil)
+	defer restore()
 
 	completer := func(d prompt.Document) []prompt.Suggest {
 		s := []prompt.Suggest{}
@@ -1841,6 +1851,9 @@ func runShell(rootCmd *cobra.Command) {
 		}
 
 		for _, subCmd := range currentCmd.Commands() {
+			if subCmd.Hidden {
+				continue
+			}
 			s = append(s, prompt.Suggest{Text: subCmd.Name(), Description: subCmd.Short})
 		}
 		return prompt.FilterHasPrefix(s, d.GetWordBeforeCursor(), true)
@@ -1853,6 +1866,7 @@ func runShell(rootCmd *cobra.Command) {
 	p := prompt.New(
 		executor,
 		completer,
+		prompt.OptionSetExitCheckerOnInput(shellExitRequested),
 		prompt.OptionPrefix("kaf-mirror:> "),
 		prompt.OptionTitle("kaf-mirror-cli"),
 		prompt.OptionLivePrefix(func() (string, bool) {
@@ -1879,8 +1893,7 @@ func applyShellInput(rootCmd *cobra.Command, currentContext []string, in string)
 		printShellMenu(currentContext, currentCmd)
 		return currentContext
 	} else if in == "exit" {
-		os.Exit(0)
-		return nil
+		return currentContext
 	} else if in == "back" || in == ".." {
 		if len(currentContext) > 0 {
 			currentContext = currentContext[:len(currentContext)-1]
@@ -1928,6 +1941,9 @@ func printShellMenu(fullArgs []string, cmd *cobra.Command) {
 
 	fmt.Println("Available commands:")
 	for _, subCmd := range cmd.Commands() {
+		if subCmd.Hidden {
+			continue
+		}
 		fmt.Printf("  %-15s %s\n", subCmd.Name(), subCmd.Short)
 	}
 	fmt.Println()
@@ -2589,7 +2605,7 @@ func configureAI(configData *configData) {
 func runDashboard(cmd *cobra.Command, args []string) {
 	if !stdioIsTerminal() {
 		fmt.Fprintln(os.Stderr, "Error: the dashboard needs a terminal on stdin and stdout.")
-		os.Exit(1)
+		exitCLI(1)
 	}
 	token, err := LoadToken()
 	if err != nil {
@@ -2792,7 +2808,7 @@ const shellCompletionDocs = "## Shell completion\n" +
 	"\n" +
 	"Both `mirror-cli` and `admin-cli` support `completion bash|zsh|fish|powershell`. Generation works offline without login, configuration, or a database. Put both binaries on your `PATH` first (for a local build, `export PATH=\"$PWD/bin:$PATH\"`).\n" +
 	"\n" +
-	"For Bash, install your system's `bash-completion` package, then run:\n" +
+	"For Bash, install the `bash-completion` package, version 2 or later. The scripts do not work with the macOS system Bash 3.2. On macOS use Zsh, or install a current Bash and `bash-completion@2` with Homebrew. Then run:\n" +
 	"\n" +
 	"```bash\n" +
 	"mkdir -p \"$HOME/.local/share/bash-completion/completions\"\n" +
@@ -2822,6 +2838,7 @@ const shellCompletionDocs = "## Shell completion\n" +
 	"\n"
 
 func generateConsolidatedDocs(cmd *cobra.Command, w io.Writer) error {
+	cmd.InitDefaultHelpCmd()
 	cmd.InitDefaultCompletionCmd()
 	fmt.Fprintf(w, "# %s\n\n", cmd.Name())
 	fmt.Fprintf(w, "%s\n\n", cmd.Short)
@@ -2869,6 +2886,20 @@ func generateConsolidatedDocs(cmd *cobra.Command, w io.Writer) error {
 	return nil
 }
 
+var markdownHeadingLine = regexp.MustCompile(`(?m)^#{1,6}[ \t]+(.+?)[ \t]*$`)
+
+func demoteHeadings(text string) string {
+	return markdownHeadingLine.ReplaceAllString(text, "**$1**")
+}
+
+func usageLine(cmd *cobra.Command) string {
+	line := cmd.UseLine()
+	if cmd.DisableFlagsInUseLine && cmd.HasAvailableLocalFlags() && !strings.Contains(line, "[flags]") {
+		line += " [flags]"
+	}
+	return line
+}
+
 // generateCommandDocs generates documentation for a command and its subcommands recursively
 func generateCommandDocs(cmd *cobra.Command, w io.Writer, headerLevel int) error {
 	// Generate header
@@ -2882,12 +2913,12 @@ func generateCommandDocs(cmd *cobra.Command, w io.Writer, headerLevel int) error
 
 	// Long description
 	if cmd.Long != "" && cmd.Long != cmd.Short {
-		fmt.Fprintf(w, "%s\n\n", cmd.Long)
+		fmt.Fprintf(w, "%s\n\n", demoteHeadings(cmd.Long))
 	}
 
 	// Usage
 	fmt.Fprintf(w, "### Usage\n\n")
-	fmt.Fprintf(w, "```\n%s\n```\n\n", cmd.UseLine())
+	fmt.Fprintf(w, "```\n%s\n```\n\n", usageLine(cmd))
 
 	// Examples
 	if cmd.Example != "" {
@@ -3809,7 +3840,7 @@ func createJobsCommand() *cobra.Command {
 			confirm, err := confirmAction(cmd, fmt.Sprintf("Are you sure you want to delete job '%s'? This action cannot be undone.", jobID))
 			if err != nil {
 				fmt.Printf("Job deletion cancelled: %v\n", err)
-				os.Exit(1)
+				exitCLI(1)
 			}
 			if !confirm {
 				fmt.Println("Job deletion cancelled.")
