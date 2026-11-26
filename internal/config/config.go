@@ -323,7 +323,6 @@ var AppConfig Config
 
 var loadedConfigFile string
 
-// LoadedConfigFile is the config file ReadInConfig opened. A later prod.yml merge does not change it.
 func LoadedConfigFile() string {
 	return loadedConfigFile
 }
