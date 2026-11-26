@@ -57,16 +57,21 @@ In a second terminal, from this repo:
 mkdir -p bin
 go build -o bin/kaf-mirror ./cmd/kaf-mirror
 go build -o bin/mirror-cli ./cmd/mirror-cli
-KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true ./bin/kaf-mirror
+./bin/kaf-mirror
 ```
 
-`KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` is needed only when the target is a
-KafScale release before v2.1.0. Those releases do not implement `InitProducerId`,
-so idempotent writes must be off. KafScale v2.1.0 supports nontransactional
-idempotent producers: its protocol docs list `InitProducerId` v0 to v4 and its
-release notes name KafScale issue 28. With KafScale v2.1.0 or later you can leave
-the variable out. The command above keeps it so it works with every KafScale
-version. On the first start kaf-mirror creates `admin@localhost`
+kaf-mirror with idempotent writes on, the default, is verified to mirror into and
+out of [KafScale v2.1.0](https://github.com/KafScale/platform/releases/tag/v2.1.0)
+and later. Set `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` only for KafScale before v2.1.0.
+
+With KafScale v2.1.0, run the broker with `KAFSCALE_AUTO_CREATE_TOPICS=false`.
+Otherwise a Metadata request creates the target topic with 1 partition, and the
+job fails with a partition count mismatch
+([KafScale issue 446](https://github.com/KafScale/platform/issues/446)). The
+KafScale `make demo` target starts its broker with auto-create on and does not
+read this setting from the environment.
+
+On the first start kaf-mirror creates `admin@localhost`
 with a random password and writes it to `data/kaf-mirror-bootstrap-<random>`,
 next to the database. The path is printed on stdout as `Password File`. In a
 third terminal, read the password, then delete the file:

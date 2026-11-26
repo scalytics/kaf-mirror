@@ -29,7 +29,7 @@ This is a major release with breaking changes. Read the upgrade notes and the Br
 
 ## Docs
 - New `docs/configuration.md` with every config key and environment variable.
-- `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` is needed only for KafScale before v2.1.0.
+- kaf-mirror with idempotent writes on is verified with [KafScale v2.1.0](https://github.com/KafScale/platform/releases/tag/v2.1.0) and later. `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` is needed only for KafScale before v2.1.0. With KafScale v2.1.0, run the broker with `KAFSCALE_AUTO_CREATE_TOPICS=false` ([KafScale issue 446](https://github.com/KafScale/platform/issues/446)).
 - Install docs cover kind with Docker Engine 29 and its containerd image store.
 
 ## Upgrade notes
