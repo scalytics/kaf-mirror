@@ -130,7 +130,7 @@ func New(db *sqlx.DB, cfg *config.Config, hub Hub) *JobManager {
 	jm.restartJob = jm.ForceRestartJob
 	logger.Info("AI analysis is %s", ai.Status(aiConfig))
 	if cfg.Protection.Enabled {
-		_ = database.SetProtectionEnabled(db, true)
+		_ = jm.Protection.SetEnabled(true)
 	}
 
 	if strings.EqualFold(cfg.Server.Mode, "test") {
@@ -213,6 +213,9 @@ func (jm *JobManager) reconcileAndStartJobs() error {
 }
 
 func (jm *JobManager) Close() {
+	if jm.Protection != nil {
+		jm.Protection.Close()
+	}
 	jm.closeOnce.Do(func() {
 		atomic.StoreInt32(&jm.closing, 1)
 		if jm.bgCancel != nil {

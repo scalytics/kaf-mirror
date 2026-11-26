@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
@@ -59,6 +60,9 @@ func TestHaltFileTripwire(t *testing.T) {
 	st := ctrl.Status()
 	assert.True(t, st.FileTripwire)
 	assert.True(t, st.Experimental)
+	require.Eventually(t, func() bool {
+		return ctrl.GuardStart(protection.RoleDR) != nil
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestAutoHaltTombstoneStorm(t *testing.T) {

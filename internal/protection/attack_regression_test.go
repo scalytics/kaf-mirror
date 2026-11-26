@@ -13,6 +13,8 @@ package protection
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -28,6 +30,7 @@ func attackController(t *testing.T, auto bool) *Controller {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	c := New(db, config.ProtectionConfig{AutoHalt: config.AutoHaltConfig{Enabled: auto}})
+	t.Cleanup(c.Close)
 	require.NoError(t, c.SetEnabled(true))
 	return c
 }
@@ -120,8 +123,32 @@ func TestExpiredPayloadEvidenceDoesNotTriggerAHalt(t *testing.T) {
 
 func TestGuardFailsClosedWhenProtectionStateCannotBeRead(t *testing.T) {
 	c := attackController(t, true)
+	c.Close()
 	require.NoError(t, c.db.Close())
+	require.NoError(t, c.GuardStart(RoleDR), "a send must keep the last snapshot instead of reading the database")
+	c.refreshGuard()
 	require.ErrorContains(t, c.GuardStart(RoleDR), "cannot read replication protection state")
+}
+
+func TestGuardStartDoesNotStatTheHaltFile(t *testing.T) {
+	db, err := database.InitDB(":memory:")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	haltPath := filepath.Join(t.TempDir(), "HALT")
+	c := New(db, config.ProtectionConfig{HaltFile: haltPath})
+	t.Cleanup(c.Close)
+	require.NoError(t, c.SetEnabled(true))
+	c.Close()
+
+	require.NoError(t, os.WriteFile(haltPath, []byte("stop"), 0o600))
+	require.NoError(t, c.GuardStart(RoleDR), "a send must not stat the halt file")
+	c.refreshGuard()
+	require.ErrorContains(t, c.GuardStart(RoleDR), "halt file present")
+
+	require.NoError(t, os.Remove(haltPath))
+	require.ErrorContains(t, c.GuardStart(RoleDR), "halt file present")
+	c.refreshGuard()
+	require.NoError(t, c.GuardStart(RoleDR))
 }
 
 func TestHaltStaysEffectiveWhenPersistenceFails(t *testing.T) {
@@ -142,12 +169,15 @@ func TestHaltStaysEffectiveWhenPersistenceFails(t *testing.T) {
 
 func TestProtectionStateWithoutARowIsDisabled(t *testing.T) {
 	c := attackController(t, true)
+	c.Close()
 	_, err := c.db.Exec(`DELETE FROM protection_state`)
 	require.NoError(t, err)
 	state, err := database.GetProtectionState(c.db)
 	require.NoError(t, err)
 	require.False(t, state.Enabled)
-	require.NoError(t, c.GuardStart(RoleDR))
+	require.ErrorContains(t, c.GuardStart(RoleProd), "refusing to replicate")
+	c.refreshGuard()
+	require.NoError(t, c.GuardStart(RoleProd))
 }
 
 func TestPayloadEdgesAndManualHalt(t *testing.T) {
