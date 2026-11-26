@@ -513,6 +513,13 @@ func (c *Consumer) RevokePartitions(revoked map[string][]int32) {
 		c.revoked = make(map[topicPartition]bool)
 	}
 	for topic, partitions := range revoked {
+		if len(partitions) == 0 {
+			for tp := range c.assigned {
+				if tp.topic == topic {
+					delete(c.assigned, tp)
+				}
+			}
+		}
 		for _, partition := range partitions {
 			tp := topicPartition{topic: topic, partition: partition}
 			c.revoked[tp] = true

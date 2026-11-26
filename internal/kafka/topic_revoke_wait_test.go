@@ -49,4 +49,8 @@ func TestPrepareRevokeWaitTracksAssignments(t *testing.T) {
 	require.Equal(t, revoked, c.topicIDs.revokeWait)
 	c.clearRevokeWait(revoked)
 	require.Nil(t, c.topicIDs.revokeWait)
+
+	c.RevokePartitions(map[string][]int32{"kin": nil})
+	<-c.prepareRevokeWait("kin")
+	require.Nil(t, c.topicIDs.revokeWait)
 }

@@ -326,7 +326,7 @@ func scriptedTopicConsumerRevoke(script *pollScript, meta *metadataScript, autoR
 			}
 			lost := make(map[string][]int32, len(topics))
 			for _, topic := range topics {
-				lost[topic] = []int32{0}
+				lost[topic] = nil
 			}
 			consumer.RevokePartitions(lost)
 		},
