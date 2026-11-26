@@ -223,6 +223,35 @@
 <br>
 <p>A command that fails exits with status 1. That includes an unknown subcommand, such as <code>clusters delete</code>. <code>--help</code> and a group command with no extra arguments exit with status 0. The group command prints its help.</p>
 <br>
+<h2 id="shell-completion">Shell completion</h2>
+<br>
+<p>Both <code>mirror-cli</code> and <code>admin-cli</code> support <code>completion bash|zsh|fish|powershell</code>. Generation works offline without login, configuration, or a database. Put both binaries on your <code>PATH</code> first (for a local build, <code>export PATH=&#34;$PWD/bin:$PATH&#34;</code>).</p>
+<br>
+<p>For Bash, install your system&#39;s <code>bash-completion</code> package, then run:</p>
+<br>
+<pre><code>mkdir -p &#34;$HOME/.local/share/bash-completion/completions&#34;
+mirror-cli completion bash &gt; &#34;$HOME/.local/share/bash-completion/completions/mirror-cli&#34;
+admin-cli completion bash &gt; &#34;$HOME/.local/share/bash-completion/completions/admin-cli&#34;
+source &#34;$HOME/.local/share/bash-completion/completions/mirror-cli&#34;
+source &#34;$HOME/.local/share/bash-completion/completions/admin-cli&#34;
+</code></pre>
+<br>
+<p>The files are loaded automatically in new sessions by <code>bash-completion</code>.</p>
+<br>
+<p>For Zsh, run:</p>
+<br>
+<pre><code>mkdir -p &#34;$HOME/.zsh/completions&#34;
+mirror-cli completion zsh &gt; &#34;$HOME/.zsh/completions/_mirror-cli&#34;
+admin-cli completion zsh &gt; &#34;$HOME/.zsh/completions/_admin-cli&#34;
+</code></pre>
+<br>
+<p>Add these lines to <code>~/.zshrc</code>, placing the <code>fpath</code> line before any existing <code>compinit</code> call (only one <code>compinit</code> call is needed), then start a new shell:</p>
+<br>
+<pre><code>fpath=(&#34;$HOME/.zsh/completions&#34; $fpath)
+autoload -Uz compinit
+compinit
+</code></pre>
+<br>
 <h2 id="global-options">Global Options</h2>
 <br>
 <pre><code>      --mirror-url string   URL of the kaf-mirror backend. (default &#34;http://localhost:8080&#34;)
@@ -332,6 +361,151 @@
 <h3 id="usage">Usage</h3>
 <br>
 <pre><code>mirror-cli clusters test [name]
+</code></pre>
+<br>
+</div><div class="command-card" id="mirror-cli-completion"><h3 id="mirror-cli-completion">mirror-cli completion</h3>
+<br>
+<p><strong>Generate the autocompletion script for the specified shell</strong></p>
+<br>
+<p>Generate the autocompletion script for mirror-cli for the specified shell.</p>
+<p>See each sub-command&#39;s help for details on how to use the generated script.</p>
+<br>
+<br>
+<h3 id="usage">Usage</h3>
+<br>
+<pre><code>mirror-cli completion
+</code></pre>
+<br>
+<h3 id="available-subcommands">Available Subcommands</h3>
+<br>
+<li><strong>bash</strong> - Generate the autocompletion script for bash</li>
+<li><strong>fish</strong> - Generate the autocompletion script for fish</li>
+<li><strong>powershell</strong> - Generate the autocompletion script for powershell</li>
+<li><strong>zsh</strong> - Generate the autocompletion script for zsh</li>
+<br>
+<h4 id="mirror-cli-completion-bash">mirror-cli completion bash</h4>
+<br>
+<p><strong>Generate the autocompletion script for bash</strong></p>
+<br>
+<p>Generate the autocompletion script for the bash shell.</p>
+<br>
+<p>This script depends on the &#39;bash-completion&#39; package.</p>
+<p>If it is not installed already, you can install it via your OS&#39;s package manager.</p>
+<br>
+<p>To load completions in your current shell session:</p>
+<br>
+<p>	source &lt;(mirror-cli completion bash)</p>
+<br>
+<p>To load completions for every new session, execute once:</p>
+<br>
+<h4 id="linux">Linux:</h4>
+<br>
+<p>	mirror-cli completion bash &gt; /etc/bash_completion.d/mirror-cli</p>
+<br>
+<h4 id="macos">macOS:</h4>
+<br>
+<p>	mirror-cli completion bash &gt; $(brew --prefix)/etc/bash_completion.d/mirror-cli</p>
+<br>
+<p>You will need to start a new shell for this setup to take effect.</p>
+<br>
+<br>
+<h3 id="usage">Usage</h3>
+<br>
+<pre><code>mirror-cli completion bash
+</code></pre>
+<br>
+<h3 id="options">Options</h3>
+<br>
+<pre><code>      --no-descriptions   disable completion descriptions
+</code></pre>
+<br>
+<h4 id="mirror-cli-completion-fish">mirror-cli completion fish</h4>
+<br>
+<p><strong>Generate the autocompletion script for fish</strong></p>
+<br>
+<p>Generate the autocompletion script for the fish shell.</p>
+<br>
+<p>To load completions in your current shell session:</p>
+<br>
+<p>	mirror-cli completion fish | source</p>
+<br>
+<p>To load completions for every new session, execute once:</p>
+<br>
+<p>	mirror-cli completion fish &gt; ~/.config/fish/completions/mirror-cli.fish</p>
+<br>
+<p>You will need to start a new shell for this setup to take effect.</p>
+<br>
+<br>
+<h3 id="usage">Usage</h3>
+<br>
+<pre><code>mirror-cli completion fish [flags]
+</code></pre>
+<br>
+<h3 id="options">Options</h3>
+<br>
+<pre><code>      --no-descriptions   disable completion descriptions
+</code></pre>
+<br>
+<h4 id="mirror-cli-completion-powershell">mirror-cli completion powershell</h4>
+<br>
+<p><strong>Generate the autocompletion script for powershell</strong></p>
+<br>
+<p>Generate the autocompletion script for powershell.</p>
+<br>
+<p>To load completions in your current shell session:</p>
+<br>
+<p>	mirror-cli completion powershell | Out-String | Invoke-Expression</p>
+<br>
+<p>To load completions for every new session, add the output of the above command</p>
+<p>to your powershell profile.</p>
+<br>
+<br>
+<h3 id="usage">Usage</h3>
+<br>
+<pre><code>mirror-cli completion powershell [flags]
+</code></pre>
+<br>
+<h3 id="options">Options</h3>
+<br>
+<pre><code>      --no-descriptions   disable completion descriptions
+</code></pre>
+<br>
+<h4 id="mirror-cli-completion-zsh">mirror-cli completion zsh</h4>
+<br>
+<p><strong>Generate the autocompletion script for zsh</strong></p>
+<br>
+<p>Generate the autocompletion script for the zsh shell.</p>
+<br>
+<p>If shell completion is not already enabled in your environment you will need</p>
+<p>to enable it.  You can execute the following once:</p>
+<br>
+<p>	echo &#34;autoload -U compinit; compinit&#34; &gt;&gt; ~/.zshrc</p>
+<br>
+<p>To load completions in your current shell session:</p>
+<br>
+<p>	source &lt;(mirror-cli completion zsh)</p>
+<br>
+<p>To load completions for every new session, execute once:</p>
+<br>
+<h4 id="linux">Linux:</h4>
+<br>
+<p>	mirror-cli completion zsh &gt; &#34;${fpath[1]}/_mirror-cli&#34;</p>
+<br>
+<h4 id="macos">macOS:</h4>
+<br>
+<p>	mirror-cli completion zsh &gt; $(brew --prefix)/share/zsh/site-functions/_mirror-cli</p>
+<br>
+<p>You will need to start a new shell for this setup to take effect.</p>
+<br>
+<br>
+<h3 id="usage">Usage</h3>
+<br>
+<pre><code>mirror-cli completion zsh [flags]
+</code></pre>
+<br>
+<h3 id="options">Options</h3>
+<br>
+<pre><code>      --no-descriptions   disable completion descriptions
 </code></pre>
 <br>
 </div><div class="command-card" id="mirror-cli-config"><h3 id="mirror-cli-config">mirror-cli config</h3>
@@ -1218,7 +1392,7 @@
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
     <script>
 		// Populate navigation
-		document.getElementById('nav-list').innerHTML = '<li><a href="#mirror-cli" class="level-1">mirror-cli</a></li><li><a href="#mirror-cli-clusters" class="level-3">mirror-cli clusters</a></li><li><a href="#mirror-cli-clusters-add" class="level-4">mirror-cli clusters add</a></li><li><a href="#mirror-cli-clusters-edit" class="level-4">mirror-cli clusters edit</a></li><li><a href="#mirror-cli-clusters-list" class="level-4">mirror-cli clusters list</a></li><li><a href="#mirror-cli-clusters-purge" class="level-4">mirror-cli clusters purge</a></li><li><a href="#mirror-cli-clusters-remove" class="level-4">mirror-cli clusters remove</a></li><li><a href="#mirror-cli-clusters-restore" class="level-4">mirror-cli clusters restore</a></li><li><a href="#mirror-cli-clusters-test" class="level-4">mirror-cli clusters test</a></li><li><a href="#mirror-cli-config" class="level-3">mirror-cli config</a></li><li><a href="#mirror-cli-config-edit" class="level-4">mirror-cli config edit</a></li><li><a href="#mirror-cli-config-edit-ai" class="level-5">mirror-cli config edit ai</a></li><li><a href="#mirror-cli-config-edit-ai-features" class="level-6">mirror-cli config edit ai features</a></li><li><a href="#mirror-cli-config-edit-ai-manage" class="level-6">mirror-cli config edit ai manage</a></li><li><a href="#mirror-cli-config-edit-ai-model" class="level-6">mirror-cli config edit ai model</a></li><li><a href="#mirror-cli-config-edit-ai-provider" class="level-6">mirror-cli config edit ai provider</a></li><li><a href="#mirror-cli-config-edit-ai-self-healing" class="level-6">mirror-cli config edit ai self-healing</a></li><li><a href="#mirror-cli-config-edit-ai-test-and-enable" class="level-6">mirror-cli config edit ai test-and-enable</a></li><li><a href="#mirror-cli-config-edit-compliance" class="level-5">mirror-cli config edit compliance</a></li><li><a href="#mirror-cli-config-edit-compliance-daily" class="level-6">mirror-cli config edit compliance daily</a></li><li><a href="#mirror-cli-config-edit-compliance-enabled" class="level-6">mirror-cli config edit compliance enabled</a></li><li><a href="#mirror-cli-config-edit-compliance-manage" class="level-6">mirror-cli config edit compliance manage</a></li><li><a href="#mirror-cli-config-edit-compliance-monthly" class="level-6">mirror-cli config edit compliance monthly</a></li><li><a href="#mirror-cli-config-edit-compliance-run-hour" class="level-6">mirror-cli config edit compliance run-hour</a></li><li><a href="#mirror-cli-config-edit-compliance-weekly" class="level-6">mirror-cli config edit compliance weekly</a></li><li><a href="#mirror-cli-config-edit-monitoring" class="level-5">mirror-cli config edit monitoring</a></li><li><a href="#mirror-cli-config-edit-monitoring-enabled" class="level-6">mirror-cli config edit monitoring enabled</a></li><li><a href="#mirror-cli-config-edit-monitoring-manage" class="level-6">mirror-cli config edit monitoring manage</a></li><li><a href="#mirror-cli-config-edit-monitoring-platform" class="level-6">mirror-cli config edit monitoring platform</a></li><li><a href="#mirror-cli-config-edit-replication" class="level-5">mirror-cli config edit replication</a></li><li><a href="#mirror-cli-config-edit-replication-batch-size" class="level-6">mirror-cli config edit replication batch-size</a></li><li><a href="#mirror-cli-config-edit-replication-compression" class="level-6">mirror-cli config edit replication compression</a></li><li><a href="#mirror-cli-config-edit-replication-discovery-interval" class="level-6">mirror-cli config edit replication discovery-interval</a></li><li><a href="#mirror-cli-config-edit-server" class="level-5">mirror-cli config edit server</a></li><li><a href="#mirror-cli-config-edit-server-cors" class="level-6">mirror-cli config edit server cors</a></li><li><a href="#mirror-cli-config-edit-server-host" class="level-6">mirror-cli config edit server host</a></li><li><a href="#mirror-cli-config-edit-server-manage" class="level-6">mirror-cli config edit server manage</a></li><li><a href="#mirror-cli-config-edit-server-mode" class="level-6">mirror-cli config edit server mode</a></li><li><a href="#mirror-cli-config-edit-server-port" class="level-6">mirror-cli config edit server port</a></li><li><a href="#mirror-cli-config-edit-server-tls" class="level-6">mirror-cli config edit server tls</a></li><li><a href="#mirror-cli-config-get" class="level-4">mirror-cli config get</a></li><li><a href="#mirror-cli-config-save" class="level-4">mirror-cli config save</a></li><li><a href="#mirror-cli-config-system" class="level-4">mirror-cli config system</a></li><li><a href="#mirror-cli-dashboard" class="level-3">mirror-cli dashboard</a></li><li><a href="#mirror-cli-docs" class="level-3">mirror-cli docs</a></li><li><a href="#mirror-cli-docs-generate" class="level-4">mirror-cli docs generate</a></li><li><a href="#mirror-cli-jobs" class="level-3">mirror-cli jobs</a></li><li><a href="#mirror-cli-jobs-add" class="level-4">mirror-cli jobs add</a></li><li><a href="#mirror-cli-jobs-analyze" class="level-4">mirror-cli jobs analyze</a></li><li><a href="#mirror-cli-jobs-delete" class="level-4">mirror-cli jobs delete</a></li><li><a href="#mirror-cli-jobs-force-restart" class="level-4">mirror-cli jobs force-restart</a></li><li><a href="#mirror-cli-jobs-healthcheck" class="level-4">mirror-cli jobs healthcheck</a></li><li><a href="#mirror-cli-jobs-list" class="level-4">mirror-cli jobs list</a></li><li><a href="#mirror-cli-jobs-pause" class="level-4">mirror-cli jobs pause</a></li><li><a href="#mirror-cli-jobs-restart" class="level-4">mirror-cli jobs restart</a></li><li><a href="#mirror-cli-jobs-start" class="level-4">mirror-cli jobs start</a></li><li><a href="#mirror-cli-jobs-status" class="level-4">mirror-cli jobs status</a></li><li><a href="#mirror-cli-jobs-status-full" class="level-5">mirror-cli jobs status full</a></li><li><a href="#mirror-cli-jobs-status-metrics" class="level-5">mirror-cli jobs status metrics</a></li><li><a href="#mirror-cli-jobs-stop" class="level-4">mirror-cli jobs stop</a></li><li><a href="#mirror-cli-login" class="level-3">mirror-cli login</a></li><li><a href="#mirror-cli-logout" class="level-3">mirror-cli logout</a></li><li><a href="#mirror-cli-protection" class="level-3">mirror-cli protection</a></li><li><a href="#mirror-cli-protection-disable" class="level-4">mirror-cli protection disable</a></li><li><a href="#mirror-cli-protection-enable" class="level-4">mirror-cli protection enable</a></li><li><a href="#mirror-cli-protection-halt" class="level-4">mirror-cli protection halt</a></li><li><a href="#mirror-cli-protection-resume" class="level-4">mirror-cli protection resume</a></li><li><a href="#mirror-cli-protection-status" class="level-4">mirror-cli protection status</a></li><li><a href="#mirror-cli-tls" class="level-3">mirror-cli tls</a></li><li><a href="#mirror-cli-tls-configure-client" class="level-4">mirror-cli tls configure-client</a></li><li><a href="#mirror-cli-tls-generate-certs" class="level-4">mirror-cli tls generate-certs</a></li><li><a href="#mirror-cli-tls-import-cert" class="level-4">mirror-cli tls import-cert</a></li><li><a href="#mirror-cli-tls-verify" class="level-4">mirror-cli tls verify</a></li><li><a href="#mirror-cli-users" class="level-3">mirror-cli users</a></li><li><a href="#mirror-cli-users-add" class="level-4">mirror-cli users add</a></li><li><a href="#mirror-cli-users-change-password" class="level-4">mirror-cli users change-password</a></li><li><a href="#mirror-cli-users-delete" class="level-4">mirror-cli users delete</a></li><li><a href="#mirror-cli-users-list" class="level-4">mirror-cli users list</a></li><li><a href="#mirror-cli-users-reset-password" class="level-4">mirror-cli users reset-password</a></li><li><a href="#mirror-cli-users-reset-token" class="level-4">mirror-cli users reset-token</a></li><li><a href="#mirror-cli-users-set-role" class="level-4">mirror-cli users set-role</a></li><li><a href="#mirror-cli-whoami" class="level-3">mirror-cli whoami</a></li>';
+		document.getElementById('nav-list').innerHTML = '<li><a href="#mirror-cli" class="level-1">mirror-cli</a></li><li><a href="#mirror-cli-clusters" class="level-3">mirror-cli clusters</a></li><li><a href="#mirror-cli-clusters-add" class="level-4">mirror-cli clusters add</a></li><li><a href="#mirror-cli-clusters-edit" class="level-4">mirror-cli clusters edit</a></li><li><a href="#mirror-cli-clusters-list" class="level-4">mirror-cli clusters list</a></li><li><a href="#mirror-cli-clusters-purge" class="level-4">mirror-cli clusters purge</a></li><li><a href="#mirror-cli-clusters-remove" class="level-4">mirror-cli clusters remove</a></li><li><a href="#mirror-cli-clusters-restore" class="level-4">mirror-cli clusters restore</a></li><li><a href="#mirror-cli-clusters-test" class="level-4">mirror-cli clusters test</a></li><li><a href="#mirror-cli-completion" class="level-3">mirror-cli completion</a></li><li><a href="#mirror-cli-completion-bash" class="level-4">mirror-cli completion bash</a></li><li><a href="#mirror-cli-completion-fish" class="level-4">mirror-cli completion fish</a></li><li><a href="#mirror-cli-completion-powershell" class="level-4">mirror-cli completion powershell</a></li><li><a href="#mirror-cli-completion-zsh" class="level-4">mirror-cli completion zsh</a></li><li><a href="#mirror-cli-config" class="level-3">mirror-cli config</a></li><li><a href="#mirror-cli-config-edit" class="level-4">mirror-cli config edit</a></li><li><a href="#mirror-cli-config-edit-ai" class="level-5">mirror-cli config edit ai</a></li><li><a href="#mirror-cli-config-edit-ai-features" class="level-6">mirror-cli config edit ai features</a></li><li><a href="#mirror-cli-config-edit-ai-manage" class="level-6">mirror-cli config edit ai manage</a></li><li><a href="#mirror-cli-config-edit-ai-model" class="level-6">mirror-cli config edit ai model</a></li><li><a href="#mirror-cli-config-edit-ai-provider" class="level-6">mirror-cli config edit ai provider</a></li><li><a href="#mirror-cli-config-edit-ai-self-healing" class="level-6">mirror-cli config edit ai self-healing</a></li><li><a href="#mirror-cli-config-edit-ai-test-and-enable" class="level-6">mirror-cli config edit ai test-and-enable</a></li><li><a href="#mirror-cli-config-edit-compliance" class="level-5">mirror-cli config edit compliance</a></li><li><a href="#mirror-cli-config-edit-compliance-daily" class="level-6">mirror-cli config edit compliance daily</a></li><li><a href="#mirror-cli-config-edit-compliance-enabled" class="level-6">mirror-cli config edit compliance enabled</a></li><li><a href="#mirror-cli-config-edit-compliance-manage" class="level-6">mirror-cli config edit compliance manage</a></li><li><a href="#mirror-cli-config-edit-compliance-monthly" class="level-6">mirror-cli config edit compliance monthly</a></li><li><a href="#mirror-cli-config-edit-compliance-run-hour" class="level-6">mirror-cli config edit compliance run-hour</a></li><li><a href="#mirror-cli-config-edit-compliance-weekly" class="level-6">mirror-cli config edit compliance weekly</a></li><li><a href="#mirror-cli-config-edit-monitoring" class="level-5">mirror-cli config edit monitoring</a></li><li><a href="#mirror-cli-config-edit-monitoring-enabled" class="level-6">mirror-cli config edit monitoring enabled</a></li><li><a href="#mirror-cli-config-edit-monitoring-manage" class="level-6">mirror-cli config edit monitoring manage</a></li><li><a href="#mirror-cli-config-edit-monitoring-platform" class="level-6">mirror-cli config edit monitoring platform</a></li><li><a href="#mirror-cli-config-edit-replication" class="level-5">mirror-cli config edit replication</a></li><li><a href="#mirror-cli-config-edit-replication-batch-size" class="level-6">mirror-cli config edit replication batch-size</a></li><li><a href="#mirror-cli-config-edit-replication-compression" class="level-6">mirror-cli config edit replication compression</a></li><li><a href="#mirror-cli-config-edit-replication-discovery-interval" class="level-6">mirror-cli config edit replication discovery-interval</a></li><li><a href="#mirror-cli-config-edit-server" class="level-5">mirror-cli config edit server</a></li><li><a href="#mirror-cli-config-edit-server-cors" class="level-6">mirror-cli config edit server cors</a></li><li><a href="#mirror-cli-config-edit-server-host" class="level-6">mirror-cli config edit server host</a></li><li><a href="#mirror-cli-config-edit-server-manage" class="level-6">mirror-cli config edit server manage</a></li><li><a href="#mirror-cli-config-edit-server-mode" class="level-6">mirror-cli config edit server mode</a></li><li><a href="#mirror-cli-config-edit-server-port" class="level-6">mirror-cli config edit server port</a></li><li><a href="#mirror-cli-config-edit-server-tls" class="level-6">mirror-cli config edit server tls</a></li><li><a href="#mirror-cli-config-get" class="level-4">mirror-cli config get</a></li><li><a href="#mirror-cli-config-save" class="level-4">mirror-cli config save</a></li><li><a href="#mirror-cli-config-system" class="level-4">mirror-cli config system</a></li><li><a href="#mirror-cli-dashboard" class="level-3">mirror-cli dashboard</a></li><li><a href="#mirror-cli-docs" class="level-3">mirror-cli docs</a></li><li><a href="#mirror-cli-docs-generate" class="level-4">mirror-cli docs generate</a></li><li><a href="#mirror-cli-jobs" class="level-3">mirror-cli jobs</a></li><li><a href="#mirror-cli-jobs-add" class="level-4">mirror-cli jobs add</a></li><li><a href="#mirror-cli-jobs-analyze" class="level-4">mirror-cli jobs analyze</a></li><li><a href="#mirror-cli-jobs-delete" class="level-4">mirror-cli jobs delete</a></li><li><a href="#mirror-cli-jobs-force-restart" class="level-4">mirror-cli jobs force-restart</a></li><li><a href="#mirror-cli-jobs-healthcheck" class="level-4">mirror-cli jobs healthcheck</a></li><li><a href="#mirror-cli-jobs-list" class="level-4">mirror-cli jobs list</a></li><li><a href="#mirror-cli-jobs-pause" class="level-4">mirror-cli jobs pause</a></li><li><a href="#mirror-cli-jobs-restart" class="level-4">mirror-cli jobs restart</a></li><li><a href="#mirror-cli-jobs-start" class="level-4">mirror-cli jobs start</a></li><li><a href="#mirror-cli-jobs-status" class="level-4">mirror-cli jobs status</a></li><li><a href="#mirror-cli-jobs-status-full" class="level-5">mirror-cli jobs status full</a></li><li><a href="#mirror-cli-jobs-status-metrics" class="level-5">mirror-cli jobs status metrics</a></li><li><a href="#mirror-cli-jobs-stop" class="level-4">mirror-cli jobs stop</a></li><li><a href="#mirror-cli-login" class="level-3">mirror-cli login</a></li><li><a href="#mirror-cli-logout" class="level-3">mirror-cli logout</a></li><li><a href="#mirror-cli-protection" class="level-3">mirror-cli protection</a></li><li><a href="#mirror-cli-protection-disable" class="level-4">mirror-cli protection disable</a></li><li><a href="#mirror-cli-protection-enable" class="level-4">mirror-cli protection enable</a></li><li><a href="#mirror-cli-protection-halt" class="level-4">mirror-cli protection halt</a></li><li><a href="#mirror-cli-protection-resume" class="level-4">mirror-cli protection resume</a></li><li><a href="#mirror-cli-protection-status" class="level-4">mirror-cli protection status</a></li><li><a href="#mirror-cli-tls" class="level-3">mirror-cli tls</a></li><li><a href="#mirror-cli-tls-configure-client" class="level-4">mirror-cli tls configure-client</a></li><li><a href="#mirror-cli-tls-generate-certs" class="level-4">mirror-cli tls generate-certs</a></li><li><a href="#mirror-cli-tls-import-cert" class="level-4">mirror-cli tls import-cert</a></li><li><a href="#mirror-cli-tls-verify" class="level-4">mirror-cli tls verify</a></li><li><a href="#mirror-cli-users" class="level-3">mirror-cli users</a></li><li><a href="#mirror-cli-users-add" class="level-4">mirror-cli users add</a></li><li><a href="#mirror-cli-users-change-password" class="level-4">mirror-cli users change-password</a></li><li><a href="#mirror-cli-users-delete" class="level-4">mirror-cli users delete</a></li><li><a href="#mirror-cli-users-list" class="level-4">mirror-cli users list</a></li><li><a href="#mirror-cli-users-reset-password" class="level-4">mirror-cli users reset-password</a></li><li><a href="#mirror-cli-users-reset-token" class="level-4">mirror-cli users reset-token</a></li><li><a href="#mirror-cli-users-set-role" class="level-4">mirror-cli users set-role</a></li><li><a href="#mirror-cli-whoami" class="level-3">mirror-cli whoami</a></li>';
 
         // Smooth scrolling for anchor links
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {

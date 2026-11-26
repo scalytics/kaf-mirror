@@ -57,6 +57,9 @@ func TestGeneratedDocsHaveNoEmptyShorthand(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(raw)
+	if !strings.Contains(doc, "## Shell completion") || !strings.Contains(doc, "#### mirror-cli completion bash") {
+		t.Fatal("generated docs miss shell completion")
+	}
 	if strings.Contains(doc, "  -, --") {
 		t.Fatalf("generated docs render a flag without shorthand as \"-, --\":\n%s", regexp.MustCompile(`(?m)^.*-, --.*$`).FindString(doc))
 	}

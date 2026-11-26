@@ -1715,7 +1715,6 @@ It interacts with the kaf-mirror API to perform various tasks.`,
 	})
 
 	rootCmd.AddCommand(loginCmd, logoutCmd, usersCmd, clustersCmd, jobsCmd, configCmd, tlsCmd, newDashboardCmd(), whoamiCmd, docsCmd, protectionCmd)
-	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	rootCmd.SilenceErrors = true
 	rootCmd.SilenceUsage = true
 	exitNonZeroOnFailure(rootCmd)
@@ -2789,7 +2788,41 @@ func writeFlagDoc(w io.Writer, flag *pflag.Flag) {
 	fmt.Fprintf(w, "\n")
 }
 
+const shellCompletionDocs = "## Shell completion\n" +
+	"\n" +
+	"Both `mirror-cli` and `admin-cli` support `completion bash|zsh|fish|powershell`. Generation works offline without login, configuration, or a database. Put both binaries on your `PATH` first (for a local build, `export PATH=\"$PWD/bin:$PATH\"`).\n" +
+	"\n" +
+	"For Bash, install your system's `bash-completion` package, then run:\n" +
+	"\n" +
+	"```bash\n" +
+	"mkdir -p \"$HOME/.local/share/bash-completion/completions\"\n" +
+	"mirror-cli completion bash > \"$HOME/.local/share/bash-completion/completions/mirror-cli\"\n" +
+	"admin-cli completion bash > \"$HOME/.local/share/bash-completion/completions/admin-cli\"\n" +
+	"source \"$HOME/.local/share/bash-completion/completions/mirror-cli\"\n" +
+	"source \"$HOME/.local/share/bash-completion/completions/admin-cli\"\n" +
+	"```\n" +
+	"\n" +
+	"The files are loaded automatically in new sessions by `bash-completion`.\n" +
+	"\n" +
+	"For Zsh, run:\n" +
+	"\n" +
+	"```zsh\n" +
+	"mkdir -p \"$HOME/.zsh/completions\"\n" +
+	"mirror-cli completion zsh > \"$HOME/.zsh/completions/_mirror-cli\"\n" +
+	"admin-cli completion zsh > \"$HOME/.zsh/completions/_admin-cli\"\n" +
+	"```\n" +
+	"\n" +
+	"Add these lines to `~/.zshrc`, placing the `fpath` line before any existing `compinit` call (only one `compinit` call is needed), then start a new shell:\n" +
+	"\n" +
+	"```zsh\n" +
+	"fpath=(\"$HOME/.zsh/completions\" $fpath)\n" +
+	"autoload -Uz compinit\n" +
+	"compinit\n" +
+	"```\n" +
+	"\n"
+
 func generateConsolidatedDocs(cmd *cobra.Command, w io.Writer) error {
+	cmd.InitDefaultCompletionCmd()
 	fmt.Fprintf(w, "# %s\n\n", cmd.Name())
 	fmt.Fprintf(w, "%s\n\n", cmd.Short)
 
@@ -2802,6 +2835,8 @@ func generateConsolidatedDocs(cmd *cobra.Command, w io.Writer) error {
 	if cmd.Example != "" {
 		fmt.Fprintf(w, "## Examples\n\n```\n%s\n```\n\n", cmd.Example)
 	}
+
+	fmt.Fprint(w, shellCompletionDocs)
 
 	// Global flags
 	if cmd.HasAvailableFlags() || cmd.HasAvailablePersistentFlags() {
