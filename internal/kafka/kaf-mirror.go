@@ -38,6 +38,7 @@ type KafMirror interface {
 
 type RecordInspector interface {
 	SetRecordHook(func(topic string, key, value []byte))
+	SetRecordGuard(func() error)
 }
 
 // KafMirrorImpl orchestrates the replication from a source to a target Kafka cluster.
@@ -63,6 +64,7 @@ type KafMirrorImpl struct {
 	incidentMutex  sync.RWMutex
 	incidentHook   func(name string)
 	recordHook     func(topic string, key, value []byte)
+	recordGuard    func() error
 	sizeHintMu     sync.Mutex
 	sizeHinted     map[string]bool
 	lagAdmin       *AdminClient
@@ -79,6 +81,12 @@ func (r *KafMirrorImpl) incidentStarted(name string) {
 
 func (r *KafMirrorImpl) SetRecordHook(h func(topic string, key, value []byte)) {
 	r.recordHook = h
+}
+
+// SetRecordGuard installs a protection check run before every send, including
+// retries. Hooks inspect a record once; guards also stop already inspected work.
+func (r *KafMirrorImpl) SetRecordGuard(guard func() error) {
+	r.recordGuard = guard
 }
 
 // NewKafMirror creates a new replication orchestrator.
@@ -256,6 +264,16 @@ func (r *KafMirrorImpl) handleRecord(ctx context.Context, record *kgo.Record, at
 		}
 
 		r.analyzeRecordSize(record)
+	}
+	if err := ctx.Err(); err != nil {
+		done(err)
+		return
+	}
+	if r.recordGuard != nil {
+		if err := r.recordGuard(); err != nil {
+			done(err)
+			return
+		}
 	}
 
 	// Create a new record for the target topic

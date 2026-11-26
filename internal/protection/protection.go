@@ -54,12 +54,13 @@ type Status struct {
 }
 
 type Controller struct {
-	mu        sync.Mutex
-	db        *sqlx.DB
-	cfg       config.ProtectionConfig
-	samples   map[string][]timedSample
-	hits      []ingestHit
-	baselines map[string]*topicBaseline
+	mu          sync.Mutex
+	db          *sqlx.DB
+	cfg         config.ProtectionConfig
+	samples     map[string][]timedSample
+	hits        []ingestHit
+	baselines   map[string]*topicBaseline
+	pendingHalt string
 }
 
 type timedSample struct {
@@ -73,13 +74,21 @@ func New(db *sqlx.DB, cfg config.ProtectionConfig) *Controller {
 }
 
 func (c *Controller) Status() Status {
-	st, _ := database.GetProtectionState(c.db)
-	if st == nil {
-		st = &database.ProtectionState{}
-	}
+	status, _ := c.status()
+	return status
+}
+
+func (c *Controller) status() (Status, error) {
+	st, err := database.GetProtectionState(c.db)
 	fileHit, envHit := c.tripwires()
-	halted := st.Enabled && (st.Halted || fileHit || envHit)
+	c.mu.Lock()
+	pendingHalt := c.pendingHalt
+	c.mu.Unlock()
+	halted := st.Enabled && (st.Halted || pendingHalt != "" || fileHit || envHit)
 	reason := st.HaltReason
+	if pendingHalt != "" {
+		reason = pendingHalt
+	}
 	if halted && reason == "" {
 		if fileHit {
 			reason = "halt file present"
@@ -102,7 +111,7 @@ func (c *Controller) Status() Status {
 		RefuseWriteToProd: st.Enabled && c.cfg.RefuseWriteToProd,
 		AutoHaltEnabled:   st.Enabled && c.cfg.AutoHalt.Enabled,
 		Experimental:      true,
-	}
+	}, err
 }
 
 func (c *Controller) Enabled() bool {
@@ -125,15 +134,28 @@ func (c *Controller) Halt(reason, by string) error {
 	if reason == "" {
 		reason = "admin halt"
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Stop sends in this process even if persisting the halt fails.
+	c.pendingHalt = reason
 	return database.SetProtectionHalted(c.db, true, reason, by)
 }
 
 func (c *Controller) Resume() error {
-	return database.SetProtectionHalted(c.db, false, "", "")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := database.SetProtectionHalted(c.db, false, "", ""); err != nil {
+		return err
+	}
+	c.pendingHalt = ""
+	return nil
 }
 
 func (c *Controller) GuardStart(targetRole string) error {
-	st := c.Status()
+	st, err := c.status()
+	if err != nil {
+		return fmt.Errorf("cannot read replication protection state: %w", err)
+	}
 	if !st.Enabled {
 		return nil
 	}

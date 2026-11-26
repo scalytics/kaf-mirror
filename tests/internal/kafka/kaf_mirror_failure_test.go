@@ -13,6 +13,7 @@ package kafka_test
 
 import (
 	"context"
+	"errors"
 	"kaf-mirror/internal/database"
 	"kaf-mirror/internal/kafka"
 	"kaf-mirror/tests/mocks"
@@ -136,6 +137,8 @@ func TestStartRunsHookOncePerRecordAcrossRetries(t *testing.T) {
 		hooks[string(value)]++
 		mu.Unlock()
 	})
+	var guards atomic.Int32
+	km.SetRecordGuard(func() error { guards.Add(1); return nil })
 
 	km.Start("job-50", func(database.ReplicationMetric) {}, func(string, string) {})
 	waitForCommit(t, committed, "0/8")
@@ -146,6 +149,32 @@ func TestStartRunsHookOncePerRecordAcrossRetries(t *testing.T) {
 	assert.Equal(t, 3, produced["v7"])
 	assert.GreaterOrEqual(t, produced["v8"], 1)
 	assert.Equal(t, map[string]int{"v7": 1, "v8": 1}, hooks)
+	assert.GreaterOrEqual(t, guards.Load(), int32(4), "the guard must also run on both retries")
+}
+
+func TestProtectionTriggerDoesNotProduceOrCommitTheTriggeringRecord(t *testing.T) {
+	var produced []string
+	km, log := startMirrorForTest(t, fetchOf("big", partitionRecords{0, []int64{0, 1, 2}}), func(_ context.Context, r *kgo.Record, done func(*kgo.Record, error)) {
+		produced = append(produced, string(r.Value))
+		done(r, nil)
+	})
+	halted := false
+	km.SetRecordHook(func(_ string, _, value []byte) {
+		if string(value) == "v1" {
+			halted = true
+		}
+	})
+	km.SetRecordGuard(func() error {
+		if halted {
+			return errors.New("replication halted: high-entropy rewrite")
+		}
+		return nil
+	})
+	km.Consumer.SetProduceRetryForTest(2, 0)
+	reason := startAndWaitForFailure(t, km, func(database.ReplicationMetric) {})
+	assert.Contains(t, reason, "replication halted: high-entropy rewrite")
+	assert.Equal(t, []string{"v0"}, produced)
+	assert.Equal(t, []string{"0/0"}, log.get())
 }
 
 func keys(rs []*kgo.Record) []string {

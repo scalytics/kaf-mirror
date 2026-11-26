@@ -116,6 +116,8 @@ The counter checks (empty values, errors, payload size) look at the reports of t
 
 These are heuristics. They can fire on a legitimate bulk rewrite. If you already know the source is bad, halt yourself; do not wait for auto.
 
+Payload inspection runs before a record is submitted to the target. The record that triggers a halt is rejected, and every subsequent send, including a retry, checks protection again. Its source offset is not committed. Writes already submitted to the target cannot be withdrawn. A protection-state read error blocks sends. If saving a halt fails, the running process keeps the halt in memory until a successful resume; repair storage before restarting the process, because that unsaved halt cannot survive a restart.
+
 Automatic halt cannot see ransomware that only encrypts **S3 objects** under kafscale (for example SSE-C). That is outside the Kafka consume path. Already-written S3 objects staying read-only is still what saved data in the incident.
 
 ## What this does not do

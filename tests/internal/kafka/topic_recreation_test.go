@@ -308,6 +308,7 @@ func scriptedTopicConsumer(script *pollScript, meta *metadataScript) *kafka.Cons
 
 func scriptedTopicConsumerRevoke(script *pollScript, meta *metadataScript, autoRevoke bool) *kafka.Consumer {
 	consumer := kafka.NewConsumerForTest(nil, nil)
+	consumer.AssignPartitions(map[string][]int32{"kin": {0}})
 	consumer.Client = &mocks.MockKgoClient{
 		PollFetchesFunc: script.poll,
 		RequestFunc:     meta.request,
@@ -690,4 +691,30 @@ func TestSwitchResubscribesAfterTheRevokeWaitTimesOut(t *testing.T) {
 	require.NoError(t, <-done)
 	assert.Equal(t, []string{"kin"}, meta.adds())
 	assert.Equal(t, []string{"kin"}, meta.purges())
+}
+
+func TestSwitchWithoutOwnedPartitionsDoesNotWaitForARevoke(t *testing.T) {
+	meta := &metadataScript{answer: func(int) ([16]byte, int16) { return topicIDNew, 0 }}
+	script := &pollScript{next: func(n int) kgo.Fetches {
+		if n == 1 {
+			return emptyFetchWithID(topicIDKin)
+		}
+		return nil
+	}}
+	consumer := scriptedTopicConsumerRevoke(script, meta, false)
+	consumer.RevokePartitions(map[string][]int32{"kin": {0}})
+	consumer.AssignPartitions(map[string][]int32{"other": {0}})
+	consumer.SetTopicCheckIntervalForTest(time.Millisecond)
+	consumer.SetTopicRejoinWaitForTest(time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
+	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+
+	require.Eventually(t, func() bool {
+		return len(meta.adds()) == 1 && consumer.GetMetrics().TopicRecreations == 1
+	}, 5*time.Second, time.Millisecond, "must not wait an hour for an impossible revoke")
+	assert.Equal(t, []string{"kin"}, meta.purges())
+	assert.Equal(t, []string{"kin"}, meta.adds())
+	assert.Equal(t, int64(-1), meta.commits()[0].Offset)
 }

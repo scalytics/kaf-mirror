@@ -747,10 +747,15 @@ func (jm *JobManager) StartJob(jobID string) error {
 	}
 
 	if inspector, ok := kafMirror.(kafka.RecordInspector); ok && jm.Protection != nil {
+		inspector.SetRecordGuard(func() error {
+			return jm.Protection.GuardStart(targetCluster.Role)
+		})
 		inspector.SetRecordHook(func(topic string, key, value []byte) {
 			if reason := jm.Protection.Ingest(topic, key, value); reason != "" {
 				logger.Error("protection auto-halt: %s", reason)
-				_ = jm.Protection.Halt(reason, "auto")
+				if err := jm.Protection.Halt(reason, "auto"); err != nil {
+					logger.Error("cannot persist protection auto-halt: %v", err)
+				}
 				go jm.HaltRunningJobs(reason)
 			}
 		})

@@ -1321,6 +1321,11 @@
             }).join('');
         }
 
+        function renderJobFailure(job) {
+            if ((job.status !== 'failed' && job.status !== 'paused') || !job.failed_reason) return '';
+            return `<div class="job-failure-reason" style="white-space: pre-wrap; overflow-wrap: anywhere;"><strong>Reason:</strong> ${escapeHtml(job.failed_reason)}</div>`;
+        }
+
         function updateJobsTable(jobs) {
             jobs = asArray(jobs);
             const tbody = document.querySelector('#jobs-table tbody');
@@ -1350,7 +1355,7 @@
                 }))
             );
             
-            Promise.all(jobPromises).then(jobsWithMetrics => {
+            return Promise.all(jobPromises).then(jobsWithMetrics => {
                 tbody.innerHTML = jobsWithMetrics.map((job, index) => {
                     let lastActive = "Never";
                     if (job.status === 'active' && job.lastActiveTime) {
@@ -1363,7 +1368,7 @@
                     return `
                         <tr data-job-id="${index}">
                             <td data-label="Job">${escapeHtml(job.name || 'Unnamed Job')}</td>
-                            <td data-label="Status"><span class="status ${job.status || 'unknown'}">${job.status || 'Unknown'}</span></td>
+                            <td data-label="Status"><span class="status ${escapeHtml(job.status || 'unknown')}">${escapeHtml(job.status || 'Unknown')}</span>${renderJobFailure(job)}</td>
                             <td data-label="Last Active">${lastActive}</td>
                             <td data-label="Source">${escapeHtml(job.source_cluster_name || 'Unknown')}</td>
                             <td data-label="Target">${escapeHtml(job.target_cluster_name || 'Unknown')}</td>
@@ -1377,11 +1382,12 @@
                                         <div>
                                             <h4 style="color: var(--primary-color); margin-bottom: 1rem;">📊 Configuration & Metrics</h4>
                                             <div class="recommendation-details" style="margin-bottom: 1rem;">
-                                                <strong>Job ID:</strong> ${job.id || 'N/A'}<br>
+                                                ${renderJobFailure(job)}
+                                                <strong>Job ID:</strong> ${escapeHtml(job.id || 'N/A')}<br>
                                                 <strong>Created:</strong> ${job.created_at ? new Date(job.created_at).toLocaleString() : 'N/A'}<br>
                                                 <strong>Batch Size:</strong> ${job.batch_size > 0 ? job.batch_size : 1000} KB<br>
-                                                <strong>Compression:</strong> ${job.compression || 'none'}<br>
-                                                <strong>Source -> Target:</strong> ${job.source_cluster_name} -> ${job.target_cluster_name}
+                                                <strong>Compression:</strong> ${escapeHtml(job.compression || 'none')}<br>
+                                                <strong>Source -> Target:</strong> ${escapeHtml(job.source_cluster_name)} -> ${escapeHtml(job.target_cluster_name)}
                                             </div>
                                             <div id="job-metrics-${index}" class="recommendation-details">
                                                 <em>Loading current metrics...</em>
