@@ -9,6 +9,38 @@ It interacts with the kaf-mirror API to perform various tasks.
 
 A command that fails exits with status 1. That includes an unknown subcommand, such as `clusters delete`. `--help` and a group command with no extra arguments exit with status 0. The group command prints its help.
 
+## Shell completion
+
+Both `mirror-cli` and `admin-cli` support `completion bash|zsh|fish|powershell`. Generation works offline without login, configuration, or a database. Put both binaries on your `PATH` first (for a local build, `export PATH="$PWD/bin:$PATH"`).
+
+For Bash, install the `bash-completion` package, version 2 or later. The scripts do not work with the macOS system Bash 3.2. On macOS use Zsh, or install a current Bash and `bash-completion@2` with Homebrew. Then run:
+
+```bash
+mkdir -p "$HOME/.local/share/bash-completion/completions"
+mirror-cli completion bash > "$HOME/.local/share/bash-completion/completions/mirror-cli"
+admin-cli completion bash > "$HOME/.local/share/bash-completion/completions/admin-cli"
+source "$HOME/.local/share/bash-completion/completions/mirror-cli"
+source "$HOME/.local/share/bash-completion/completions/admin-cli"
+```
+
+The files are loaded automatically in new sessions by `bash-completion`.
+
+For Zsh, run:
+
+```zsh
+mkdir -p "$HOME/.zsh/completions"
+mirror-cli completion zsh > "$HOME/.zsh/completions/_mirror-cli"
+admin-cli completion zsh > "$HOME/.zsh/completions/_admin-cli"
+```
+
+Add these lines to `~/.zshrc`, placing the `fpath` line before any existing `compinit` call (only one `compinit` call is needed), then start a new shell:
+
+```zsh
+fpath=("$HOME/.zsh/completions" $fpath)
+autoload -Uz compinit
+compinit
+```
+
 ## Global Options
 
 ```
@@ -128,6 +160,160 @@ This command tests the connection to a specified Kafka cluster and provides deta
 
 ```
 mirror-cli clusters test [name]
+```
+
+### mirror-cli completion
+
+**Generate the autocompletion script for the specified shell**
+
+Generate the autocompletion script for mirror-cli for the specified shell.
+See each sub-command's help for details on how to use the generated script.
+
+
+### Usage
+
+```
+mirror-cli completion
+```
+
+### Available Subcommands
+
+- **bash** - Generate the autocompletion script for bash
+- **fish** - Generate the autocompletion script for fish
+- **powershell** - Generate the autocompletion script for powershell
+- **zsh** - Generate the autocompletion script for zsh
+
+#### mirror-cli completion bash
+
+**Generate the autocompletion script for bash**
+
+Generate the autocompletion script for the bash shell.
+
+This script depends on the 'bash-completion' package.
+If it is not installed already, you can install it via your OS's package manager.
+
+To load completions in your current shell session:
+
+	source <(mirror-cli completion bash)
+
+To load completions for every new session, execute once:
+
+**Linux:**
+
+	mirror-cli completion bash > /etc/bash_completion.d/mirror-cli
+
+**macOS:**
+
+	mirror-cli completion bash > $(brew --prefix)/etc/bash_completion.d/mirror-cli
+
+You will need to start a new shell for this setup to take effect.
+
+
+### Usage
+
+```
+mirror-cli completion bash [flags]
+```
+
+### Options
+
+```
+      --no-descriptions   disable completion descriptions
+```
+
+#### mirror-cli completion fish
+
+**Generate the autocompletion script for fish**
+
+Generate the autocompletion script for the fish shell.
+
+To load completions in your current shell session:
+
+	mirror-cli completion fish | source
+
+To load completions for every new session, execute once:
+
+	mirror-cli completion fish > ~/.config/fish/completions/mirror-cli.fish
+
+You will need to start a new shell for this setup to take effect.
+
+
+### Usage
+
+```
+mirror-cli completion fish [flags]
+```
+
+### Options
+
+```
+      --no-descriptions   disable completion descriptions
+```
+
+#### mirror-cli completion powershell
+
+**Generate the autocompletion script for powershell**
+
+Generate the autocompletion script for powershell.
+
+To load completions in your current shell session:
+
+	mirror-cli completion powershell | Out-String | Invoke-Expression
+
+To load completions for every new session, add the output of the above command
+to your powershell profile.
+
+
+### Usage
+
+```
+mirror-cli completion powershell [flags]
+```
+
+### Options
+
+```
+      --no-descriptions   disable completion descriptions
+```
+
+#### mirror-cli completion zsh
+
+**Generate the autocompletion script for zsh**
+
+Generate the autocompletion script for the zsh shell.
+
+If shell completion is not already enabled in your environment you will need
+to enable it.  You can execute the following once:
+
+	echo "autoload -U compinit; compinit" >> ~/.zshrc
+
+To load completions in your current shell session:
+
+	source <(mirror-cli completion zsh)
+
+To load completions for every new session, execute once:
+
+**Linux:**
+
+	mirror-cli completion zsh > "${fpath[1]}/_mirror-cli"
+
+**macOS:**
+
+	mirror-cli completion zsh > $(brew --prefix)/share/zsh/site-functions/_mirror-cli
+
+You will need to start a new shell for this setup to take effect.
+
+
+### Usage
+
+```
+mirror-cli completion zsh [flags]
+```
+
+### Options
+
+```
+      --no-descriptions   disable completion descriptions
 ```
 
 ### mirror-cli config

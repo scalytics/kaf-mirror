@@ -167,7 +167,8 @@ and for emergency maintenance. It interacts directly with the database.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.Name() == "help" {
+			if cmd.Name() == "help" || cmd.Name() == cobra.ShellCompRequestCmd ||
+				(cmd.Parent() != nil && cmd.Parent().Name() == "completion") {
 				return nil
 			}
 			loadedConfigPath = ""
@@ -661,7 +662,6 @@ and for emergency maintenance. It interacts directly with the database.`,
 	importCmd.AddCommand(importDatabaseCmd, importConfigCmd, importFullCmd)
 
 	rootCmd.AddCommand(usersCmd, tokensCmd, repairCmd, resetAdminPasswordCmd, backupCmd, restoreCmd, importCmd)
-	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	rootCmd.SetArgs(args)
 	return rootCmd.Execute()
 }
