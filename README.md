@@ -469,7 +469,7 @@ The `admin-cli` provides backup, restore, and import commands for disaster recov
 
 - `./admin-cli backup database <output-path>`: Back up the SQLite database with all jobs, users, clusters and operational data. A path that does not end in `.db` gets `-backup-<timestamp>.db` added.
 - `./admin-cli backup config <output-path>`: Back up the configuration file. A path that does not end in `.yml` gets `-config-backup-<timestamp>.yml` added. Use `--config-path` to name the config file.
-- `./admin-cli backup full <output-directory>`: Write `database.db` and `config.yml` to a new `kaf-mirror-backup-<timestamp>` directory.
+- `./admin-cli backup full <output-directory>`: Write `database.db` and `config.yml` to a new `kaf-mirror-backup-<timestamp>` directory. With no `--config-path`, the config is the file admin-cli loaded (`CONFIG_PATH`, or `default.yml`). If that file is missing, the database is still written and the command prints a warning.
 
 Examples:
 ```bash

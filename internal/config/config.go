@@ -321,8 +321,15 @@ type PrometheusConfig struct {
 
 var AppConfig Config
 
+var loadedConfigFile string
+
+func LoadedConfigFile() string {
+	return loadedConfigFile
+}
+
 // LoadConfig loads configuration from standard paths.
 func LoadConfig() (*Config, error) {
+	loadedConfigFile = ""
 	if configPath := os.Getenv("CONFIG_PATH"); configPath != "" {
 		viper.SetConfigFile(configPath)
 	} else {
@@ -339,6 +346,7 @@ func LoadConfig() (*Config, error) {
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, err
 	}
+	loadedConfigFile = viper.ConfigFileUsed()
 
 	if os.Getenv("CONFIG_PATH") == "" {
 		viper.SetConfigName("prod")

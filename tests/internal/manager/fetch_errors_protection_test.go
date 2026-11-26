@@ -17,7 +17,6 @@ import (
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
 	"kaf-mirror/internal/kafka"
-	"kaf-mirror/internal/protection"
 	"kaf-mirror/tests/mocks"
 
 	"github.com/google/uuid"
@@ -36,7 +35,7 @@ func TestFetchErrorsDoNotTripTheProduceErrorAutoHalt(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, jm, _ := setupManagerTest(t)
-			jm.Protection = protection.New(db, config.ProtectionConfig{AutoHalt: config.AutoHaltConfig{Enabled: true}})
+			useProtection(t, jm, db)
 			require.NoError(t, jm.Protection.SetEnabled(true))
 			require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "src", Brokers: "localhost:9092", SecurityConfig: "{}"}))
 			require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: "tgt", Brokers: "localhost:9093", SecurityConfig: "{}"}))

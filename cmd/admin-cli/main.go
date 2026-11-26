@@ -15,6 +15,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"kaf-mirror/internal/config"
@@ -28,9 +29,17 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var db *sqlx.DB
+
+var errOut io.Writer = os.Stderr
+
+func configFileNotFound(err error) bool {
+	var missing viper.ConfigFileNotFoundError
+	return errors.As(err, &missing)
+}
 
 func copyFile(src, dst string) error {
 	sourceFile, err := os.Open(src)
@@ -140,32 +149,62 @@ func newAddUserCmd() *cobra.Command {
 }
 
 func main() {
+	if err := run(os.Args[1:]); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
+
+func run(args []string) error {
 	var dbPath string
+	var loadedConfigPath string
 
 	var rootCmd = &cobra.Command{
 		Use:   "admin-cli",
 		Short: "A CLI for bootstrapping and emergency maintenance of kaf-mirror.",
 		Long: `admin-cli is a command-line tool for bootstrapping the application
 and for emergency maintenance. It interacts directly with the database.`,
-		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Name() == "help" {
+				return nil
+			}
+			loadedConfigPath = ""
+			dbFlag := cmd.Flags().Lookup("db-path")
+			dbSet := dbFlag != nil && dbFlag.Changed
+			if os.Getenv("CONFIG_PATH") != "" || !dbSet {
+				viper.Reset()
+				cfg, err := config.LoadConfig()
+				if err != nil {
+					if os.Getenv("CONFIG_PATH") != "" || !configFileNotFound(err) {
+						return fmt.Errorf("failed to load configuration: %w", err)
+					}
+				} else {
+					loadedConfigPath = config.LoadedConfigFile()
+					if !dbSet && cfg.Database.Path != "" {
+						dbPath = cfg.Database.Path
+					}
+				}
+			}
+			if dbPath == "" {
+				return fmt.Errorf("database path is required: pass --db-path or provide a config file")
+			}
 			var err error
 			db, err = database.InitDB(dbPath)
 			if err != nil {
-				log.Fatalf("Failed to connect to database: %v", err)
+				return fmt.Errorf("failed to connect to database: %w", err)
 			}
+			return nil
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
 			if db != nil {
 				db.Close()
+				db = nil
 			}
 		},
 	}
-
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
-	}
-	rootCmd.PersistentFlags().StringVar(&dbPath, "db-path", cfg.Database.Path, "Path to the SQLite database file.")
+	rootCmd.PersistentFlags().StringVar(&dbPath, "db-path", "", "Path to the SQLite database file. Defaults to database.path from the config file.")
 
 	var usersCmd = &cobra.Command{
 		Use:   "users",
@@ -430,6 +469,9 @@ and for emergency maintenance. It interacts directly with the database.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			outputDir := args[0]
 			configPath, _ := cmd.Flags().GetString("config-path")
+			if !cmd.Flags().Changed("config-path") && loadedConfigPath != "" {
+				configPath = loadedConfigPath
+			}
 			timestamp := time.Now().Format("20060102-150405")
 			backupDir := filepath.Join(outputDir, fmt.Sprintf("kaf-mirror-backup-%s", timestamp))
 
@@ -446,7 +488,9 @@ and for emergency maintenance. It interacts directly with the database.`,
 			}
 			fmt.Printf("Database backed up to: %s\n", dbBackupPath)
 
-			if _, err := os.Stat(configPath); err == nil {
+			if _, err := os.Stat(configPath); err != nil {
+				fmt.Fprintf(errOut, "Warning: configuration %s was not included in the backup: %v\n", configPath, err)
+			} else {
 				configBackupPath := filepath.Join(backupDir, "config.yml")
 				if err := copyPrivateFile(configPath, configBackupPath); err != nil {
 					log.Fatalf("Failed to backup configuration: %v", err)
@@ -618,9 +662,6 @@ and for emergency maintenance. It interacts directly with the database.`,
 
 	rootCmd.AddCommand(usersCmd, tokensCmd, repairCmd, resetAdminPasswordCmd, backupCmd, restoreCmd, importCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
-
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	rootCmd.SetArgs(args)
+	return rootCmd.Execute()
 }

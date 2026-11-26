@@ -20,7 +20,6 @@ import (
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
 	"kaf-mirror/internal/kafka"
-	"kaf-mirror/internal/protection"
 	"kaf-mirror/tests/mocks"
 
 	"github.com/stretchr/testify/require"
@@ -39,7 +38,7 @@ func TestPayloadAttackIsBlockedBeforeProduceAndPausesTheJob(t *testing.T) {
 
 func testPayloadAttack(t *testing.T, failPersistence bool) {
 	db, jm, _ := setupManagerTest(t)
-	jm.Protection = protection.New(db, config.ProtectionConfig{AutoHalt: config.AutoHaltConfig{Enabled: true}})
+	useProtection(t, jm, db)
 	require.NoError(t, jm.Protection.SetEnabled(true))
 	for _, name := range []string{"src", "dst"} {
 		require.NoError(t, database.CreateCluster(db, &database.KafkaCluster{Name: name, Brokers: "localhost:9092", SecurityConfig: "{}", Role: "dr"}))
