@@ -221,6 +221,8 @@
 <p>mirror-cli is a command-line tool for managing kaf-mirror.</p>
 <p>It interacts with the kaf-mirror API to perform various tasks.</p>
 <br>
+<p>A command that fails exits with status 1. That includes an unknown subcommand, such as <code>clusters delete</code>. <code>--help</code> and a group command with no extra arguments exit with status 0. The group command prints its help.</p>
+<br>
 <h2 id="global-options">Global Options</h2>
 <br>
 <pre><code>      --mirror-url string   URL of the kaf-mirror backend. (default &#34;http://localhost:8080&#34;)

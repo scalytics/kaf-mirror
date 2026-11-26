@@ -66,6 +66,9 @@ func TestGeneratedDocsHaveNoEmptyShorthand(t *testing.T) {
 	if !strings.Contains(doc, "  -v, --version") {
 		t.Fatal("generated docs miss a flag with a shorthand")
 	}
+	if !strings.Contains(doc, "exits with status 1") || !strings.Contains(doc, "clusters delete") {
+		t.Fatal("generated docs do not state the command exit status")
+	}
 }
 
 func newResetBackend(t *testing.T) *httptest.Server {
@@ -192,6 +195,10 @@ func TestCommittedCLIDocsHaveNoEmptyShorthand(t *testing.T) {
 		}
 		if strings.Contains(string(raw), "  -, --") {
 			t.Errorf("%s still renders a flag without shorthand as \"-, --\"", path)
+		}
+		if (strings.HasSuffix(path, filepath.Join("docs", "cli-commands.md")) || strings.HasSuffix(path, filepath.Join("web", "docu", "cli-commands.html"))) &&
+			(!strings.Contains(string(raw), "exits with status 1") || !strings.Contains(string(raw), "clusters delete")) {
+			t.Errorf("%s does not state the command exit status", path)
 		}
 	}
 }

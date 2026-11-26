@@ -2797,6 +2797,8 @@ func generateConsolidatedDocs(cmd *cobra.Command, w io.Writer) error {
 		fmt.Fprintf(w, "## Description\n\n%s\n\n", cmd.Long)
 	}
 
+	fmt.Fprintf(w, "A command that fails exits with status 1. That includes an unknown subcommand, such as `clusters delete`. `--help` and a group command with no extra arguments exit with status 0. The group command prints its help.\n\n")
+
 	if cmd.Example != "" {
 		fmt.Fprintf(w, "## Examples\n\n```\n%s\n```\n\n", cmd.Example)
 	}

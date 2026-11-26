@@ -333,6 +333,8 @@ unset KM_PASSWORD
 
 Running `mirror-cli` without a command starts the interactive shell, which needs a terminal on stdin and stdout. Without one it prints an error and exits with status 1. `mirror-cli --help` and the other commands work without a terminal. `mirror-cli dashboard` also needs a terminal.
 
+A command that fails exits with status 1. That includes an unknown subcommand, such as `clusters delete`. `mirror-cli --help` and a group command with no extra arguments, such as `mirror-cli clusters`, exit with status 0. The group command prints its help.
+
 **Configuration Management**
 
 - `./mirror-cli config get`: Get the current configuration from the server.
@@ -463,20 +465,22 @@ Automated scheduling is controlled by `compliance.schedule` (daily/weekly/monthl
 
 The `admin-cli` provides backup, restore, and import commands for disaster recovery and system migration.
 
+`admin-cli --help` needs no config file and no database. A database command works with `--db-path` and no config file when `CONFIG_PATH` is unset. If `CONFIG_PATH` is set and that file cannot be read, the command fails. Without `--db-path`, admin-cli reads `database.path` from the loaded config. A missing database path fails with `database path is required: pass --db-path or provide a config file`. `--db-path` is a flag of `admin-cli`. `--config-path` belongs to the backup, restore and import subcommand that uses it.
+
 **Backup Operations**
 
 `backup database` and `backup full` take a consistent copy of the SQLite database with `VACUUM INTO`. The copy includes writes that are still in the WAL file (`kaf-mirror.db-wal`), so you can run them while kaf-mirror runs. Every backup file is created with mode `0600`, because the database holds password hashes and API tokens and the config file can hold credentials, and `backup full` creates its directory with mode `0700`. Breaking: a backup never overwrites an existing file. If the path exists, the command fails and leaves the file alone.
 
 - `./admin-cli backup database <output-path>`: Back up the SQLite database with all jobs, users, clusters and operational data. A path that does not end in `.db` gets `-backup-<timestamp>.db` added.
 - `./admin-cli backup config <output-path>`: Back up the configuration file. A path that does not end in `.yml` gets `-config-backup-<timestamp>.yml` added. Use `--config-path` to name the config file.
-- `./admin-cli backup full <output-directory>`: Write `database.db` and `config.yml` to a new `kaf-mirror-backup-<timestamp>` directory. With no `--config-path`, the config is the file admin-cli loaded (`CONFIG_PATH`, or `default.yml`). If that file is missing, the database is still written and the command prints a warning.
+- `./admin-cli backup full <output-directory>`: Write `database.db` and `config.yml` to a new `kaf-mirror-backup-<timestamp>` directory. The copied config is the base file that was loaded: the file named by `CONFIG_PATH`, or `default.yml` when `CONFIG_PATH` is unset. It is not the `prod.yml` overlay. Pass `--config-path` to copy a different file. When `--db-path` is set and no config was loaded, the default `--config-path` is `configs/default.yml`. If that file is missing, the database is still written and the command prints `Warning: configuration <path> was not included in the backup`.
 
 Examples:
 ```bash
 ./admin-cli backup database my-backup
 ./admin-cli backup database kaf-mirror-copy.db
 ./admin-cli backup config config-backup --config-path configs/default.yml
-./admin-cli backup full /tmp/kaf-mirror-backups
+./admin-cli --db-path /var/lib/kaf-mirror/kaf-mirror.db backup full /tmp/kaf-mirror-backups --config-path configs/default.yml
 ls -l my-backup-backup-*.db config-backup-config-backup-*.yml /tmp/kaf-mirror-backups/kaf-mirror-backup-*/
 ```
 
@@ -508,7 +512,7 @@ Import data from another kaf-mirror instance. `import database` and `import full
 
 - `./admin-cli import database <source-path>`: Import the database of another kaf-mirror instance. **Replaces the current database.**
 - `./admin-cli import config <source-path>`: Import a configuration file.
-- `./admin-cli import full <source-directory>`: Import `database.db` and `config.yml` from a `backup full` directory.
+- `./admin-cli import full <source-directory>`: Import `database.db` and `config.yml` from a `backup full` directory. `config.yml` is written to `--config-path` (default `configs/default.yml`). When the backup has no `config.yml`, the command prints `No configuration found in source directory, skipping.` and still imports the database.
 
 Examples:
 ```bash
@@ -529,14 +533,14 @@ Examples:
 
 To migrate kaf-mirror between systems:
 
-1. **Source system**: create a full backup.
+1. **Source system**: create a full backup. The backup directory gets `database.db` and `config.yml`. `--db-path` and `--config-path` name those files, so the command works from any directory. With no `--config-path`, `config.yml` is the loaded base file (`CONFIG_PATH`, or `default.yml`) when a config was loaded, and `configs/default.yml` when it was not.
    ```bash
-   ./admin-cli backup full /tmp/migration-backup
+   ./admin-cli --db-path /var/lib/kaf-mirror/kaf-mirror.db backup full /tmp/migration-backup --config-path /etc/kaf-mirror/default.yml
    ```
 
-2. **Target system**: stop kaf-mirror, copy the backup directory over and import it.
+2. **Target system**: stop kaf-mirror, copy the backup directory over and import it. `--config-path` is where `config.yml` from the backup is written.
    ```bash
-   ./admin-cli import full /tmp/migration-backup/kaf-mirror-backup-20240813-150405 --yes
+   ./admin-cli --db-path /var/lib/kaf-mirror/kaf-mirror.db import full /tmp/migration-backup/kaf-mirror-backup-20240813-150405 --config-path /etc/kaf-mirror/default.yml --yes
    ```
 
 3. **Verification**: start kaf-mirror and check that all clusters, jobs and users were migrated.
@@ -566,10 +570,32 @@ Use the Helm chart in section 5. It is the supported way to run kaf-mirror in Ku
 
 ### 5. Run with Helm
 
-The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health` on storage that honors `fsGroup`. The chart's default image tag is `v1.3.1`, which does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, make it available to the cluster, and point the chart at it:
+The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health` on storage that honors `fsGroup`. The chart's default image tag is `v1.3.1`, which does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, load it into the cluster, and point the chart at it. `image.pullPolicy` is `IfNotPresent`, so the node that runs the pod must already have the image.
 
 ```bash
 docker build -t kaf-mirror:local .
+```
+
+On kind, when kind uses the same Docker daemon as the build:
+
+```bash
+kind load docker-image kaf-mirror:local
+```
+
+When Docker is rootless, or you need `sudo` to talk to it, kind cannot see that daemon. Save the image and load the archive:
+
+```bash
+docker save kaf-mirror:local -o kaf-mirror-local.tar
+kind load image-archive kaf-mirror-local.tar
+```
+
+On minikube:
+
+```bash
+minikube image load kaf-mirror:local
+```
+
+```bash
 cat > km-values.yaml <<'VALUES'
 image:
   repository: kaf-mirror
@@ -579,6 +605,8 @@ VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml --wait
 kubectl port-forward svc/km-kaf-mirror 8088:8088
 ```
+
+In another terminal, `curl -s http://localhost:8088/health`. The chart README has the rest of the install.
 
 On kind or k3s with the default `local-path` storage, which does not honor `fsGroup`, kaf-mirror refuses to start on the volume. Turn on the init container that gives the volume to the kaf-mirror user:
 
@@ -590,9 +618,11 @@ VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f volume-permissions-values.yaml --wait
 ```
 
-Pass `-f km-values.yaml` first on every later `helm upgrade`, followed by the values files of the other settings you use. Helm does not keep values from an earlier upgrade, so an upgrade without `km-values.yaml` goes back to the default image.
+That init container runs as root and adds `CHOWN`, `FOWNER` and `DAC_OVERRIDE`. A namespace under the restricted Pod Security standard rejects it. Use storage that honors `fsGroup`, or a volume already owned by UID 100 and GID 101, and leave `volumePermissions.enabled` false. See "Storage permissions" in [deploy/helm/kaf-mirror/README.md](deploy/helm/kaf-mirror/README.md).
 
-*   **TLS:** by default the server runs without TLS (`config.server.allowInsecure: true`). For production, create a TLS Secret, set `config.server.tls.existingSecret` to its name and `config.server.allowInsecure` to `false`. The Secret is mounted at `/app/tls`, the probes use HTTPS, and the ServiceMonitor scrapes HTTPS.
+Pass `-f km-values.yaml` first on every later `helm upgrade`, followed by the values files of the other settings you use. Helm does not keep values from an earlier upgrade, so an upgrade without `km-values.yaml` goes back to the default image. An upgrade that replaces the pod drops `kubectl port-forward`. Start it again.
+
+*   **TLS:** by default the server runs without TLS (`config.server.allowInsecure: true`). For production, create a TLS Secret, set `config.server.tls.existingSecret` to its name and `config.server.allowInsecure` to `false`. The Secret is mounted at `/app/tls`, the probes use HTTPS, and the ServiceMonitor scrapes HTTPS. Start the port-forward again after that upgrade and check `curl -sk https://localhost:8088/health`.
 *   **Kafka TLS:** for a private CA or mTLS to the brokers, put the files in a Secret and set `kafkaTLS.existingSecret`. The Secret is mounted at `/app/kafka-tls`.
 *   **Tokens:** `secretEnv` sets `KAF_MIRROR_AI_TOKEN`, `KAF_MIRROR_AI_API_SECRET` or `KAF_MIRROR_MONITORING_SPLUNK_HEC_TOKEN` from a Secret key. Do not pass secrets with `--set`.
 *   **Metrics:** the ServiceMonitor scrapes `/metrics`, which serves only the Go runtime metrics of the process. Job metrics are not on `/metrics`. They are stored in SQLite, returned by `GET /api/v1/jobs/{id}/metrics/current` and pushed to a Prometheus Pushgateway when `monitoring.platform` is `prometheus`.
@@ -658,9 +688,9 @@ curl -s -X POST "$KM/clusters" -H "Authorization: Bearer $TOKEN" -H 'Content-Typ
   -d '{"name":"src","provider":"plain","brokers":"broker1.example.com:9093","security_config":"{\"protocol\":\"SSL\",\"ca_file\":\"/app/kafka-tls/ca.crt\",\"cert_file\":\"/app/kafka-tls/tls.crt\",\"key_file\":\"/app/kafka-tls/tls.key\"}"}'
 ```
 
-In Docker, mount the files read-only. The container runs as UID 100 and GID 101, so give that group read access to the key:
+In Docker, mount the files read-only. The container runs as UID 100 and GID 101, so give that group read access to the key. `chgrp` without `sudo` returns `Operation not permitted` unless your user is in group 101. If the group cannot be changed, `chmod 0444 tls.key` lets UID 100 read the file, and every user on the host can read the private key:
 ```bash
-chgrp 101 tls.key && chmod 0440 tls.key
+sudo chgrp 101 tls.key && sudo chmod 0440 tls.key
 docker run -d --name kaf-mirror -p 8080:8080 \
   -v kaf-mirror-data:/app/data \
   -v kaf-mirror-logs:/app/logs \
@@ -691,9 +721,9 @@ curl -s -X POST "$KM/clusters" -H "Authorization: Bearer $TOKEN" -H 'Content-Typ
   -d '{"name":"src","provider":"plain","brokers":"broker1.example.com:9093","security_config":"{\"enabled\":true,\"protocol\":\"SASL_SSL\",\"sasl_mechanism\":\"GSSAPI\",\"kerberos\":{\"service_name\":\"kafka\",\"principal\":\"kaf-mirror@EXAMPLE.COM\",\"keytab_path\":\"/app/kerberos/keytab/kafka.keytab\",\"krb5_conf_path\":\"/app/kerberos/krb5/krb5.conf\"}}"}'
 ```
 
-In Docker, mount the keytab and `krb5.conf` read-only. The container runs as UID 100 and GID 101, so give that group read access to the keytab:
+In Docker, mount the keytab and `krb5.conf` read-only. The container runs as UID 100 and GID 101, so give that group read access to the keytab. `chgrp` without `sudo` returns `Operation not permitted` unless your user is in group 101. If the group cannot be changed, `chmod 0444 kafka.keytab` lets UID 100 read the file, and every user on the host can read the keytab:
 ```bash
-chgrp 101 kafka.keytab && chmod 0440 kafka.keytab
+sudo chgrp 101 kafka.keytab && sudo chmod 0440 kafka.keytab
 docker run -d --name kaf-mirror -p 8080:8080 \
   -v kaf-mirror-data:/app/data \
   -v kaf-mirror-logs:/app/logs \
