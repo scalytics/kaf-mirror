@@ -106,3 +106,42 @@ func TestEveryDocumentedHelmCommandKeepsTheImageValues(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallDocsNameTheImageLoadAndPodSecurity(t *testing.T) {
+	chart := readFile(t, filepath.Join(chartDir, "README.md"))
+	root := readFile(t, "../../README.md")
+	config := readFile(t, "../../docs/configuration.md")
+	for _, doc := range []string{chart, root} {
+		for _, phrase := range []string{
+			"kind load docker-image kaf-mirror:local",
+			"kind load image-archive kaf-mirror-local.tar",
+			"minikube image load kaf-mirror:local",
+			"restricted Pod Security standard",
+			"curl -sk https://localhost:8088/health",
+		} {
+			if !strings.Contains(doc, phrase) {
+				t.Errorf("missing %q", phrase)
+			}
+		}
+	}
+	if !strings.Contains(config, "restricted Pod Security standard") {
+		t.Error("configuration.md does not mention the restricted Pod Security standard")
+	}
+	combined := " -f tls-values.yaml -f secret-values.yaml"
+	if strings.Index(chart, combined) < strings.Index(chart, "cat > secret-values.yaml") {
+		t.Error("chart README runs the TLS and Secret upgrade before secret-values.yaml is written")
+	}
+	if strings.Contains(root, "\nchgrp 101 ") {
+		t.Error("README still runs chgrp 101 without sudo")
+	}
+	for _, line := range []string{
+		"sudo chgrp 101 tls.key && sudo chmod 0440 tls.key",
+		"sudo chgrp 101 kafka.keytab && sudo chmod 0440 kafka.keytab",
+		"chmod 0444 tls.key",
+		"chmod 0444 kafka.keytab",
+	} {
+		if !strings.Contains(root, line) {
+			t.Errorf("README missing %q", line)
+		}
+	}
+}

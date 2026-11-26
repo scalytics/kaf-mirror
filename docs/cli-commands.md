@@ -7,6 +7,8 @@ A CLI for managing kaf-mirror.
 mirror-cli is a command-line tool for managing kaf-mirror.
 It interacts with the kaf-mirror API to perform various tasks.
 
+A command that fails exits with status 1. That includes an unknown subcommand, such as `clusters delete`. `--help` and a group command with no extra arguments exit with status 0. The group command prints its help.
+
 ## Global Options
 
 ```

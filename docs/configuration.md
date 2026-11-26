@@ -115,7 +115,7 @@ VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f volume-permissions-values.yaml --wait
 ```
 
-`km-values.yaml` is the image values file from the chart README. See "Storage permissions" in `deploy/helm/kaf-mirror/README.md`.
+`km-values.yaml` is the image values file from the chart README. The init container runs as root (`runAsUser` 0, `runAsNonRoot: false`) and adds `CHOWN`, `FOWNER` and `DAC_OVERRIDE`. A namespace under the restricted Pod Security standard rejects that pod. On those clusters, use storage that honors `fsGroup`, or a volume already owned by UID 100 and GID 101, and leave `volumePermissions.enabled` false. See "Storage permissions" in `deploy/helm/kaf-mirror/README.md`.
 
 ## Cluster API fields
 

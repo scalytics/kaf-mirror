@@ -4,12 +4,34 @@ The chart runs kaf-mirror as a single pod with a ConfigMap for its config, a Per
 
 ## Install
 
-The default image tag is `v1.3.1`. That published image does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, make it available to the cluster, and point the chart at it:
+The default image tag is `v1.3.1`. That published image does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, load it into the cluster, and point the chart at it. `image.pullPolicy` is `IfNotPresent`, so the node that runs the pod must already have the image.
+
+```bash
+docker build -t kaf-mirror:local .
+```
+
+On kind, when kind uses the same Docker daemon as the build:
+
+```bash
+kind load docker-image kaf-mirror:local
+```
+
+When Docker is rootless, or you need `sudo` to talk to it, kind cannot see that daemon. Save the image and load the archive:
+
+```bash
+docker save kaf-mirror:local -o kaf-mirror-local.tar
+kind load image-archive kaf-mirror-local.tar
+```
+
+On minikube:
+
+```bash
+minikube image load kaf-mirror:local
+```
 
 The image settings go in `km-values.yaml`. Every `helm` command on this page passes `-f km-values.yaml` first, so an upgrade never drops them and the pod never goes back to the default image.
 
 ```bash
-docker build -t kaf-mirror:local .
 cat > km-values.yaml <<'VALUES'
 image:
   repository: kaf-mirror
@@ -23,6 +45,12 @@ kubectl port-forward svc/km-kaf-mirror 8088:8088
 
 The `kubectl get` line prints `kaf-mirror:local`.
 
+In another terminal:
+
+```bash
+curl -s http://localhost:8088/health
+```
+
 On kind or k3s with the default `local-path` provisioner, kaf-mirror refuses to start on the volume, because the volume belongs to root and every user can write to it. Turn on the init container that gives it to the kaf-mirror user:
 
 ```bash
@@ -33,19 +61,11 @@ VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f volume-permissions-values.yaml --wait
 ```
 
-See "Storage permissions".
+See "Storage permissions". A namespace under the restricted Pod Security standard rejects this init container. Leave `volumePermissions.enabled` false there and use storage that honors `fsGroup`, or a volume already owned by UID 100 and GID 101.
 
-Each section below writes its own values file and adds it after `km-values.yaml`. Helm does not keep values from an earlier upgrade, so pass every values file you use on each upgrade, in the same order. For example, with TLS and the Secret example:
+A `helm upgrade` that replaces the pod drops `kubectl port-forward`. Start it again after an upgrade that changes volume permissions, TLS, Kafka TLS, secrets or shutdown. The default install answers `curl -s http://localhost:8088/health`. After TLS is on, use `curl -sk https://localhost:8088/health`.
 
-```bash
-helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f tls-values.yaml -f secret-values.yaml --wait
-```
-
-In another terminal:
-
-```bash
-curl -s http://localhost:8088/health
-```
+Each section below writes its own values file and adds it after `km-values.yaml`. Helm does not keep values from an earlier upgrade, so pass every values file you use on each upgrade, in the same order. The TLS section writes `tls-values.yaml` and the Tokens section writes `secret-values.yaml`. The upgrade that uses both is after those files exist.
 
 The default install starts without TLS: `config.server.mode` is `production` and `config.server.allowInsecure` is `true`. For production, give the server a certificate (see TLS below) and set `config.server.allowInsecure` to `false`, so the server refuses to start without TLS.
 
@@ -81,7 +101,7 @@ VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f volume-permissions-values.yaml --wait
 ```
 
-The init container uses the `busybox` image, runs as root, and only adds the `CHOWN`, `FOWNER` and `DAC_OVERRIDE` capabilities. Storage that honors `fsGroup` does not need it.
+The init container uses the `busybox` image. It runs as root (`runAsUser` 0 and `runAsNonRoot: false`) and adds the `CHOWN`, `FOWNER` and `DAC_OVERRIDE` capabilities. A namespace under the restricted Pod Security standard rejects that pod. On those clusters, use storage that honors `fsGroup`, or a volume already owned by UID 100 and GID 101, and leave `volumePermissions.enabled` false. Storage that honors `fsGroup` does not need the init container.
 
 A pre-created volume that belongs to UID 100 and GID 101 also works, without the init container. On kind, create the directory on the node, a StorageClass and a PersistentVolume for it, then install the chart with the matching storage class:
 
@@ -149,6 +169,12 @@ VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f tls-values.yaml --wait
 ```
 
+The upgrade replaces the pod, so start `kubectl port-forward svc/km-kaf-mirror 8088:8088` again. Health is now HTTPS:
+
+```bash
+curl -sk https://localhost:8088/health
+```
+
 ## Kafka TLS
 
 For brokers with a private CA or mTLS, keep the CA certificate and the client certificate and key in a Secret and set `kafkaTLS.existingSecret`. The chart mounts every key of the Secret read-only at `/app/kafka-tls` with mode `0440`, readable by the pod group 101. Those files must be regular files of at most 1 MiB; a symlink to a regular file, as used by Kubernetes Secret mounts, is accepted. Then set `ca_file`, `cert_file` and `key_file` to those paths in `security_config` of the cluster you create with the API, or in `config.sourceSecurity` and `config.targetSecurity`. See "TLS with a private CA or mTLS" in the [main README](../../../README.md#tls-with-a-private-ca-or-mtls).
@@ -168,6 +194,8 @@ config:
 VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f kafka-tls-values.yaml --wait
 ```
+
+Start `kubectl port-forward` again after this upgrade. It replaces the pod.
 
 ## Tokens from a Secret
 
@@ -196,6 +224,14 @@ secretEnv:
 VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f secret-values.yaml --wait
 ```
+
+`tls-values.yaml` and `secret-values.yaml` are both written above. An upgrade that uses them together:
+
+```bash
+helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f tls-values.yaml -f secret-values.yaml --wait
+```
+
+Start the port-forward again. With the TLS values, health is `curl -sk https://localhost:8088/health`.
 
 ## AI analysis
 
@@ -249,6 +285,8 @@ VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f shutdown-values.yaml --wait
 ```
 
+Start `kubectl port-forward` again after this upgrade. It replaces the pod.
+
 ## Values
 
 | Key | Default | Description |
@@ -294,7 +332,7 @@ helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f shutdown-v
 | `persistence.enabled` | `true` | Keep `/app/data` on a PVC. With `false`, data is lost when the pod is replaced. |
 | `persistence.storageClass` | `""` | StorageClass of the PVC. Empty uses the cluster default. |
 | `persistence.size` | `2Gi` | PVC size. |
-| `volumePermissions.enabled` | `false` | Run a root init container that gives `/app/data` to UID 100 and GID 101 and sets mode `0770`. Use this on kind or k3s `local-path` storage, which does not honor `fsGroup`. See "Storage permissions". |
+| `volumePermissions.enabled` | `false` | Run a root init container (`runAsUser` 0, `runAsNonRoot: false`) that gives `/app/data` to UID 100 and GID 101 and sets mode `0770`. It adds `CHOWN`, `FOWNER` and `DAC_OVERRIDE`. Use this on kind or k3s `local-path` storage, which does not honor `fsGroup`. A namespace under the restricted Pod Security standard rejects that pod: use storage that honors `fsGroup`, or a volume already owned by UID 100 and GID 101, and leave this `false`. See "Storage permissions". |
 | `volumePermissions.image` | `busybox:1.37`, `IfNotPresent` | Image of the init container. |
 | `resources` | see `values.yaml` | Container resources. |
 | `probes.liveness` | `initialDelaySeconds: 15`, `periodSeconds: 20` | Liveness probe timing. The probe checks `/health` on the `http` port. |
