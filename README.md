@@ -60,8 +60,13 @@ go build -o bin/mirror-cli ./cmd/mirror-cli
 KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true ./bin/kaf-mirror
 ```
 
-KafScale does not implement `InitProducerId`, so idempotent writes must be off
-when it is the target. On the first start kaf-mirror creates `admin@localhost`
+`KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` is needed only when the target is a
+KafScale release before v2.1.0. Those releases do not implement `InitProducerId`,
+so idempotent writes must be off. KafScale v2.1.0 supports nontransactional
+idempotent producers: its protocol docs list `InitProducerId` v0 to v4 and its
+release notes name KafScale issue 28. With KafScale v2.1.0 or later you can leave
+the variable out. The command above keeps it so it works with every KafScale
+version. On the first start kaf-mirror creates `admin@localhost`
 with a random password and writes it to `data/kaf-mirror-bootstrap-<random>`,
 next to the database. The path is printed on stdout as `Password File`. In a
 third terminal, read the password, then delete the file:
@@ -144,7 +149,7 @@ docker compose -p kaf-mirror exec kaf-mirror sh -c 'rm /tmp/kaf-mirror-admin-res
 
 ### 1b. Run from prebuilt image (GHCR)
 
-The listen address, the `/app/data` and `/app/logs` layout, and the bootstrap password file next to the database are in the image built from this repository. The published `v1.3.1` image does not include them. Until a newer tag is published, build and run locally. Keep `/app/data` (SQLite and the bootstrap password file) and `/app/logs` on named volumes so they survive a restart or a new container:
+The listen address, the `/app/data` and `/app/logs` layout, and the bootstrap password file next to the database are in the `v2.0.0` image and in the image built from this repository. `v1.3.1` and older images do not include them. To run the current `main` branch, build and run locally. Keep `/app/data` (SQLite and the bootstrap password file) and `/app/logs` on named volumes so they survive a restart or a new container:
 ```bash
 docker build -t kaf-mirror:local .
 docker run -d --name kaf-mirror -p 8080:8080 \
@@ -152,9 +157,9 @@ docker run -d --name kaf-mirror -p 8080:8080 \
   -v kaf-mirror-logs:/app/logs \
   kaf-mirror:local
 ```
-`make docker-run` does the same, in the foreground, with the local `kaf-mirror:latest` tag. After a newer image is published, replace `kaf-mirror:local` with `ghcr.io/scalytics/kaf-mirror:<tag>`. You can also use the `latest` tag once it includes this change:
+`make docker-run` does the same, in the foreground, with the local `kaf-mirror:latest` tag. To run a published release instead, replace `kaf-mirror:local` with `ghcr.io/scalytics/kaf-mirror:v2.0.0`, or with `ghcr.io/scalytics/kaf-mirror:latest`, which points at the newest published release:
 ```bash
-docker pull ghcr.io/scalytics/kaf-mirror:latest
+docker pull ghcr.io/scalytics/kaf-mirror:v2.0.0
 ```
 The UI/API will be at `http://localhost:8080`:
 ```bash
@@ -293,7 +298,7 @@ This regenerates the docs and produces `bin/kaf-mirror`, `bin/admin-cli`, and `b
 ```bash
 make binaries
 ```
-`make release-binaries VERSION=v1.4.0` builds the release assets into `dist/` with the same commands the release workflow uses. It needs `x86_64-linux-gnu-gcc` for the Linux builds. Each binary is built from its package, for example `go build ./cmd/admin-cli`, not from a single `main.go`.
+`make release-binaries VERSION=v2.0.0` builds the release assets into `dist/` with the same commands the release workflow uses. It needs `x86_64-linux-gnu-gcc` for the Linux builds. Each binary is built from its package, for example `go build ./cmd/admin-cli`, not from a single `main.go`.
 
 ### 2. Admin and Management
 
@@ -570,7 +575,7 @@ Use the Helm chart in section 5. It is the supported way to run kaf-mirror in Ku
 
 ### 5. Run with Helm
 
-The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health` on storage that honors `fsGroup`. The chart's default image tag is `v1.3.1`, which does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, load it into the cluster, and point the chart at it. `image.pullPolicy` is `IfNotPresent`, so the node that runs the pod must already have the image.
+The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health` on storage that honors `fsGroup`. The chart's default image tag is `v2.0.0`. To run the current `main` branch instead, build the image from this repository, load it into the cluster, and point the chart at it. `image.pullPolicy` is `IfNotPresent`, so the node that runs the pod must already have the image.
 
 ```bash
 docker build -t kaf-mirror:local .
@@ -582,7 +587,7 @@ On kind, when kind uses the same Docker daemon as the build:
 kind load docker-image kaf-mirror:local
 ```
 
-When Docker is rootless, or you need `sudo` to talk to it, kind cannot see that daemon. Save the image and load the archive:
+With Docker Engine 29 and its containerd image store, the default for new installs, `kind load docker-image` can print `ctr: content digest sha256:... not found` and a failure message. When it does, or when Docker is rootless or you need `sudo` to talk to it, so kind cannot see that daemon, save the image and load the archive:
 
 ```bash
 docker save kaf-mirror:local -o kaf-mirror-local.tar
