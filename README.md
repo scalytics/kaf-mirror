@@ -331,7 +331,7 @@ printf '%s\n' "$KM_PASSWORD" | ./mirror-cli login admin@localhost
 unset KM_PASSWORD
 ```
 
-Running `mirror-cli` without a command starts the interactive shell, which needs a terminal on stdin and stdout. Without one it prints an error and exits with status 1. `mirror-cli --help` and the other commands work without a terminal. `mirror-cli dashboard` also needs a terminal.
+Running `mirror-cli` without a command starts the interactive shell, which needs a terminal on stdin and stdout. Without one it prints an error and exits with status 1. `mirror-cli --help` and the other commands work without a terminal. `mirror-cli dashboard` also needs a terminal. The `jobs` commands that take an optional job id, such as `jobs start`, `jobs status full` and `jobs delete`, ask you to select a job when you leave the id out. Without a terminal, pass the job id. Otherwise they print `Operation cancelled: no terminal to select a job, pass the job id`, exit with status 1 and send no request.
 
 A command that fails exits with status 1. That includes an unknown subcommand, such as `clusters delete`. `mirror-cli --help` and a group command with no extra arguments, such as `mirror-cli clusters`, exit with status 0. The group command prints its help.
 
