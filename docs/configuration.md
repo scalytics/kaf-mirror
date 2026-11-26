@@ -99,7 +99,7 @@ Jobs use the clusters stored in the database, not the `clusters` section of the 
 |---|---|
 | `CONFIG_PATH` | Path of the config file. Turns off the `prod.yml` merge. |
 | `KAF_MIRROR_<KEY>` | Overrides a config key that is in the config file, for example `KAF_MIRROR_SERVER_HOST`. |
-| `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES` | `true`, `1` or `yes` turns off idempotent writes for all jobs. Needed when the target does not support `InitProducerId`, for example KafScale. Without idempotent writes, a retried write can be stored twice. |
+| `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES` | `true`, `1` or `yes` turns off idempotent writes for all jobs. Needed when the target does not support `InitProducerId`, for example KafScale before v2.1.0. kaf-mirror with idempotent writes on is verified to work with [KafScale v2.1.0](https://github.com/KafScale/platform/releases/tag/v2.1.0) and later. With KafScale v2.1.0, run the broker with `KAFSCALE_AUTO_CREATE_TOPICS=false`, or the target topic is auto-created with 1 partition and the job fails with a partition count mismatch ([KafScale issue 446](https://github.com/KafScale/platform/issues/446)). Without idempotent writes, a retried write can be stored twice. |
 | `KAF_MIRROR_HALT` | Default name of the halt variable, see `protection.halt_env`. |
 | `EDITOR` | Editor that `mirror-cli config edit <section>` opens. Default `vim`. |
 
