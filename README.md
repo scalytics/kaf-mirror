@@ -30,14 +30,29 @@ docker compose -p kaf-mirror exec kaf-mirror sh -c 'rm /app/data/kaf-mirror-boot
 mirror-cli login admin@localhost
 ```
 
-Add the two clusters. `clusters add` asks for a name, a provider and the brokers. Use the name `source`, provider `plain` and brokers `kafka-source:9092`, then `target` with `kafka-target:9092`. Keep the default role `other`, and answer no when it offers to list topics.
+Add the two clusters with `mirror-cli clusters add`. The command is interactive and takes no arguments. Run it twice and answer the prompts as follows.
+
+| Prompt | First run | Second run |
+| --- | --- | --- |
+| Cluster name: | `source` | `target` |
+| Select provider: | `plain` | `plain` |
+| Brokers (comma-separated): | `kafka-source:9092` | `kafka-target:9092` |
+| Cluster role: | `other` (the default) | `other` (the default) |
+| Would you like to list the topics in the new cluster? | no | no |
 
 ```bash
 mirror-cli clusters add
 mirror-cli clusters add
 ```
 
-Produce three orders, create a job for the `orders` topic and start it. `jobs add` asks for a name, the source and target cluster and the topics. Keep the defaults for the other questions.
+Produce three orders, then create a job for the `orders` topic and start it. `jobs add` is interactive and takes no arguments. Answer the prompts as follows, and keep the defaults for batch size (1000), compression (`none`), the custom target name (no) and the final confirm (yes). `jobs start` with no id asks you to pick the job. Select `orders-copy`.
+
+| Prompt | Answer |
+| --- | --- |
+| Enter job name: | `orders-copy` |
+| Select source cluster: | `source` |
+| Select target cluster: | `target` |
+| Select topics to replicate: | `orders` |
 
 ```bash
 printf 'order-1001\norder-1002\norder-1003\n' | docker compose -p kaf-mirror exec -T kafka-source rpk topic produce orders
@@ -45,7 +60,7 @@ mirror-cli jobs add
 mirror-cli jobs start
 ```
 
-Produce two more orders, read all five from the target, and check the job status and lag.
+Produce two more orders, read all five from the target, and check the job status and lag. `jobs status metrics` with no id also asks you to pick the job. Select `orders-copy` again.
 
 ```bash
 printf 'order-1004\norder-1005\n' | docker compose -p kaf-mirror exec -T kafka-source rpk topic produce orders
@@ -75,6 +90,7 @@ More ways to run it, including bind mounts, a systemd service and Helm, are in [
 - **Compliance:** scheduled compliance reports and an audit trail of every change. [Administration](docs/administration.md)
 - **Kafka security:** TLS, mTLS, SASL and Kerberos to the brokers. [Security](docs/security.md)
 - **AI insights:** opt-in and off by default. Without a provider kaf-mirror makes no AI requests. [Configuration](docs/configuration.md#ai-analysis)
+- **Replication halt (tech preview):** off by default and admin-only. Freezes replication if the source is compromised, for example by ransomware. [Replication halt](docs/protection.md)
 
 ## Need a backup, not just a replica?
 
