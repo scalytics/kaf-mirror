@@ -23,7 +23,6 @@ import (
 func TestRecordGuardRejectsBeforeProduceIncludingRetries(t *testing.T) {
 	for _, attempt := range []int{1, 2} {
 		t.Run(string(rune('0'+attempt)), func(t *testing.T) {
-			// A nil producer intentionally makes any attempted write fail the test.
 			r := NewKafMirrorImplForTest(nil, map[string]string{"source": "target"})
 			hooks, checks, callbacks := 0, 0, 0
 			r.SetRecordHook(func(string, []byte, []byte) { hooks++ })

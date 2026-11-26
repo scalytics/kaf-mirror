@@ -19,7 +19,6 @@ import (
 
 func TestPrepareRevokeWaitTracksAssignments(t *testing.T) {
 	c := &Consumer{}
-	// Watching/fetching a topic does not mean that this member owns partitions.
 	c.watchTopics("kin")
 	c.AssignPartitions(map[string][]int32{"other": {0}, "kin": {}})
 	revoked := c.prepareRevokeWait("kin")
@@ -45,7 +44,6 @@ func TestPrepareRevokeWaitTracksAssignments(t *testing.T) {
 	require.Empty(t, c.topicIDs.revokeTopic)
 	<-c.prepareRevokeWait("kin")
 
-	// Reassignment must restore ownership after a loss/revoke.
 	c.AssignPartitions(map[string][]int32{"kin": {1}})
 	revoked = c.prepareRevokeWait("kin")
 	require.Equal(t, revoked, c.topicIDs.revokeWait)

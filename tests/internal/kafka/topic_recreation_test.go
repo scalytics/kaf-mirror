@@ -592,8 +592,6 @@ func TestSwitchDuringTheFirstRebalanceReadsTheNewTopic(t *testing.T) {
 		return r.consumer.GetMetrics().TopicRecreations == 1 || strings.Contains(r.logText(), "waiting for the consumer group to drop topic kin")
 	}
 	r = newRecreateRigWithAssign(t, func(ctx context.Context, assigned map[string][]int32) {
-		// franz-go also calls OnPartitionsAssigned for an empty assignment.
-		// This test must hold an actual owner in its first assignment callback.
 		if len(assigned["kin"]) == 0 {
 			return
 		}
@@ -708,6 +706,53 @@ func TestSwitchResubscribesAfterTheRevokeWaitTimesOut(t *testing.T) {
 	require.NoError(t, <-done)
 	assert.Equal(t, []string{"kin"}, meta.adds())
 	assert.Equal(t, []string{"kin"}, meta.purges())
+}
+
+func TestSwitchWaitsWhenAssignmentArrivesAsFetchingStops(t *testing.T) {
+	meta := &metadataScript{answer: func(int) ([16]byte, int16) { return topicIDNew, 0 }}
+	script := &pollScript{next: func(n int) kgo.Fetches {
+		if n == 1 {
+			return emptyFetchWithID(topicIDKin)
+		}
+		return nil
+	}}
+	consumer := scriptedTopicConsumerRevoke(script, meta, false)
+	consumer.RevokePartitions(map[string][]int32{"kin": {0}})
+	consumer.Client = &mocks.MockKgoClient{
+		PollFetchesFunc: script.poll,
+		RequestFunc:     meta.request,
+		PurgeTopicsFunc: func(topics ...string) {
+			meta.mu.Lock()
+			meta.purged = append(meta.purged, topics...)
+			meta.mu.Unlock()
+			consumer.AssignPartitions(map[string][]int32{"kin": {0}})
+		},
+		AddConsumeTopicsFunc: func(topics ...string) {
+			meta.mu.Lock()
+			meta.added = append(meta.added, topics...)
+			meta.mu.Unlock()
+		},
+		CommitRecordsFunc: func(_ context.Context, rs ...*kgo.Record) error {
+			meta.mu.Lock()
+			meta.committed = append(meta.committed, rs...)
+			meta.mu.Unlock()
+			return nil
+		},
+	}
+	consumer.SetTopicCheckIntervalForTest(time.Millisecond)
+	consumer.SetTopicRejoinWaitForTest(time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- consumer.Consume(ctx, func(context.Context, *kgo.Record) error { return nil }) }()
+	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+
+	require.Eventually(t, func() bool { return len(meta.purges()) > 0 }, 5*time.Second, time.Millisecond)
+	require.Never(t, func() bool { return len(meta.adds()) > 0 }, 50*time.Millisecond, time.Millisecond)
+	consumer.RevokePartitions(map[string][]int32{"kin": {0}})
+	require.Eventually(t, func() bool {
+		return len(meta.adds()) == 1 && consumer.GetMetrics().TopicRecreations == 1
+	}, 5*time.Second, time.Millisecond)
+	assert.Equal(t, []string{"kin"}, meta.adds())
 }
 
 func TestSwitchWithoutOwnedPartitionsDoesNotWaitForARevoke(t *testing.T) {

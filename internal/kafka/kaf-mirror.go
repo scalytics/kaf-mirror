@@ -83,8 +83,6 @@ func (r *KafMirrorImpl) SetRecordHook(h func(topic string, key, value []byte)) {
 	r.recordHook = h
 }
 
-// SetRecordGuard installs a protection check run before every send, including
-// retries. Hooks inspect a record once; guards also stop already inspected work.
 func (r *KafMirrorImpl) SetRecordGuard(guard func() error) {
 	r.recordGuard = guard
 }

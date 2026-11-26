@@ -522,8 +522,6 @@ func (c *Consumer) RevokePartitions(revoked map[string][]int32) {
 			}
 		}
 	}
-	// Signal before releasing the assignment lock: a later assignment must not
-	// register a wait that this earlier revoke could accidentally complete.
 	c.sessionEnded(revoked)
 }
 

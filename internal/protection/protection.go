@@ -25,8 +25,6 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Sends read guardSnap. Halt, resume, enable, and disable publish it before
-// they return. pollGuard republishes database, halt-file, and halt-env state.
 const guardPollInterval = 200 * time.Millisecond
 
 const (
@@ -169,7 +167,6 @@ func (c *Controller) Halt(reason, by string) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// Stop sends in this process even if persisting the halt fails.
 	c.pendingHalt = reason
 	c.guardGen++
 	if prev := c.guard.Load(); prev != nil && prev.readErr == nil {
@@ -221,8 +218,6 @@ func (c *Controller) bumpGuard() {
 	c.mu.Unlock()
 }
 
-// refreshGuard drops a sample that raced a halt, resume, or enable/disable.
-// Those paths bump guardGen and publish the state that must win.
 func (c *Controller) refreshGuard() {
 	c.mu.Lock()
 	gen := c.guardGen

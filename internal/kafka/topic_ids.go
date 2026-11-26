@@ -203,8 +203,6 @@ func (c *Consumer) clearRevokeWait(revoked chan struct{}) {
 	}
 }
 
-// Register before purging, under the assignment lock, so a concurrent revoke
-// cannot be missed. No callback for this topic is expected without ownership.
 func (c *Consumer) prepareRevokeWait(topic string) chan struct{} {
 	c.partMu.Lock()
 	defer c.partMu.Unlock()
@@ -353,8 +351,8 @@ func (c *Consumer) switchTopic(ctx context.Context, topic string, old, id topicI
 	c.mu.Unlock()
 	c.topicCommitMu.Unlock()
 
-	revoked := c.prepareRevokeWait(topic)
 	c.Client.PurgeTopicsFromConsuming(topic)
+	revoked := c.prepareRevokeWait(topic)
 	logger.Info("Consumer: waiting for the consumer group to drop topic %s before it reads the topic again, job=%s", topic, c.jobID)
 	wait := c.topicRejoinWait()
 	timer := time.NewTimer(wait)
