@@ -83,7 +83,7 @@ docker compose -p kaf-mirror exec kaf-mirror sh -c 'rm /tmp/kaf-mirror-admin-res
 
 ### 1b. Run from prebuilt image (GHCR)
 
-The listen address, the `/app/data` and `/app/logs` layout, and the bootstrap password file next to the database are in the image built from this repository. The published `v1.3.1` image does not include them. Until a newer tag is published, build and run locally. Keep `/app/data` (SQLite and the bootstrap password file) and `/app/logs` on named volumes so they survive a restart or a new container:
+The listen address, the `/app/data` and `/app/logs` layout, and the bootstrap password file next to the database are in the `v2.0.0` image and in the image built from this repository. `v1.3.1` and older images do not include them. To run the current `main` branch, build and run locally. Keep `/app/data` (SQLite and the bootstrap password file) and `/app/logs` on named volumes so they survive a restart or a new container:
 ```bash
 docker build -t kaf-mirror:local .
 docker run -d --name kaf-mirror -p 8080:8080 \
@@ -91,9 +91,9 @@ docker run -d --name kaf-mirror -p 8080:8080 \
   -v kaf-mirror-logs:/app/logs \
   kaf-mirror:local
 ```
-`make docker-run` does the same, in the foreground, with the local `kaf-mirror:latest` tag. After a newer image is published, replace `kaf-mirror:local` with `ghcr.io/scalytics/kaf-mirror:<tag>`. You can also use the `latest` tag once it includes this change:
+`make docker-run` does the same, in the foreground, with the local `kaf-mirror:latest` tag. To run a published release instead, replace `kaf-mirror:local` with `ghcr.io/scalytics/kaf-mirror:v2.0.0`, or with `ghcr.io/scalytics/kaf-mirror:latest`, which points at the newest published release:
 ```bash
-docker pull ghcr.io/scalytics/kaf-mirror:latest
+docker pull ghcr.io/scalytics/kaf-mirror:v2.0.0
 ```
 The UI/API will be at `http://localhost:8080`:
 ```bash
@@ -232,7 +232,7 @@ This regenerates the docs and produces `bin/kaf-mirror`, `bin/admin-cli`, and `b
 ```bash
 make binaries
 ```
-`make release-binaries VERSION=v1.4.0` builds the release assets into `dist/` with the same commands the release workflow uses. It needs `x86_64-linux-gnu-gcc` for the Linux builds. Each binary is built from its package, for example `go build ./cmd/admin-cli`, not from a single `main.go`.
+`make release-binaries VERSION=v2.0.0` builds the release assets into `dist/` with the same commands the release workflow uses. It needs `x86_64-linux-gnu-gcc` for the Linux builds. Each binary is built from its package, for example `go build ./cmd/admin-cli`, not from a single `main.go`.
 
 ### 2. Admin and Management
 
@@ -270,7 +270,7 @@ printf '%s\n' "$KM_PASSWORD" | ./mirror-cli login admin@localhost
 unset KM_PASSWORD
 ```
 
-Running `mirror-cli` without a command starts the interactive shell, which needs a terminal on stdin and stdout. Without one it prints an error and exits with status 1. `mirror-cli --help` and the other commands work without a terminal. `mirror-cli dashboard` also needs a terminal.
+Running `mirror-cli` without a command starts the interactive shell, which needs a terminal on stdin and stdout. Without one it prints an error and exits with status 1. `mirror-cli --help` and the other commands work without a terminal. `mirror-cli dashboard` also needs a terminal. The `jobs` commands that take an optional job id, such as `jobs start`, `jobs status full` and `jobs delete`, ask you to select a job when you leave the id out. Without a terminal, pass the job id. Otherwise they print `Operation cancelled: no terminal to select a job, pass the job id`, exit with status 1 and send no request.
 
 A command that fails exits with status 1. That includes an unknown subcommand, such as `clusters delete`. `mirror-cli --help` and a group command with no extra arguments, such as `mirror-cli clusters`, exit with status 0. The group command prints its help.
 
@@ -509,7 +509,7 @@ Use the Helm chart in section 5. It is the supported way to run kaf-mirror in Ku
 
 ### 5. Run with Helm
 
-The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health` on storage that honors `fsGroup`. The chart's default image tag is `v1.3.1`, which does not include the password file location or the image listen-address change. Until a newer tag is published, build the image from this repository, load it into the cluster, and point the chart at it. `image.pullPolicy` is `IfNotPresent`, so the node that runs the pod must already have the image.
+The Helm chart is in `deploy/helm/kaf-mirror`. A default install starts and answers `/health` on storage that honors `fsGroup`. The chart's default image tag is `v2.0.0`. To run the current `main` branch instead, build the image from this repository, load it into the cluster, and point the chart at it. `image.pullPolicy` is `IfNotPresent`, so the node that runs the pod must already have the image.
 
 ```bash
 docker build -t kaf-mirror:local .
@@ -521,7 +521,7 @@ On kind, when kind uses the same Docker daemon as the build:
 kind load docker-image kaf-mirror:local
 ```
 
-When Docker is rootless, or you need `sudo` to talk to it, kind cannot see that daemon. Save the image and load the archive:
+With Docker Engine 29 and its containerd image store, the default for new installs, `kind load docker-image` can print `ctr: content digest sha256:... not found` and a failure message. When it does, or when Docker is rootless or you need `sudo` to talk to it, so kind cannot see that daemon, save the image and load the archive:
 
 ```bash
 docker save kaf-mirror:local -o kaf-mirror-local.tar
@@ -581,18 +581,55 @@ Kafka-compatible broker that stores immutable segments in S3. Any other
 Kafka-compatible target is set up the same way. More on the pattern:
 [KafShield, Kafka backup and disaster recovery on S3](https://www.scalytics.io/kafshield).
 
-Prerequisites: Go, Docker (for the local MinIO bucket), `make`, and a reachable
-source Kafka cluster.
+Prerequisites: Go, Docker (for the local MinIO bucket), `make`, the Apache Kafka
+CLI (`kafka-topics.sh` on your `PATH`), and a reachable source Kafka cluster.
 
-Start KafScale with a local MinIO bucket. The broker listens on
-`127.0.0.1:39092`:
+**1. Start KafScale with a local S3 bucket (MinIO)**
 
 ```bash
 git clone https://github.com/KafScale/platform.git && cd platform
 make demo
 ```
 
-In a second terminal, from this repo, build and start kaf-mirror:
+The broker listens on `127.0.0.1:39092`. Segments land in the MinIO bucket
+`kafscale`. Leave this terminal running.
+
+Before adding the target cluster to kaf-mirror, open another terminal and
+pre-create **every target topic** with the same partition count as its source.
+KafScale v2.1.0's `make demo` forces auto-create on with one partition, ignoring
+`KAFSCALE_AUTO_CREATE_TOPICS=false` from the environment. If a missing target is
+first discovered through Metadata, it is created with one partition and a
+multi-partition source fails the job's partition-count check
+([KafScale issue 446](https://github.com/KafScale/platform/issues/446)).
+
+For example, inspect the source topic `orders` (replace the source address and
+add `--command-config /path/to/client.properties` if it needs authentication):
+
+```bash
+kafka-topics.sh --bootstrap-server source-kafka:9092 --describe --topic orders
+```
+
+If the output says `PartitionCount: 3`, create the target like this:
+
+```bash
+kafka-topics.sh --bootstrap-server 127.0.0.1:39092 --create --topic orders \
+  --partitions 3 --replication-factor 1
+kafka-topics.sh --bootstrap-server 127.0.0.1:39092 --describe --topic orders
+```
+
+Repeat for each topic you will mirror, using its source partition count and its
+mapped target name if you rename topics. Confirm each target's `PartitionCount`
+matches before continuing. If an earlier attempt already auto-created a target
+with too few partitions, increase it to the source count with `kafka-topics.sh
+--bootstrap-server 127.0.0.1:39092 --alter --topic orders --partitions 3` (adjust
+the name and count). Pre-create newly added target topics before adding them to
+the job as well. For a broker started outside `make demo`, disabling auto-create
+with `KAFSCALE_AUTO_CREATE_TOPICS=false` lets kaf-mirror create missing targets
+with the correct partition count.
+
+**2. Build and start kaf-mirror**
+
+In a second terminal, from this repo:
 
 ```bash
 mkdir -p bin
@@ -605,24 +642,17 @@ kaf-mirror with idempotent writes on, the default, is verified to mirror into an
 out of [KafScale v2.1.0](https://github.com/KafScale/platform/releases/tag/v2.1.0)
 and later. Set `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` only for KafScale before v2.1.0.
 
-With KafScale v2.1.0, run the broker with `KAFSCALE_AUTO_CREATE_TOPICS=false`.
-Otherwise a Metadata request creates the target topic with 1 partition, and the
-job fails with a partition count mismatch
-([KafScale issue 446](https://github.com/KafScale/platform/issues/446)). The
-KafScale `make demo` target starts its broker with auto-create on and does not
-read this setting from the environment.
-
-On the first start kaf-mirror writes the `admin@localhost` password to
-`data/kaf-mirror-bootstrap-<random>` and prints the path as `Password File`. In
-a third terminal, read the password, then delete the file:
+On the first start kaf-mirror creates `admin@localhost`
+with a random password and writes it to `data/kaf-mirror-bootstrap-<random>`,
+next to the database. The path is printed on stdout as `Password File`. In a
+third terminal, read the password, then delete the file:
 
 ```bash
 cat data/kaf-mirror-bootstrap-*
 rm data/kaf-mirror-bootstrap-*
 ```
 
-Add the clusters and start a job. `clusters add` and `jobs add` are
-interactive. The target brokers are `127.0.0.1:39092`:
+**3. Add the clusters and start a job**
 
 ```bash
 ./bin/mirror-cli login admin@localhost   # asks for the password
@@ -633,10 +663,11 @@ interactive. The target brokers are `127.0.0.1:39092`:
 ./bin/mirror-cli jobs status full
 ```
 
-Source offsets are committed only after KafScale acknowledges the write, so a
-stopped job resumes where it left off. For production, run KafScale from its Helm
-chart against a real S3 bucket and consider [replication halt](docs/protection.md),
-which freezes jobs if the source looks compromised.
+`clusters add` and `jobs add` are interactive. Source offsets are committed only
+after KafScale acknowledges the write, so a stopped job resumes where it left
+off. For production, run KafScale from its Helm chart against a real S3 bucket
+and consider [replication halt](docs/protection.md), which freezes jobs if the
+source looks compromised.
 
 ## Security
 

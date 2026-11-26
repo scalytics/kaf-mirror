@@ -4,8 +4,8 @@ description: >
   kaf-mirror, a cross-cluster Kafka topic replication engine.
   Deployed as a Deployment with a Service, a ConfigMap and a PersistentVolumeClaim for SQLite.
 type: application
-version: 0.2.0
-appVersion: "1.3.1"
+version: 0.3.0
+appVersion: "2.0.0"
 maintainers:
   - name: Scalytics Platform Team
 keywords:

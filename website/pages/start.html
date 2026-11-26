@@ -2,7 +2,7 @@
       <div class="wrap">
         <p class="eyebrow">Quick start</p>
         <h1>Run kaf-mirror with Docker or Helm.</h1>
-        <p class="lede">These commands are copied from the README. Paste them from a clone of the repository. The published <code>v1.3.1</code> image does not include the password file location or the image listen-address change, so build from this repository until a newer tag is published.</p>
+        <p class="lede">These commands are copied from the README. Paste them from a clone of the repository. They build from this repository, so they run the current <code>main</code> branch. The <code>v2.0.0</code> image and chart default include the password file location and the image listen-address change. <code>v1.3.1</code> and older do not.</p>
       </div>
     </section>
 
@@ -31,14 +31,14 @@ docker compose -p kaf-mirror exec kaf-mirror sh -c 'rm /tmp/kaf-mirror-admin-res
     <section class="section steps" id="image">
       <div class="wrap">
         <h2>1b. Run an image you build</h2>
-        <p>Until a newer tag is published, build and run locally. Keep <code>/app/data</code> and <code>/app/logs</code> on named volumes so they survive a restart or a new container:</p>
+        <p>To run the current <code>main</code> branch, build and run locally. Keep <code>/app/data</code> and <code>/app/logs</code> on named volumes so they survive a restart or a new container:</p>
 <pre><code>docker build -t kaf-mirror:local .
 docker run -d --name kaf-mirror -p 8080:8080 \
   -v kaf-mirror-data:/app/data \
   -v kaf-mirror-logs:/app/logs \
   kaf-mirror:local</code></pre>
-        <p><code>make docker-run</code> does the same, in the foreground, with the local <code>kaf-mirror:latest</code> tag. After a newer image is published, replace <code>kaf-mirror:local</code> with <code>ghcr.io/scalytics/kaf-mirror:&lt;tag&gt;</code>. You can also use the <code>latest</code> tag once it includes this change:</p>
-<pre><code>docker pull ghcr.io/scalytics/kaf-mirror:latest</code></pre>
+        <p><code>make docker-run</code> does the same, in the foreground, with the local <code>kaf-mirror:latest</code> tag. To run a published release instead, replace <code>kaf-mirror:local</code> with <code>ghcr.io/scalytics/kaf-mirror:v2.0.0</code>, or with <code>ghcr.io/scalytics/kaf-mirror:latest</code>, which points at the newest published release:</p>
+<pre><code>docker pull ghcr.io/scalytics/kaf-mirror:v2.0.0</code></pre>
         <p>The UI and API will be at <code>http://localhost:8080</code>:</p>
 <pre><code>curl -s http://localhost:8080/health</code></pre>
         <p>Stop the container with <code>docker stop -t 45 kaf-mirror</code>, so it has time to stop its jobs.</p>
@@ -53,7 +53,7 @@ docker exec kaf-mirror sh -c 'rm /app/data/kaf-mirror-bootstrap-*'</code></pre>
     <section class="section steps" id="helm">
       <div class="wrap">
         <h2>2. Run with Helm</h2>
-        <p>The Helm chart is in <code>deploy/helm/kaf-mirror</code>. A default install starts and answers <code>/health</code>. The chart's default image tag is <code>v1.3.1</code>. Until a newer tag is published, build the image from this repository, make it available to the cluster, and point the chart at it:</p>
+        <p>The Helm chart is in <code>deploy/helm/kaf-mirror</code>. A default install starts and answers <code>/health</code>. The chart's default image tag is <code>v2.0.0</code>. To run the current <code>main</code> branch instead, build the image from this repository, make it available to the cluster, and point the chart at it:</p>
 <pre><code>docker build -t kaf-mirror:local .
 cat &gt; km-values.yaml &lt;&lt;'VALUES'
 image:
@@ -67,6 +67,7 @@ kubectl port-forward svc/km-kaf-mirror 8088:8088</code></pre>
         <p>In another terminal:</p>
 <pre><code>curl -s http://localhost:8088/health</code></pre>
         <p>The bootstrap password is written to <code>/app/data/kaf-mirror-bootstrap-&lt;random&gt;</code> on the PVC. Read it with <code>kubectl exec deploy/km-kaf-mirror -- sh -c 'cat /app/data/kaf-mirror-bootstrap-*'</code>, then delete the file.</p>
+        <p>kaf-mirror with idempotent writes on, the default, is verified to mirror into and out of <a href="https://github.com/KafScale/platform/releases/tag/v2.1.0">KafScale v2.1.0</a> and later. Set <code>KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true</code> only for KafScale before v2.1.0. With KafScale v2.1.0, run the broker with <code>KAFSCALE_AUTO_CREATE_TOPICS=false</code>, or the target topic is auto-created with 1 partition and the job fails with a partition count mismatch (<a href="https://github.com/KafScale/platform/issues/446">KafScale issue 446</a>).</p>
         <ul>
           <li><strong>TLS:</strong> by default the server runs without TLS (<code>config.server.allowInsecure: true</code>). For production, create a TLS Secret, set <code>config.server.tls.existingSecret</code> to its name and <code>config.server.allowInsecure</code> to <code>false</code>.</li>
           <li><strong>Kafka TLS:</strong> for a private CA or mTLS to the brokers, put the files in a Secret and set <code>kafkaTLS.existingSecret</code>. The Secret is mounted at <code>/app/kafka-tls</code>.</li>

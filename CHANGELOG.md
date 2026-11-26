@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [2.0.0] - 2026-11-26
 ### Breaking
 - Builds require Go 1.27.4 or newer. CI, releases and the Docker builder use Go 1.27.4.
 - kaf-mirror refuses to start when its data directory belongs to another user and every user can write to it without the sticky bit, for example `root:root` with mode `0777`. Any user could replace the database files in such a directory. The error names the directory, its mode and its owner and says how to fix it. A group-writable directory, such as a volume with `fsGroup` 101, and a world-writable directory with the sticky bit still work. The `local-path` provisioner of kind and k3s does not honor `fsGroup` and creates `root:root` `0777` directories, so the default Helm chart no longer starts on it. The error says: use storage that honors fsGroup, or set volumePermissions.enabled: true in the Helm values, or chown the directory to the kaf-mirror user outside Helm. On kind and k3s, add a values file with the setting below and pass it with `-f` after `km-values.yaml`. `volumePermissions` is off by default. See "Storage permissions" in the chart README (#85).
@@ -30,6 +30,7 @@ All notable changes to this project are documented here.
 - `error_count` now also counts source fetch errors, one for each partition in each fetch that returns an error, so it can grow without failed produce attempts (#87).
 
 ### Fixes
+- `mirror-cli jobs start`, `stop`, `pause`, `restart`, `force-restart`, `delete`, `analyze`, `healthcheck`, `status full` and `status metrics` refuse to run when no job is selected. Without a terminal they print `Operation cancelled: no terminal to select a job, pass the job id`, an aborted selection prints `Operation cancelled: job selection aborted`, and an empty job id prints `Operation cancelled: no job selected, pass the job id`. All exit with status 1 and send no request. Before, they called the API with an empty job id and printed a misleading error such as `Cannot GET /api/v1/jobs//mirror/state` (#100).
 - `mirror-cli` exits 1 when a command fails or the subcommand is unknown. Before, `jobs delete` and `jobs start` of a missing id, a command run while logged out, and `clusters delete` printed an error or the parent help and exited 0 (#89).
 - `admin-cli --help` works with no config file, and database commands work with `--db-path` and no config file. `backup full` copies the config that was loaded (`CONFIG_PATH`, or `default.yml` when `--config-path` is omitted) and prints a warning when that file is missing, instead of leaving it out of the backup with no message (#90).
 - Failed jobs show their failure reason in the dashboard list and details. Paused jobs also show their halt reason, and reasons are escaped as text (#93).
@@ -154,6 +155,8 @@ All notable changes to this project are documented here.
 - The chart README and `values.yaml` list `nameOverride` and `fullnameOverride`. A test fails when a template reads a value that is not in `values.yaml` or in the chart README table (#76).
 - `docs/rbac.md` lists `compliance` for `GET /api/v1/jobs/{id}/topic-health` and the mirror state, progress, resume point and gap routes, and `monitoring` and `compliance` for `GET /api/v1/jobs/{id}/inventory/snapshots`, as the code allows. A test calls every documented route with each role and fails when the table and the code differ. The README no longer says that operators can create users. Only `admin` has `users:create` (#76).
 - `docs/configuration.md` gives the real `server.cors.allowed_origins` default and lists `ca_file`, `cert_file` and `key_file` (#76).
+- The README, `docs/configuration.md` and the website say that kaf-mirror with idempotent writes on is verified with [KafScale v2.1.0](https://github.com/KafScale/platform/releases/tag/v2.1.0) and later, and that `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` is needed only for KafScale before v2.1.0. The KafScale quick start no longer sets it. With KafScale v2.1.0, run the broker with `KAFSCALE_AUTO_CREATE_TOPICS=false`, or the target topic is auto-created with 1 partition and the job fails with a partition count mismatch ([KafScale issue 446](https://github.com/KafScale/platform/issues/446)) (#101).
+- The chart default image is `v2.0.0` (chart version `0.3.0`, `appVersion` `2.0.0`), and the README, the chart README, the website and the Swagger version name `v2.0.0` instead of `v1.3.1`. The README and the chart README say to use `docker save` and `kind load image-archive` when `kind load docker-image` fails with `ctr: content digest sha256:... not found`, as it can with Docker Engine 29 and its containerd image store (#101).
 ### Security
 - Breaking: `mirror-cli whoami` no longer prints the full API token. It shows the username and role. `clusters edit` no longer prints a Confluent API key in full (#74).
 - `mirror-cli config edit` no longer prints the new value of `ai.token`, `ai.api_secret` and `monitoring.splunk.hec_token` after saving it. Masked values no longer show the first 4 characters (#74).
