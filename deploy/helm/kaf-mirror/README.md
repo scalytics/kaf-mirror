@@ -63,7 +63,7 @@ helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f volume-per
 
 See "Storage permissions". A namespace under the restricted Pod Security standard rejects this init container. Leave `volumePermissions.enabled` false there and use storage that honors `fsGroup`, or a volume already owned by UID 100 and GID 101.
 
-A `helm upgrade` that replaces the pod drops `kubectl port-forward`. Start it again after an upgrade that changes volume permissions, TLS, Kafka TLS, secrets or shutdown. The default install answers `curl -s http://localhost:8088/health`. After TLS is on, use `curl -sk https://localhost:8088/health`.
+A `helm upgrade` that replaces the pod drops `kubectl port-forward`. Start it again. The default install answers `curl -s http://localhost:8088/health`.
 
 Each section below writes its own values file and adds it after `km-values.yaml`. Helm does not keep values from an earlier upgrade, so pass every values file you use on each upgrade, in the same order. The TLS section writes `tls-values.yaml` and the Tokens section writes `secret-values.yaml`. The upgrade that uses both is after those files exist.
 
@@ -195,7 +195,7 @@ VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f kafka-tls-values.yaml --wait
 ```
 
-Start `kubectl port-forward` again after this upgrade. It replaces the pod.
+Start `kubectl port-forward svc/km-kaf-mirror 8088:8088` again.
 
 ## Tokens from a Secret
 
@@ -231,7 +231,7 @@ helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f secret-val
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f tls-values.yaml -f secret-values.yaml --wait
 ```
 
-Start the port-forward again. With the TLS values, health is `curl -sk https://localhost:8088/health`.
+Start `kubectl port-forward svc/km-kaf-mirror 8088:8088` again. With `tls-values.yaml`, use the HTTPS health check from the TLS section.
 
 ## AI analysis
 
@@ -285,7 +285,7 @@ VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml -f shutdown-values.yaml --wait
 ```
 
-Start `kubectl port-forward` again after this upgrade. It replaces the pod.
+Start `kubectl port-forward svc/km-kaf-mirror 8088:8088` again.
 
 ## Values
 

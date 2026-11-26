@@ -145,3 +145,15 @@ func TestInstallDocsNameTheImageLoadAndPodSecurity(t *testing.T) {
 		}
 	}
 }
+
+func TestChartReadmeRestartsPortForwardOncePerSection(t *testing.T) {
+	chart := readFile(t, filepath.Join(chartDir, "README.md"))
+	start := strings.Index(chart, "## TLS\n")
+	end := strings.Index(chart, "## AI analysis\n")
+	if start < 0 || end < start {
+		t.Fatal("TLS or AI analysis heading missing")
+	}
+	if n := strings.Count(chart[start:end], "port-forward"); n != 3 {
+		t.Fatalf("TLS, Kafka TLS and Secret mention port-forward %d times, want once each", n)
+	}
+}
