@@ -1,31 +1,37 @@
     <section class="hero">
       <div class="wrap">
-        <p class="eyebrow">Apache 2.0. Part of KafScale.</p>
-        <h1>Copy Kafka topics to another cluster, or into S3 through KafScale.</h1>
-        <p class="lede">kaf-mirror copies your Kafka topics to any other Kafka cluster, or into S3 through KafScale, with a dashboard, an audit trail and compliance reports.</p>
+        <p class="eyebrow">Open source. Apache 2.0.</p>
+        <h1>Mirror Kafka topics between any two Kafka clusters.</h1>
+        <p class="lede">kaf-mirror copies topics from one Kafka cluster to another over the Kafka protocol. Apache Kafka, Confluent, Redpanda and Azure Event Hubs can be the source or the target. It comes with a dashboard, an audit trail and compliance reports.</p>
         <div class="actions">
           <a class="button primary" href="start.html">Get started</a>
           <a class="button secondary" href="https://github.com/scalytics/kaf-mirror" rel="noopener noreferrer">View on GitHub</a>
         </div>
         <div class="kafscale">
-          <h2>Backup into KafScale</h2>
-          <p>Replication keeps a hot standby in sync. It also copies deletes, bad writes and anything done with stolen producer credentials. For a backup, mirror into <a href="https://kafscale.io" rel="noopener noreferrer">KafScale</a>, a Kafka-compatible broker that stores immutable segments in S3, and keep that copy on separate credentials. The steps are in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/README.md#back-up-your-kafka-to-s3-in-10-minutes" rel="noopener noreferrer">README</a>.</p>
+          <h2>Need a backup, not just a replica?</h2>
+          <p>A replica follows every change, including deletes, bad writes and anything done with stolen producer credentials. For a backup, mirror into a target that keeps history out of the producers' reach, and give it separate credentials. <a href="https://kafscale.io" rel="noopener noreferrer">KafScale</a>, a Kafka-compatible broker that stores immutable segments in S3, is one option. Any Kafka-compatible target is configured the same way. The KafScale steps are in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/README.md#back-up-your-kafka-to-s3-in-10-minutes" rel="noopener noreferrer">README</a>.</p>
         </div>
       </div>
     </section>
 
-    <!--
-      Demo video embed.
-      When a video exists, set the iframe or video source and remove the
-      hidden attribute from #demo-video. Leave the region hidden until
-      then so visitors see no placeholder.
-    -->
-    <section id="demo-video" hidden>
+    <section class="section" id="demo-video">
       <div class="wrap">
-        <h2>Demo</h2>
+        <h2>See it run</h2>
+        <p>Two Apache Kafka clusters, one kaf-mirror, about two minutes. The terminal uses the <code>mirror-cli</code> shell, where Tab completes commands.</p>
         <div class="video-frame">
-          <!-- Add an iframe or video element here when a demo exists. -->
+          <video controls preload="none" playsinline width="1600" height="900" poster="media/demo-poster.jpg" aria-describedby="demo-steps">
+            <source src="media/demo.mp4" type="video/mp4">
+            <p>Your browser cannot play this video. <a href="media/demo.mp4">Download the MP4</a>.</p>
+          </video>
         </div>
+        <ol id="demo-steps" class="demo-steps">
+          <li>Start two Apache Kafka brokers and kaf-mirror with <code>docker compose up -d</code>.</li>
+          <li>Log in with <code>mirror-cli</code>. The password prompt is masked.</li>
+          <li>Add a source cluster and a target cluster.</li>
+          <li>Produce three orders to the source, create a job for the <code>orders</code> topic and start it.</li>
+          <li>Produce two more orders, then read all five from the target cluster.</li>
+          <li>Check the job status and lag.</li>
+        </ol>
       </div>
     </section>
 

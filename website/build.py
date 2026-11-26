@@ -69,7 +69,35 @@ def mark_current(nav: str, current: str) -> str:
     return nav.replace(token, token + ' aria-current="page"')
 
 
-def shell(title: str, description: str, canonical: str, current: str, body: str, main_tag: bool = True) -> str:
+def site_url(meta: dict) -> str:
+    return meta["index.html"]["canonical"]
+
+
+def render(text: str, site: str) -> str:
+    return text.replace("{{SITE}}", site)
+
+
+def jsonld_block(name: str, site: str) -> str:
+    src = PAGES / (Path(name).stem + ".jsonld")
+    if not src.is_file():
+        return ""
+    data = json.loads(render(src.read_text(encoding="utf-8"), site))
+    payload = json.dumps(data, indent=2, ensure_ascii=False).replace("</", "<\\/")
+    return "  <script type=\"application/ld+json\">\n" + payload + "\n  </script>\n"
+
+
+def sitemap(meta: dict, site: str) -> str:
+    urls = [info["canonical"] for name, info in meta.items() if name != "404.html"]
+    urls.append(site + "cli-commands.html")
+    rows = "".join(f"  <url><loc>{u}</loc></url>\n" for u in urls)
+    return (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+        f"{rows}</urlset>\n"
+    )
+
+
+def shell(title: str, description: str, canonical: str, current: str, body: str, main_tag: bool = True, head_extra: str = "") -> str:
     nav = mark_current((INCLUDES / "nav.html").read_text(encoding="utf-8").rstrip(), current)
     footer = (INCLUDES / "footer.html").read_text(encoding="utf-8").rstrip()
     inner_open = "  <main id=\"content\">\n" if main_tag else "  <div id=\"content\">\n"
@@ -91,6 +119,7 @@ def shell(title: str, description: str, canonical: str, current: str, body: str,
         f"  <meta property=\"og:url\" content=\"{canonical}\">\n"
         "  <meta property=\"og:site_name\" content=\"kaf-mirror\">\n"
         "  <link rel=\"stylesheet\" href=\"styles.css\">\n"
+        f"{head_extra}"
         "</head>\n"
         "<body>\n"
         f"{nav}\n"
@@ -103,7 +132,7 @@ def shell(title: str, description: str, canonical: str, current: str, body: str,
     )
 
 
-def wrap_cli(src: Path) -> str:
+def wrap_cli(src: Path, site: str) -> str:
     text = src.read_text(encoding="utf-8")
     if "</head>" not in text or "<body>" not in text or "</body>" not in text:
         raise SystemExit(f"{src} is not a full HTML document")
@@ -126,7 +155,7 @@ def wrap_cli(src: Path) -> str:
         "</head>",
         "    <link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">\n"
         "    <link rel=\"stylesheet\" href=\"styles.css\">\n"
-        "    <link rel=\"canonical\" href=\"https://scalytics.github.io/kaf-mirror/cli-commands.html\">\n"
+        f"    <link rel=\"canonical\" href=\"{site}cli-commands.html\">\n"
         f"    <style>{CLI_EXTRA_CSS}</style>\n"
         "</head>",
         1,
@@ -152,6 +181,7 @@ def main() -> int:
         print(f"missing {CLI_SRC}", file=sys.stderr)
         return 1
     meta = json.loads((PAGES / "pages.json").read_text(encoding="utf-8"))
+    site = site_url(meta)
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
@@ -160,11 +190,26 @@ def main() -> int:
     fonts_src = WEBSITE / "fonts"
     if fonts_src.is_dir():
         shutil.copytree(fonts_src, out / "fonts", dirs_exist_ok=True)
+    media_src = WEBSITE / "media"
+    if media_src.is_dir():
+        shutil.copytree(media_src, out / "media")
+    llms = WEBSITE / "llms.txt"
+    if llms.is_file():
+        (out / "llms.txt").write_text(render(llms.read_text(encoding="utf-8"), site), encoding="utf-8")
     for name, info in meta.items():
         body = (PAGES / name).read_text(encoding="utf-8")
-        html = shell(info["title"], info["description"], info["canonical"], info["nav"], body)
+        html = shell(
+            info["title"],
+            info["description"],
+            info["canonical"],
+            info["nav"],
+            body,
+            head_extra=jsonld_block(name, site),
+        )
         (out / name).write_text(html, encoding="utf-8")
-    (out / "cli-commands.html").write_text(wrap_cli(CLI_SRC), encoding="utf-8")
+    (out / "cli-commands.html").write_text(wrap_cli(CLI_SRC, site), encoding="utf-8")
+    (out / "sitemap.xml").write_text(sitemap(meta, site), encoding="utf-8")
+    (out / "robots.txt").write_text(f"User-agent: *\nAllow: /\n\nSitemap: {site}sitemap.xml\n", encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
     print(f"Wrote site to {out}")
     return 0

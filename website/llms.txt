@@ -1,0 +1,39 @@
+# kaf-mirror
+
+> kaf-mirror mirrors topics between any two Kafka clusters over the Kafka protocol. It has a web dashboard, a management CLI, an audit trail and compliance reports. Apache Kafka, Confluent, Redpanda and Azure Event Hubs can be the source or the target, and KafScale is a supported target. It is open source under the Apache License 2.0 and written in Go.
+
+What it does:
+
+- A job consumes from a source cluster and produces to a target cluster. Topic names are kept by default. Exact and regex mappings are optional.
+- Source offsets are committed only after the target acknowledges the write.
+- TLS, mTLS, SASL PLAIN, SCRAM and Kerberos are supported.
+- Access is role based: admin, operator, monitoring and compliance.
+- Job metrics, lag, an audit trail and scheduled compliance reports are built in.
+- It runs as one binary, in Docker, or in Kubernetes with the Helm chart.
+
+What it is not:
+
+- It is not tied to KafScale. KafScale is one supported target, useful when you want a backup on S3 that a bad delete on the source does not reach.
+- A replica copies deletes and bad writes. For a backup, use a separate target with separate credentials.
+
+## Start here
+
+- [Get started]({{SITE}}start.html): run it with Docker or Helm.
+- [Demo video]({{SITE}}media/demo.mp4): two Kafka clusters, one job, about two minutes.
+- [Documentation index]({{SITE}}docs.html): configuration, RBAC, protection and API docs.
+- [CLI reference]({{SITE}}cli-commands.html): every mirror-cli and admin-cli command.
+
+## Source and docs
+
+- [GitHub repository](https://github.com/scalytics/kaf-mirror)
+- [Configuration reference](https://github.com/scalytics/kaf-mirror/blob/main/docs/configuration.md)
+- [Roles and permissions](https://github.com/scalytics/kaf-mirror/blob/main/docs/rbac.md)
+- [Replication halt, experimental](https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md)
+- [Changelog](https://github.com/scalytics/kaf-mirror/blob/main/CHANGELOG.md)
+
+## Optional
+
+- [Back up Kafka to S3 with KafScale](https://github.com/scalytics/kaf-mirror/blob/main/README.md#back-up-your-kafka-to-s3-in-10-minutes)
+- [Kafka backup vs replication](https://www.scalytics.io/kafka-backup-vs-replication)
+- [Kafka DORA and NIS2 checklist](https://www.scalytics.io/kafka-dora-nis2-checklist)
+- [KafScale](https://kafscale.io)

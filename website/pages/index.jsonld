@@ -1,0 +1,64 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "{{SITE}}#software",
+      "name": "kaf-mirror",
+      "url": "{{SITE}}",
+      "description": "kaf-mirror mirrors topics between any two Kafka clusters over the Kafka protocol, with a web dashboard, a management CLI, an audit trail and compliance reports. Apache Kafka, Confluent, Redpanda and Azure Event Hubs can be the source or the target, and KafScale is a supported target.",
+      "applicationCategory": "DeveloperApplication",
+      "applicationSubCategory": "Kafka replication",
+      "operatingSystem": "Linux, Docker, Kubernetes",
+      "programmingLanguage": "Go",
+      "license": "https://www.apache.org/licenses/LICENSE-2.0",
+      "isAccessibleForFree": true,
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "EUR"
+      },
+      "featureList": [
+        "Replicate topics from one Kafka cluster to another",
+        "Same-name, exact and regex topic mapping",
+        "Source offsets committed only after the target acknowledges the write",
+        "TLS, mTLS, SASL PLAIN, SCRAM and Kerberos",
+        "Role-based access with admin, operator, monitoring and compliance roles",
+        "Audit trail and scheduled compliance reports",
+        "Web dashboard, REST API, admin CLI and management CLI",
+        "Helm chart for Kubernetes"
+      ],
+      "softwareHelp": {
+        "@type": "CreativeWork",
+        "url": "{{SITE}}docs.html"
+      },
+      "sameAs": "https://github.com/scalytics/kaf-mirror",
+      "publisher": {
+        "@type": "Organization",
+        "name": "Scalytics",
+        "url": "https://www.scalytics.io"
+      },
+      "video": {
+        "@id": "{{SITE}}#demo"
+      }
+    },
+    {
+      "@type": "VideoObject",
+      "@id": "{{SITE}}#demo",
+      "name": "kaf-mirror demo: mirror a topic between two Kafka clusters",
+      "description": "A terminal demo. Start two Apache Kafka clusters and kaf-mirror with Docker Compose, log in with mirror-cli, add a source and a target cluster, create and start a job, produce orders to the source, read them from the target and check the job status.",
+      "thumbnailUrl": "{{SITE}}media/demo-poster.jpg",
+      "contentUrl": "{{SITE}}media/demo.mp4",
+      "encodingFormat": "video/mp4",
+      "duration": "PT1M57S",
+      "uploadDate": "2026-11-26",
+      "inLanguage": "en",
+      "isFamilyFriendly": true,
+      "publisher": {
+        "@type": "Organization",
+        "name": "Scalytics",
+        "url": "https://www.scalytics.io"
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 [![CI](https://github.com/scalytics/kaf-mirror/actions/workflows/ci.yml/badge.svg)](https://github.com/scalytics/kaf-mirror/actions/workflows/ci.yml)
 [![Release](https://github.com/scalytics/kaf-mirror/actions/workflows/release.yml/badge.svg)](https://github.com/scalytics/kaf-mirror/actions/workflows/release.yml)
 [![CodeQL](https://github.com/scalytics/kaf-mirror/actions/workflows/codeql.yml/badge.svg)](https://github.com/scalytics/kaf-mirror/actions/workflows/codeql.yml)
-[![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://scalytics.github.io/kaf-mirror/)
+[![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://kafmirror.scalytics.io/)
 
 **Copy your Kafka topics to any other Kafka cluster, or into S3 through KafScale, with a dashboard, audit trail and compliance reports. Apache 2.0.**
 
