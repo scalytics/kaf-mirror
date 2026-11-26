@@ -27,6 +27,33 @@ import (
 
 const noTerminalShellMessage = "Error: the interactive shell needs a terminal on stdin and stdout. Run a command instead, for example: mirror-cli --help"
 
+var (
+	terminalRestorer func()
+	exitProcess      = os.Exit
+)
+
+func setTerminalRestorer(restore func()) {
+	terminalRestorer = restore
+}
+
+func saveTerminalState(f *os.File) func() {
+	fd := int(f.Fd())
+	state, err := term.GetState(fd)
+	if err != nil {
+		return func() {}
+	}
+	return func() {
+		_ = term.Restore(fd, state)
+	}
+}
+
+func exitCLI(code int) {
+	if terminalRestorer != nil {
+		terminalRestorer()
+	}
+	exitProcess(code)
+}
+
 func isTerminal(f *os.File) bool {
 	return term.IsTerminal(int(f.Fd()))
 }
@@ -127,7 +154,7 @@ func confirmAction(cmd *cobra.Command, message string) (bool, error) {
 
 func abortCancelled() {
 	fmt.Println("Operation cancelled.")
-	os.Exit(1)
+	exitCLI(1)
 }
 
 func abortLogin(err error) {
@@ -136,7 +163,7 @@ func abortLogin(err error) {
 	} else {
 		fmt.Println("Login cancelled.")
 	}
-	os.Exit(1)
+	exitCLI(1)
 }
 
 var secretConfigKeys = map[string]bool{
