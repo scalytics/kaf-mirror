@@ -36,8 +36,8 @@ anything done with stolen producer credentials. For a backup, mirror into
 [KafScale](https://github.com/KafScale/platform), a Kafka-compatible broker that
 stores immutable segments in S3, and keep that copy on separate credentials.
 
-Prerequisites: Go, Docker (for the local MinIO bucket), `make`, and a reachable
-source Kafka cluster.
+Prerequisites: Go, Docker (for the local MinIO bucket), `make`, the Apache Kafka
+CLI (`kafka-topics.sh` on your `PATH`), and a reachable source Kafka cluster.
 
 **1. Start KafScale with a local S3 bucket (MinIO)**
 
@@ -47,7 +47,40 @@ make demo
 ```
 
 The broker listens on `127.0.0.1:39092`. Segments land in the MinIO bucket
-`kafscale`.
+`kafscale`. Leave this terminal running.
+
+Before adding the target cluster to kaf-mirror, open another terminal and
+pre-create **every target topic** with the same partition count as its source.
+KafScale v2.1.0's `make demo` forces auto-create on with one partition, ignoring
+`KAFSCALE_AUTO_CREATE_TOPICS=false` from the environment. If a missing target is
+first discovered through Metadata, it is created with one partition and a
+multi-partition source fails the job's partition-count check
+([KafScale issue 446](https://github.com/KafScale/platform/issues/446)).
+
+For example, inspect the source topic `orders` (replace the source address and
+add `--command-config /path/to/client.properties` if it needs authentication):
+
+```bash
+kafka-topics.sh --bootstrap-server source-kafka:9092 --describe --topic orders
+```
+
+If the output says `PartitionCount: 3`, create the target like this:
+
+```bash
+kafka-topics.sh --bootstrap-server 127.0.0.1:39092 --create --topic orders \
+  --partitions 3 --replication-factor 1
+kafka-topics.sh --bootstrap-server 127.0.0.1:39092 --describe --topic orders
+```
+
+Repeat for each topic you will mirror, using its source partition count and its
+mapped target name if you rename topics. Confirm each target's `PartitionCount`
+matches before continuing. If an earlier attempt already auto-created a target
+with too few partitions, increase it to the source count with `kafka-topics.sh
+--bootstrap-server 127.0.0.1:39092 --alter --topic orders --partitions 3` (adjust
+the name and count). Pre-create newly added target topics before adding them to
+the job as well. For a broker started outside `make demo`, disabling auto-create
+with `KAFSCALE_AUTO_CREATE_TOPICS=false` lets kaf-mirror create missing targets
+with the correct partition count.
 
 **2. Build and start kaf-mirror**
 
@@ -63,13 +96,6 @@ go build -o bin/mirror-cli ./cmd/mirror-cli
 kaf-mirror with idempotent writes on, the default, is verified to mirror into and
 out of [KafScale v2.1.0](https://github.com/KafScale/platform/releases/tag/v2.1.0)
 and later. Set `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` only for KafScale before v2.1.0.
-
-With KafScale v2.1.0, run the broker with `KAFSCALE_AUTO_CREATE_TOPICS=false`.
-Otherwise a Metadata request creates the target topic with 1 partition, and the
-job fails with a partition count mismatch
-([KafScale issue 446](https://github.com/KafScale/platform/issues/446)). The
-KafScale `make demo` target starts its broker with auto-create on and does not
-read this setting from the environment.
 
 On the first start kaf-mirror creates `admin@localhost`
 with a random password and writes it to `data/kaf-mirror-bootstrap-<random>`,
