@@ -55,6 +55,24 @@ func newRecreateRig(t *testing.T) *recreateRig {
 }
 
 func newRecreateRigWithAssign(t *testing.T, onAssigned func(context.Context, map[string][]int32)) *recreateRig {
+	return newRecreateRigWithHooks(t, onAssigned, nil)
+}
+
+type metadataReads struct {
+	seen chan struct{}
+}
+
+func (m *metadataReads) OnBrokerRead(_ kgo.BrokerMetadata, key int16, _ int, _, _ time.Duration, _ error) {
+	if key != 3 {
+		return
+	}
+	select {
+	case m.seen <- struct{}{}:
+	default:
+	}
+}
+
+func newRecreateRigWithHooks(t *testing.T, onAssigned func(context.Context, map[string][]int32), onRevoked func(context.Context, map[string][]int32), extra ...kgo.Opt) *recreateRig {
 	consumer := kafka.NewConsumerForTest(nil, nil)
 	cluster, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(2, "kin"))
 	require.NoError(t, err)
@@ -62,26 +80,30 @@ func newRecreateRigWithAssign(t *testing.T, onAssigned func(context.Context, map
 	producer, err := kgo.NewClient(kgo.SeedBrokers(cluster.ListenAddrs()...))
 	require.NoError(t, err)
 	t.Cleanup(producer.Close)
-	client, err := kgo.NewClient(
+	opts := append([]kgo.Opt{
 		kgo.SeedBrokers(cluster.ListenAddrs()...),
 		kgo.ConsumerGroup("kaf-mirror-job-recreate"),
 		kgo.ConsumeTopics("kin"),
 		kgo.DisableAutoCommit(),
-		kgo.MetadataMinAge(10*time.Millisecond),
-		kgo.MetadataMaxAge(100*time.Millisecond),
+		kgo.MetadataMinAge(10 * time.Millisecond),
+		kgo.MetadataMaxAge(100 * time.Millisecond),
 		kgo.OnPartitionsAssigned(func(ctx context.Context, _ *kgo.Client, assigned map[string][]int32) {
 			consumer.AssignPartitions(assigned)
 			if onAssigned != nil {
 				onAssigned(ctx, assigned)
 			}
 		}),
-		kgo.OnPartitionsRevoked(func(_ context.Context, _ *kgo.Client, revoked map[string][]int32) {
+		kgo.OnPartitionsRevoked(func(ctx context.Context, _ *kgo.Client, revoked map[string][]int32) {
 			consumer.RevokePartitions(revoked)
+			if onRevoked != nil {
+				onRevoked(ctx, revoked)
+			}
 		}),
 		kgo.OnPartitionsLost(func(_ context.Context, _ *kgo.Client, lost map[string][]int32) {
 			consumer.RevokePartitions(lost)
 		}),
-	)
+	}, extra...)
+	client, err := kgo.NewClient(opts...)
 	require.NoError(t, err)
 	t.Cleanup(client.Close)
 
@@ -329,6 +351,7 @@ func scriptedTopicConsumerRevoke(script *pollScript, meta *metadataScript, autoR
 				lost[topic] = nil
 			}
 			consumer.RevokePartitions(lost)
+			consumer.AssignPartitions(map[string][]int32{})
 		},
 		AddConsumeTopicsFunc: func(topics ...string) {
 			meta.mu.Lock()
@@ -584,14 +607,23 @@ func TestLateRecordsOfTheOldTopicDoNotCommitOverTheReset(t *testing.T) {
 }
 
 func TestSwitchDuringTheFirstRebalanceReadsTheNewTopic(t *testing.T) {
+	switchDuringTheFirstRebalance(t, false)
+}
+
+func TestSwitchReadsTheNewTopicWhenTheOldSessionEndsLate(t *testing.T) {
+	switchDuringTheFirstRebalance(t, true)
+}
+
+func switchDuringTheFirstRebalance(t *testing.T, holdRevoke bool) {
 	var first sync.Once
 	entered := make(chan struct{})
 	var r *recreateRig
 	var ready atomic.Bool
+	reads := &metadataReads{seen: make(chan struct{}, 64)}
 	release := func() bool {
 		return r.consumer.GetMetrics().TopicRecreations == 1 || strings.Contains(r.logText(), "waiting for the consumer group to drop topic kin")
 	}
-	r = newRecreateRigWithAssign(t, func(ctx context.Context, assigned map[string][]int32) {
+	onAssigned := func(ctx context.Context, assigned map[string][]int32) {
 		if len(assigned["kin"]) == 0 {
 			return
 		}
@@ -604,7 +636,27 @@ func TestSwitchDuringTheFirstRebalanceReadsTheNewTopic(t *testing.T) {
 				runtime.Gosched()
 			}
 		})
-	})
+	}
+	onRevoked := func(ctx context.Context, revoked map[string][]int32) {
+		if !holdRevoke || len(revoked["kin"]) == 0 {
+			return
+		}
+		for drained := false; !drained; {
+			select {
+			case <-reads.seen:
+			default:
+				drained = true
+			}
+		}
+		for range 4 {
+			select {
+			case <-reads.seen:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+	r = newRecreateRigWithHooks(t, onAssigned, onRevoked, kgo.WithHooks(reads))
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
@@ -673,6 +725,8 @@ func TestSwitchWaitsForTheDroppedTopicNotAnotherRevoke(t *testing.T) {
 	consumer.RevokePartitions(map[string][]int32{"other": {0}})
 	require.Never(t, func() bool { return len(meta.adds()) > 0 }, 50*time.Millisecond, time.Millisecond)
 	consumer.RevokePartitions(map[string][]int32{"kin": {0}})
+	require.Never(t, func() bool { return len(meta.adds()) > 0 }, 50*time.Millisecond, time.Millisecond, "the topic must stay dropped until the next group session begins")
+	consumer.AssignPartitions(map[string][]int32{})
 	require.Eventually(t, func() bool {
 		return len(meta.adds()) > 0 && consumer.GetMetrics().TopicRecreations == 1
 	}, 5*time.Second, time.Millisecond)
@@ -749,6 +803,8 @@ func TestSwitchWaitsWhenAssignmentArrivesAsFetchingStops(t *testing.T) {
 	require.Eventually(t, func() bool { return len(meta.purges()) > 0 }, 5*time.Second, time.Millisecond)
 	require.Never(t, func() bool { return len(meta.adds()) > 0 }, 50*time.Millisecond, time.Millisecond)
 	consumer.RevokePartitions(map[string][]int32{"kin": {0}})
+	require.Never(t, func() bool { return len(meta.adds()) > 0 }, 50*time.Millisecond, time.Millisecond)
+	consumer.AssignPartitions(map[string][]int32{})
 	require.Eventually(t, func() bool {
 		return len(meta.adds()) == 1 && consumer.GetMetrics().TopicRecreations == 1
 	}, 5*time.Second, time.Millisecond)
