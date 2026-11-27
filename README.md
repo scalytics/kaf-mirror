@@ -4,9 +4,9 @@
 [![Release](https://img.shields.io/github/v/release/scalytics/kaf-mirror)](https://github.com/scalytics/kaf-mirror/releases)
 [![License](https://img.shields.io/github/license/scalytics/kaf-mirror)](LICENSE)
 
-**Mirror Kafka topics between any two Kafka clusters.**
+**Kafka backup you can watch, audit and trust.**
 
-Apache Kafka, Confluent, Redpanda and Azure Event Hubs work as source or target, with a dashboard, audit trail and compliance reports. kaf-mirror is a MirrorMaker alternative for Kafka replication that you can operate from a web UI or a CLI. Apache 2.0. Docs and demo: [kafmirror.scalytics.io](https://kafmirror.scalytics.io/).
+One server binary with a dashboard. Exact copies, an audit trail, compliance reports and Replication halt (tech preview). Apache Kafka, Confluent, Redpanda and Azure Event Hubs work as source or target. Apache 2.0, with no license key. Docs, demo and a comparison with MirrorMaker 2: [kafmirror.scalytics.io](https://kafmirror.scalytics.io/).
 
 [![Two Kafka clusters, one kaf-mirror, about two minutes](website/media/demo-poster.jpg)](https://kafmirror.scalytics.io/)
 
@@ -83,7 +83,8 @@ More ways to run it, including bind mounts, a systemd service and Helm, are in [
 ## What it does
 
 - **Jobs:** built with franz-go. Same-name mirroring is the default, with exact and regex topic mappings. [Topic mappings](docs/topic-mappings.md)
-- **Offsets after ack:** source offsets are committed only after the target acknowledges the write. [Resilience](docs/resilience.md)
+- **Offsets after ack:** source offsets are committed only after the target acknowledges the write. A restart resumes from the last committed offset. [Resilience](docs/resilience.md)
+- **Recreated topics:** a job follows a source topic that is deleted and created again by its Kafka topic ID. [Resilience](docs/resilience.md)
 - **Web UI:** operations, health, executive and compliance tabs. [Features](docs/features.md)
 - **Roles:** admin, operator, monitoring and compliance, with token authentication. [RBAC](docs/rbac.md)
 - **Metrics and lag:** counters and lag for every job, over the API and in the CLI. [Job metrics](docs/metrics.md)
@@ -107,6 +108,7 @@ A replica copies deletes and bad writes too, and so does anything done with stol
 | Topic | Page |
 | --- | --- |
 | Run it locally, from an image or from binaries | [getting-started.md](docs/getting-started.md) |
+| Compare with MirrorMaker 2, Replicator and Cluster Linking | [kafmirror.scalytics.io/compare.html](https://kafmirror.scalytics.io/compare.html) |
 | Kubernetes and Helm | [kubernetes.md](docs/kubernetes.md) |
 | Run as a Linux service | [run-as-a-service.md](docs/run-as-a-service.md) |
 | Every config key and environment variable | [configuration.md](docs/configuration.md) |

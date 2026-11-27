@@ -662,3 +662,27 @@ td code {
   overflow-wrap: break-word;
   word-break: break-word;
 }
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 0 0 1.25rem;
+}
+
+.table-wrap table {
+  margin-bottom: 0;
+  min-width: 48rem;
+}
+
+.table-wrap th[scope="row"] {
+  font-family: var(--font-sans, "IBM Plex Sans", "Trebuchet MS", system-ui, sans-serif);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sources {
+  padding-left: 1.2rem;
+}
+
+.sources li {
+  margin: 0 0 0.45rem;
+}

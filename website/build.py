@@ -11,7 +11,9 @@ import argparse
 import json
 import re
 import shutil
+import subprocess
 import sys
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 WEBSITE = Path(__file__).resolve().parent
@@ -81,7 +83,7 @@ OG_IMAGE_PATH = "media/og-card.png"
 OG_IMAGE_TYPE = "image/png"
 OG_IMAGE_WIDTH = "1200"
 OG_IMAGE_HEIGHT = "630"
-OG_IMAGE_ALT = "kaf-mirror: Kafka to Kafka replication"
+OG_IMAGE_ALT = "kaf-mirror: Kafka backup you can watch, audit and trust"
 CLI_TITLE = "CLI Command Reference - kaf-mirror"
 CLI_DESCRIPTION = "Generated command reference for the kaf-mirror management CLI, mirror-cli."
 
@@ -131,14 +133,47 @@ def jsonld_block(name: str, site: str) -> str:
     return "  <script type=\"application/ld+json\">\n" + payload + "\n  </script>\n"
 
 
+def git_lastmod(*paths: Path) -> str:
+    files = [str(p.resolve()) for p in paths if p.is_file()]
+    if files:
+        try:
+            out = subprocess.check_output(
+                ["git", "-C", str(ROOT), "log", "-1", "--format=%cs", "--", *files],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+            if out:
+                return out
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+            pass
+        newest = max(Path(f).stat().st_mtime for f in files)
+        return datetime.fromtimestamp(newest, tz=timezone.utc).date().isoformat()
+    return date.today().isoformat()
+
+
 def sitemap(meta: dict, site: str) -> str:
-    urls = [info["canonical"] for name, info in meta.items() if name != "404.html"]
-    urls.append(site + "cli-commands.html")
-    rows = "".join(f"  <url><loc>{u}</loc></url>\n" for u in urls)
+    shared = [
+        INCLUDES / "nav.html",
+        INCLUDES / "footer.html",
+        WEBSITE / "build.py",
+        WEBSITE / "styles.css",
+        WEBSITE / "media" / "og-card.png",
+    ]
+    rows = []
+    for name, info in meta.items():
+        if name == "404.html":
+            continue
+        sources = [PAGES / name, PAGES / (Path(name).stem + ".jsonld"), *shared]
+        lm = git_lastmod(*sources)
+        rows.append(f"  <url>\n    <loc>{info['canonical']}</loc>\n    <lastmod>{lm}</lastmod>\n  </url>\n")
+    cli_lm = git_lastmod(CLI_SRC, PAGES / "cli-commands.jsonld", *shared)
+    rows.append(
+        f"  <url>\n    <loc>{site}cli-commands.html</loc>\n    <lastmod>{cli_lm}</lastmod>\n  </url>\n"
+    )
     return (
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
         "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
-        f"{rows}</urlset>\n"
+        f"{''.join(rows)}</urlset>\n"
     )
 
 

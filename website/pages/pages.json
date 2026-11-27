@@ -1,21 +1,27 @@
 {
   "index.html": {
-    "title": "kaf-mirror | Kafka to Kafka replication",
-    "description": "kaf-mirror mirrors topics between any two Kafka clusters, with a dashboard, an audit trail and compliance reports. KafScale is one supported target. Apache 2.0.",
+    "title": "kaf-mirror | Kafka backup you can watch, audit and trust",
+    "description": "Kafka backup you can watch, audit and trust. Exact copies, a dashboard, an audit trail and compliance reports, in one server binary. Apache 2.0.",
     "canonical": "https://kafmirror.scalytics.io/",
     "nav": "index.html"
   },
   "start.html": {
     "title": "Get started | kaf-mirror",
-    "description": "Run kaf-mirror locally with Docker, or install the Helm chart. Commands are copied from the getting started guide.",
+    "description": "Run kaf-mirror locally with Docker, or install the Helm chart. Download v2.0.0, including mirror-cli for Apple Silicon.",
     "canonical": "https://kafmirror.scalytics.io/start.html",
     "nav": "start.html"
   },
   "docs.html": {
     "title": "Docs | kaf-mirror",
-    "description": "Index of kaf-mirror documentation, the CLI reference and the Swagger API docs.",
+    "description": "Index of kaf-mirror documentation, the comparison with MirrorMaker 2, the CLI reference and the Swagger API docs.",
     "canonical": "https://kafmirror.scalytics.io/docs.html",
     "nav": "docs.html"
+  },
+  "compare.html": {
+    "title": "Compare | kaf-mirror",
+    "description": "kaf-mirror compared with Apache Kafka MirrorMaker 2, Confluent Replicator and Confluent Cluster Linking. Facts are taken from official docs and this repository.",
+    "canonical": "https://kafmirror.scalytics.io/compare.html",
+    "nav": "compare.html"
   },
   "404.html": {
     "title": "Page not found | kaf-mirror",

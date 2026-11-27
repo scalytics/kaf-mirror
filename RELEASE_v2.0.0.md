@@ -1,6 +1,6 @@
 # kaf-mirror v2.0.0 Release Notes
 
-Release date: 2026-11-26
+Release date: 2026-11-27
 
 This is a major release with breaking changes. Read the upgrade notes and the Breaking section of `CHANGELOG.md` before you upgrade.
 

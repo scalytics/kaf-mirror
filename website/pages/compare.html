@@ -1,0 +1,153 @@
+    <section class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Comparison</p>
+        <h1>kaf-mirror compared with MirrorMaker 2, Replicator and Cluster Linking.</h1>
+        <p class="lede">A factual look at how you run a Kafka copy, what is preserved, and how the tools are licensed. Where another product does more, that is stated. Sources are linked at the end.</p>
+      </div>
+    </section>
+
+    <section class="section" id="matrix">
+      <div class="wrap">
+        <h2>Feature matrix</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th>kaf-mirror</th>
+                <th>MirrorMaker 2</th>
+                <th>Confluent Replicator</th>
+                <th>Cluster Linking</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">How you run it</th>
+                <td>One server binary with a built-in dashboard, or Docker or Helm</td>
+                <td>Built on Kafka Connect: a dedicated MirrorMaker cluster or connectors in an existing Connect cluster</td>
+                <td>A Kafka Connect connector, or a Replicator executable</td>
+                <td>Built into Confluent Server and Confluent Cloud</td>
+              </tr>
+              <tr>
+                <th scope="row">License</th>
+                <td>Apache 2.0. No license key.</td>
+                <td>Apache 2.0 (part of Apache Kafka)</td>
+                <td>Confluent Enterprise License. A license key is required on Confluent Platform 5.5.0 and later</td>
+                <td>Included with a Confluent Enterprise license. The destination cluster must be Confluent Server (or Confluent Cloud)</td>
+              </tr>
+              <tr>
+                <th scope="row">Dashboard for copy jobs</th>
+                <td>Yes. Operations, health, executive and compliance tabs</td>
+                <td>Configured with properties files. Connect metrics are available; there is no built-in job dashboard</td>
+                <td>Operated as a connector or executable; Confluent Control Center is a separate commercial component</td>
+                <td>Managed with Confluent tools and Confluent Cloud</td>
+              </tr>
+              <tr>
+                <th scope="row">RBAC, audit trail, compliance reports</th>
+                <td>Built in: admin, operator, monitoring and compliance roles, an audit trail and scheduled reports</td>
+                <td>Not a built-in part of MirrorMaker 2</td>
+                <td>Confluent Platform has enterprise RBAC and audit logs as separate licensed features</td>
+                <td>Same Confluent Platform enterprise controls, on Confluent Server</td>
+              </tr>
+              <tr>
+                <th scope="row">Halt a bad write</th>
+                <td>Replication halt (tech preview), off by default and admin-only</td>
+                <td>Not a named MirrorMaker 2 feature</td>
+                <td>Not described as a built-in halt switch in the Replicator docs cited below</td>
+                <td>Not described as a built-in halt switch in the Cluster Linking docs cited below</td>
+              </tr>
+              <tr>
+                <th scope="row">What a record keeps</th>
+                <td>Key, value, headers, source partition and source timestamp. The target broker assigns new offsets</td>
+                <td>Preserves partitioning. Replicates topics and topic configurations</td>
+                <td>Replicates topics between clusters (see the Replicator docs)</td>
+                <td>Byte-for-byte mirror topics with globally consistent offsets</td>
+              </tr>
+              <tr>
+                <th scope="row">Consumer groups and ACLs</th>
+                <td>Not copied. kaf-mirror has its own consumer group per job</td>
+                <td>Can replicate consumer groups, including offsets, and ACLs</td>
+                <td>See the Replicator documentation for offset and provenance settings</td>
+                <td>See the Cluster Linking documentation for offset and migration features</td>
+              </tr>
+              <tr>
+                <th scope="row">Deleted and recreated source topics</th>
+                <td>Follows the new Kafka topic ID and copies the new topic from its earliest offsets (Kafka 2.8 or newer)</td>
+                <td>See the MirrorMaker 2 documentation for how topic recreation is handled</td>
+                <td>See the Replicator documentation</td>
+                <td>See the Cluster Linking documentation</td>
+              </tr>
+              <tr>
+                <th scope="row">Source and target</th>
+                <td>Any two Kafka-protocol clusters, including Apache Kafka, Confluent, Redpanda, Azure Event Hubs and KafScale</td>
+                <td>Apache Kafka clusters, and other Kafka-protocol clusters MirrorMaker can connect to</td>
+                <td>Kafka clusters, including Confluent Platform and Confluent Cloud, as documented by Confluent</td>
+                <td>The source can be Kafka, Confluent Server or Confluent Cloud. The destination must be Confluent Server or Confluent Cloud</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="kaf-mirror">
+      <div class="wrap">
+        <h2>kaf-mirror</h2>
+        <p>kaf-mirror is a single server binary with a dashboard. A job consumes from a source cluster and produces to a target. Writes are idempotent by default. Source offsets are committed only after the target acknowledges the write, so a restart resumes from the last committed offset. It does not keep source offsets on the target, and it does not copy consumer groups or ACLs. It does not do point-in-time restore of a topic. For a backup that a bad delete on the source cannot reach, copy into a target your producers cannot touch, for example <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/kafscale-backup.md" rel="noopener noreferrer">KafScale on S3</a>.</p>
+      </div>
+    </section>
+
+    <section class="section" id="mirrormaker">
+      <div class="wrap">
+        <h2>MirrorMaker 2</h2>
+        <p>Apache Kafka's MirrorMaker 2 is built on the Kafka Connect framework. It can run as a dedicated MirrorMaker cluster or as connectors in an existing Kafka Connect cluster. Administrators define replication flows in a properties file, typically <code>connect-mirror-maker.properties</code>. Official docs list topic and configuration replication, consumer group and offset replication, ACL replication, preserved partitioning, automatic detection of new topics and partitions, and a range of metrics, including end-to-end replication latency. It is part of Apache Kafka and is licensed under Apache 2.0. It does not ship a kaf-mirror-style dashboard, RBAC roles, audit trail or compliance reports.</p>
+      </div>
+    </section>
+
+    <section class="section" id="replicator">
+      <div class="wrap">
+        <h2>Confluent Replicator</h2>
+        <p>Confluent Replicator copies topics between Kafka clusters. It runs as a Kafka Connect connector or as a Replicator executable. Confluent's license documentation lists Replicator under the Confluent Enterprise License. On Confluent Platform 5.5.0 and later, Confluent documents that Replicator requires a license key and that there is no trial period on those versions. It is a commercial product with a different operations model from an Apache 2.0 binary you start yourself.</p>
+      </div>
+    </section>
+
+    <section class="section" id="cluster-linking">
+      <div class="wrap">
+        <h2>Cluster Linking</h2>
+        <p>Cluster Linking is built into Confluent Server and Confluent Cloud. Confluent documents byte-for-byte replication with globally consistent offsets and identical content across partitions. It is included at no extra licensing cost beyond a Confluent Enterprise license subscription. The destination cluster must be Confluent Server (Confluent Platform 7.8.x or later) or Confluent Cloud; the source can be Kafka, Confluent Server or Confluent Cloud. That offset-preserving design is something kaf-mirror does not claim: kaf-mirror keeps record fields and partitions, and the target broker assigns new offsets.</p>
+      </div>
+    </section>
+
+    <section class="section" id="ureplicator">
+      <div class="wrap">
+        <h2>uReplicator</h2>
+        <p>uReplicator is Uber's open source Apache Kafka replicator, published on GitHub. Uber describes it as a Kafka replicator that uses Apache Helix for worker management, designed for their scale. It is a different architecture from a single server binary with a dashboard. This page does not attempt a feature-by-feature match, because Uber's public document is the project README rather than a product manual at the same level as the Apache Kafka and Confluent docs above.</p>
+      </div>
+    </section>
+
+    <section class="section" id="when">
+      <div class="wrap">
+        <h2>When to use what</h2>
+        <ul>
+          <li><strong>kaf-mirror</strong> when you want a Kafka backup or a live copy you can operate from a dashboard, with RBAC, an audit trail and Apache 2.0, including targets that are not Confluent Server.</li>
+          <li><strong>MirrorMaker 2</strong> when you already run Kafka Connect and you want consumer group and ACL replication as part of Apache Kafka.</li>
+          <li><strong>Confluent Replicator</strong> when you are on Confluent Platform and have an Enterprise license for Replicator.</li>
+          <li><strong>Cluster Linking</strong> when the destination can be Confluent Server or Confluent Cloud and you need byte-for-byte mirrors with consistent offsets.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="sources">
+      <div class="wrap">
+        <h2>Sources</h2>
+        <p>Competitor facts are taken from these official pages. kaf-mirror facts are taken from this repository, including <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/record-fidelity.md" rel="noopener noreferrer">record fidelity</a>, <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/resilience.md" rel="noopener noreferrer">resilience</a>, <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/rbac.md" rel="noopener noreferrer">RBAC</a>, <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md" rel="noopener noreferrer">Replication halt</a> and <a href="https://github.com/scalytics/kaf-mirror/blob/main/LICENSE" rel="noopener noreferrer">LICENSE</a>.</p>
+        <ul class="sources">
+          <li><a href="https://kafka.apache.org/42/operations/geo-replication-cross-cluster-data-mirroring/" rel="noopener noreferrer">Apache Kafka: Geo-Replication (Cross-Cluster Data Mirroring)</a></li>
+          <li><a href="https://docs.confluent.io/platform/current/installation/license.html" rel="noopener noreferrer">Confluent: Manage Confluent Platform Licenses</a></li>
+          <li><a href="https://docs.confluent.io/platform/current/multi-dc-deployments/replicator/replicator-run.html" rel="noopener noreferrer">Confluent: Configure and Run Replicator</a></li>
+          <li><a href="https://docs.confluent.io/platform/current/installation/docker/image-reference.html" rel="noopener noreferrer">Confluent: Docker Image Reference (cp-enterprise-replicator, Confluent Enterprise License)</a></li>
+          <li><a href="https://docs.confluent.io/platform/current/multi-dc-deployments/cluster-linking/index.html" rel="noopener noreferrer">Confluent: Cluster Linking for Confluent Platform</a></li>
+          <li><a href="https://github.com/uber/uReplicator" rel="noopener noreferrer">Uber uReplicator on GitHub</a></li>
+        </ul>
+      </div>
+    </section>

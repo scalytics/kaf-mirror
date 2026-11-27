@@ -1,31 +1,37 @@
 # kaf-mirror
 
-> kaf-mirror mirrors topics between any two Kafka clusters over the Kafka protocol. It has a web dashboard, a management CLI, an audit trail and compliance reports. Apache Kafka, Confluent, Redpanda and Azure Event Hubs can be the source or the target, and KafScale is a supported target. It is open source under the Apache License 2.0 and written in Go.
+> kaf-mirror is Kafka backup you can watch, audit and trust. It is one server binary with a dashboard. It makes exact copies, in partition order, with idempotent writes, and resumes from the last committed offset after a restart. It has RBAC, an audit trail, compliance reports, and Replication halt (tech preview). Apache Kafka, Confluent, Redpanda and Azure Event Hubs can be the source or the target, and KafScale is a supported target for a backup on S3. It is open source under the Apache License 2.0 and written in Go.
 
-The latest release is [v2.0.0](https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0), published 27 November 2026. The image is `ghcr.io/scalytics/kaf-mirror:v2.0.0` (linux/amd64 and linux/arm64). `mirror-cli` is also available as a binary for Linux (amd64 and arm64), macOS (Intel and Apple Silicon) and Windows (amd64). This is a major release with breaking changes. Read the release notes before you upgrade.
+The latest release is [v2.0.0](https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0), published 27 November 2026. Read the [upgrade notes](https://github.com/scalytics/kaf-mirror/blob/main/RELEASE_v2.0.0.md) and the Breaking section of the [changelog](https://github.com/scalytics/kaf-mirror/blob/main/CHANGELOG.md) before you upgrade. The image `ghcr.io/scalytics/kaf-mirror:v2.0.0` is published for linux/amd64 and linux/arm64. The server and `admin-cli` binaries are Linux amd64 only. `mirror-cli` is also available for Linux arm64, macOS (Intel and Apple Silicon) and Windows amd64.
 
 What it does:
 
 - A job consumes from a source cluster and produces to a target cluster. Topic names are kept by default. Exact and regex mappings are optional.
-- Source offsets are committed only after the target acknowledges the write.
+- Keys, values, headers, partitions and timestamps are kept. The target broker assigns new offsets.
+- Source offsets are committed only after the target acknowledges the write. A restart resumes from the last committed offset. Writes are idempotent by default.
+- When a source topic is deleted and created again, the job follows the new Kafka topic ID and copies the new topic from its earliest offsets.
 - TLS, mTLS, SASL PLAIN, SCRAM and Kerberos are supported.
 - Access is role based: admin, operator, monitoring and compliance.
 - Job metrics, lag, an audit trail and scheduled compliance reports are built in.
-- It runs as one binary, in Docker, or in Kubernetes with the Helm chart.
+- Replication halt (tech preview) is off by default and admin-only. It can stop a bad write spreading to the backup.
+- The server is one binary with a dashboard. It also runs in Docker, or in Kubernetes with the Helm chart. On kind or k3s, pass a values file with `volumePermissions.enabled: true` when default storage does not honor `fsGroup`.
 - `mirror-cli` and `admin-cli` support shell completion for Bash, Zsh, Fish and PowerShell.
 - Job commands refuse to run until a job is selected or the id is passed.
 - A published image reports `v2.0.0` in the API, the UI and `--version`. A local build reports `dev`.
+- Password flags were removed. Tokens, keys and passwords are not printed. The token file is always mode `0600`. CORS ships as `http://localhost:8080` instead of `*`.
 
 What it is not:
 
 - It is not tied to KafScale. KafScale is one supported target, useful when you want a backup on S3 that a bad delete on the source does not reach.
 - A replica copies deletes and bad writes. For a backup, use a separate target with separate credentials.
+- It does not keep source offsets on the target, and it does not copy consumer groups or ACLs. It does not do point-in-time restore of a topic.
 
 ## Start here
 
 - [Get started]({{SITE}}start.html): download 2.0.0, or run it with Docker or Helm.
 - [What's new in 2.0.0]({{SITE}}#whats-new): highlights of this release.
-- [Demo video]({{SITE}}media/demo.mp4): two Kafka clusters, one job, about two minutes.
+- [Compare]({{SITE}}compare.html): kaf-mirror compared with MirrorMaker 2, Confluent Replicator and Cluster Linking.
+- [Demo video]({{SITE}}media/demo.mp4): two Kafka-compatible clusters (Redpanda in the demo), one job, about two minutes.
 - [Documentation index]({{SITE}}docs.html): configuration, RBAC, protection, Kubernetes and API docs.
 - [CLI reference]({{SITE}}cli-commands.html): every mirror-cli and admin-cli command.
 
@@ -33,13 +39,15 @@ What it is not:
 
 - [GitHub repository](https://github.com/scalytics/kaf-mirror)
 - [v2.0.0 release](https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0)
+- [Upgrade notes](https://github.com/scalytics/kaf-mirror/blob/main/RELEASE_v2.0.0.md)
+- [Changelog](https://github.com/scalytics/kaf-mirror/blob/main/CHANGELOG.md)
 - [Getting started](https://github.com/scalytics/kaf-mirror/blob/main/docs/getting-started.md)
 - [Kubernetes and Helm](https://github.com/scalytics/kaf-mirror/blob/main/docs/kubernetes.md)
 - [Configuration reference](https://github.com/scalytics/kaf-mirror/blob/main/docs/configuration.md)
 - [Shell completion](https://github.com/scalytics/kaf-mirror/blob/main/docs/shell-completion.md)
 - [Roles and permissions](https://github.com/scalytics/kaf-mirror/blob/main/docs/rbac.md)
 - [Replication halt, tech preview](https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md)
-- [Changelog](https://github.com/scalytics/kaf-mirror/blob/main/CHANGELOG.md)
+- [What a copied record keeps](https://github.com/scalytics/kaf-mirror/blob/main/docs/record-fidelity.md)
 
 ## Optional
 
