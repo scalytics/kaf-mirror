@@ -49,9 +49,11 @@ matches before continuing. If an earlier attempt already auto-created a target
 with too few partitions, increase it to the source count with `kafka-topics.sh
 --bootstrap-server 127.0.0.1:39092 --alter --topic orders --partitions 3` (adjust
 the name and count). Pre-create newly added target topics before adding them to
-the job as well. For a broker started outside `make demo`, disabling auto-create
-with `KAFSCALE_AUTO_CREATE_TOPICS=false` lets kaf-mirror create missing targets
-with the correct partition count.
+the job as well. Pre-create every target topic on KafScale v2.1.0 regardless of
+`KAFSCALE_AUTO_CREATE_TOPICS`. A fresh broker also seeds a one-partition `orders`
+entry that can appear in named Metadata requests but not in the full topic list.
+Do not rely on kaf-mirror creating `orders` on a fresh broker: explicitly creating
+the topic with the source partition count avoids this startup failure.
 
 **2. Build and start kaf-mirror**
 

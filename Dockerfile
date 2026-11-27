@@ -6,10 +6,11 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN mkdir -p bin
+ARG VERSION=dev
 ENV CGO_ENABLED=1 GOOS=linux
-RUN go build -ldflags="-s -w" -o bin/kaf-mirror ./cmd/kaf-mirror
+RUN go build -ldflags="-s -w -X main.Version=${VERSION}" -o bin/kaf-mirror ./cmd/kaf-mirror
 RUN go build -ldflags="-s -w" -o bin/admin-cli ./cmd/admin-cli
-RUN go build -ldflags="-s -w" -o bin/mirror-cli ./cmd/mirror-cli
+RUN go build -ldflags="-s -w -X main.Version=${VERSION}" -o bin/mirror-cli ./cmd/mirror-cli
 
 # Final stage
 FROM alpine:3.21

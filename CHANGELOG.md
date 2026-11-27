@@ -30,6 +30,12 @@ All notable changes to this project are documented here.
 - `error_count` now also counts source fetch errors, one for each partition in each fetch that returns an error, so it can grow without failed produce attempts (#87).
 
 ### Fixes
+- The README quick start allows topic auto-creation for the first produce to `orders` (#109).
+- Docker builds embed the release version in the server and management CLI; local images default to `dev` (#110).
+- `admin-cli` rejects unknown group subcommands before opening the database (#111).
+- `mirror-cli jobs add` stops on every cancelled prompt and refuses to prompt without a terminal (#112).
+- `kaf-mirror --help` and `--version` exit before startup; unknown flags and arguments fail without creating data or logs (#113).
+- Release assets include Linux arm64 and Apple Silicon `mirror-cli`. KafScale v2.1.0 guides require pre-creating every target topic regardless of auto-create settings, including the seeded `orders` topic (#114).
 - `mirror-cli jobs start`, `stop`, `pause`, `restart`, `force-restart`, `delete`, `analyze`, `healthcheck`, `status full` and `status metrics` refuse to run when no job is selected. Without a terminal they print `Operation cancelled: no terminal to select a job, pass the job id`, an aborted selection prints `Operation cancelled: job selection aborted`, and an empty job id prints `Operation cancelled: no job selected, pass the job id`. All exit with status 1 and send no request. Before, they called the API with an empty job id and printed a misleading error such as `Cannot GET /api/v1/jobs//mirror/state` (#100).
 - `mirror-cli` exits 1 when a command fails or the subcommand is unknown. Before, `jobs delete` and `jobs start` of a missing id, a command run while logged out, and `clusters delete` printed an error or the parent help and exited 0 (#89).
 - `admin-cli --help` works with no config file, and database commands work with `--db-path` and no config file. `backup full` copies the config that was loaded (`CONFIG_PATH`, or `default.yml` when `--config-path` is omitted) and prints a warning when that file is missing, instead of leaving it out of the backup with no message (#90).

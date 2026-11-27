@@ -22,7 +22,9 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"kaf-mirror/internal/config"
 	"kaf-mirror/internal/database"
@@ -40,7 +42,7 @@ import (
 )
 
 var (
-	Version string
+	Version = "dev"
 )
 
 func writeSecretFile(dir string, prefix string, secret string) (string, error) {
@@ -76,7 +78,41 @@ func startupDBError(dbPath string, err error) string {
 	}
 }
 
+func serverArgs(args []string, out io.Writer) (bool, error) {
+	flags := flag.NewFlagSet("kaf-mirror", flag.ContinueOnError)
+	flags.SetOutput(out)
+	version := flags.Bool("version", false, "Print the version and exit")
+	flags.Usage = func() {
+		fmt.Fprintln(out, "Usage: kaf-mirror [--help] [--version]")
+		fmt.Fprintln(out, "With no arguments, start the server.")
+		fmt.Fprintln(out, "Configuration: CONFIG_PATH selects the config file; KAF_MIRROR_* overrides config keys (e.g. KAF_MIRROR_SERVER_HOST).")
+		flags.PrintDefaults()
+	}
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return false, nil
+		}
+		return false, err
+	}
+	if flags.NArg() > 0 {
+		return false, fmt.Errorf("unexpected argument %q", flags.Arg(0))
+	}
+	if *version {
+		fmt.Fprintln(out, Version)
+		return false, nil
+	}
+	return true, nil
+}
+
 func main() {
+	start, err := serverArgs(os.Args[1:], os.Stdout)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if !start {
+		return
+	}
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
