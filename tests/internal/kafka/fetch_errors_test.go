@@ -20,10 +20,10 @@ import (
 	"testing"
 	"time"
 
-	"kaf-mirror/internal/database"
-	"kaf-mirror/internal/kafka"
-	"kaf-mirror/pkg/logger"
-	"kaf-mirror/tests/mocks"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/kafka"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/tests/mocks"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

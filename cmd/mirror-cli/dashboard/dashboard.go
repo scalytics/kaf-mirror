@@ -13,9 +13,9 @@ package dashboard
 
 import (
 	"fmt"
-	"kaf-mirror/cmd/mirror-cli/dashboard/core"
-	"kaf-mirror/cmd/mirror-cli/dashboard/layouts"
-	"kaf-mirror/cmd/mirror-cli/dashboard/widgets"
+	"github.com/scalytics/kaf-mirror/v2/cmd/mirror-cli/dashboard/core"
+	"github.com/scalytics/kaf-mirror/v2/cmd/mirror-cli/dashboard/layouts"
+	"github.com/scalytics/kaf-mirror/v2/cmd/mirror-cli/dashboard/widgets"
 	"time"
 
 	ui "github.com/gizak/termui/v3"

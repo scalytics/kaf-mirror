@@ -14,7 +14,7 @@ package manager
 import (
 	"testing"
 
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 )
 
 func TestBuildJobConfigUsesTheDefaultForAStoredZeroBatchSize(t *testing.T) {

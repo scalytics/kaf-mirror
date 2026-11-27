@@ -14,7 +14,7 @@ package middleware
 import (
 	"encoding/json"
 	"fmt"
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 	"regexp"
 	"strings"
 

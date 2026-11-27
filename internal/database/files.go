@@ -18,7 +18,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"kaf-mirror/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
 )
 
 const (

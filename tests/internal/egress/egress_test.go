@@ -15,7 +15,7 @@ import (
 	"net"
 	"testing"
 
-	"kaf-mirror/internal/egress"
+	"github.com/scalytics/kaf-mirror/v2/internal/egress"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

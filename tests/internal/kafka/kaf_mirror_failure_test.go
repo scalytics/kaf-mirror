@@ -14,9 +14,9 @@ package kafka_test
 import (
 	"context"
 	"errors"
-	"kaf-mirror/internal/database"
-	"kaf-mirror/internal/kafka"
-	"kaf-mirror/tests/mocks"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/kafka"
+	"github.com/scalytics/kaf-mirror/v2/tests/mocks"
 	"sync"
 	"sync/atomic"
 	"testing"

@@ -12,8 +12,8 @@
 package layouts
 
 import (
-	"kaf-mirror/cmd/mirror-cli/dashboard/core"
-	"kaf-mirror/cmd/mirror-cli/dashboard/widgets"
+	"github.com/scalytics/kaf-mirror/v2/cmd/mirror-cli/dashboard/core"
+	"github.com/scalytics/kaf-mirror/v2/cmd/mirror-cli/dashboard/widgets"
 
 	ui "github.com/gizak/termui/v3"
 	ui_widgets "github.com/gizak/termui/v3/widgets"

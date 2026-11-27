@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"kaf-mirror/internal/database"
-	"kaf-mirror/internal/kafka"
-	"kaf-mirror/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/kafka"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
 )
 
 const (

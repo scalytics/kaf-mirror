@@ -12,7 +12,7 @@
 package kafka
 
 import (
-	"kaf-mirror/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )

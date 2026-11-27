@@ -12,8 +12,8 @@
 package mocks
 
 import (
-	"kaf-mirror/internal/database"
-	"kaf-mirror/internal/kafka"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/kafka"
 )
 
 // MockKafMirror is a mock implementation of the KafMirror interface.

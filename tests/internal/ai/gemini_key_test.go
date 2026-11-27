@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"kaf-mirror/internal/ai"
+	"github.com/scalytics/kaf-mirror/v2/internal/ai"
 )
 
 const geminiTestKey = "AIzaSy-gemini-secret-key"

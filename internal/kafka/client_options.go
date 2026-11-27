@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"kaf-mirror/internal/config"
-	"kaf-mirror/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
 
 	krbclient "github.com/jcmturner/gokrb5/v8/client"
 	krbconfig "github.com/jcmturner/gokrb5/v8/config"

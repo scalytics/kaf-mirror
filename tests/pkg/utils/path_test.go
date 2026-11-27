@@ -12,7 +12,7 @@
 package utils_test
 
 import (
-	"kaf-mirror/pkg/utils"
+	"github.com/scalytics/kaf-mirror/v2/pkg/utils"
 	"os"
 	"path/filepath"
 	"testing"

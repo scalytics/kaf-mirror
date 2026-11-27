@@ -12,7 +12,7 @@
 package database_test
 
 import (
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 	"testing"
 	"time"
 

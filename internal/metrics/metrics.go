@@ -12,8 +12,8 @@
 package metrics
 
 import (
-	"kaf-mirror/internal/config"
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 )
 
 // Sink is an interface for sending metrics to a monitoring platform.

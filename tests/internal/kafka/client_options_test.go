@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"kaf-mirror/internal/config"
-	"kaf-mirror/internal/kafka"
-	"kaf-mirror/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/internal/kafka"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
 
 	"github.com/jcmturner/gokrb5/v8/iana/etypeID"
 	"github.com/jcmturner/gokrb5/v8/keytab"

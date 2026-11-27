@@ -13,7 +13,7 @@ package kafka_test
 
 import (
 	"context"
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 	"testing"
 	"time"
 

@@ -13,8 +13,8 @@ package config
 
 import (
 	"fmt"
-	"kaf-mirror/internal/egress"
-	"kaf-mirror/pkg/utils"
+	"github.com/scalytics/kaf-mirror/v2/internal/egress"
+	"github.com/scalytics/kaf-mirror/v2/pkg/utils"
 	"os"
 	"path/filepath"
 	"strings"

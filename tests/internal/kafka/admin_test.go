@@ -14,8 +14,8 @@ package kafka_test
 import (
 	"context"
 	"errors"
-	"kaf-mirror/internal/kafka"
-	"kaf-mirror/tests/mocks"
+	"github.com/scalytics/kaf-mirror/v2/internal/kafka"
+	"github.com/scalytics/kaf-mirror/v2/tests/mocks"
 	"testing"
 
 	"github.com/stretchr/testify/assert"

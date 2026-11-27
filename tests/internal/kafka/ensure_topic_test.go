@@ -14,7 +14,7 @@ package kafka_test
 import (
 	"context"
 	"errors"
-	"kaf-mirror/internal/kafka"
+	"github.com/scalytics/kaf-mirror/v2/internal/kafka"
 	"testing"
 	"time"
 

@@ -18,8 +18,8 @@ import (
 	"sort"
 	"strings"
 
-	"kaf-mirror/internal/config"
-	"kaf-mirror/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
 )
 
 const topicRegexChars = `\^$*+?()[]{}|`

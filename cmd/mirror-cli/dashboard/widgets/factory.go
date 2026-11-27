@@ -13,7 +13,7 @@ package widgets
 
 import (
 	"fmt"
-	"kaf-mirror/cmd/mirror-cli/dashboard/core"
+	"github.com/scalytics/kaf-mirror/v2/cmd/mirror-cli/dashboard/core"
 	"strings"
 
 	ui "github.com/gizak/termui/v3"

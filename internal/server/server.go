@@ -14,18 +14,18 @@ package server
 import (
 	"context"
 	"fmt"
-	"kaf-mirror/internal/ai"
-	"kaf-mirror/internal/config"
-	"kaf-mirror/internal/database"
-	"kaf-mirror/internal/manager"
-	"kaf-mirror/internal/server/middleware"
-	"kaf-mirror/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/internal/ai"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/manager"
+	"github.com/scalytics/kaf-mirror/v2/internal/server/middleware"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jmoiron/sqlx"
 
-	_ "kaf-mirror/web/docu/swagger"
+	_ "github.com/scalytics/kaf-mirror/v2/web/docu/swagger"
 )
 
 // Server wraps the Fiber application.

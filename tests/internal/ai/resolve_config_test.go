@@ -14,8 +14,8 @@ package ai_test
 import (
 	"testing"
 
-	"kaf-mirror/internal/ai"
-	"kaf-mirror/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/internal/ai"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
 )
 
 func TestResolveConfigPrefersFileWhenProviderTokenOrEndpointIsSet(t *testing.T) {

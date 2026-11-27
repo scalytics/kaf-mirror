@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

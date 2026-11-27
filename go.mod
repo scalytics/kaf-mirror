@@ -1,4 +1,4 @@
-module kaf-mirror
+module github.com/scalytics/kaf-mirror/v2
 
 go 1.27.4
 

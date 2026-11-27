@@ -2,7 +2,7 @@ package server_test
 
 import (
 	"encoding/json"
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 	"net/http"
 	"net/http/httptest"
 	"testing"

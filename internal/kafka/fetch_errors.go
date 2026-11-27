@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"kaf-mirror/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
 
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"

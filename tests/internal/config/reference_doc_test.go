@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"kaf-mirror/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
 )
 
 const repoRoot = "../../.."

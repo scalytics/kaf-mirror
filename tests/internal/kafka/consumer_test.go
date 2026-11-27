@@ -12,7 +12,7 @@
 package kafka_test
 
 import (
-	"kaf-mirror/internal/kafka"
+	"github.com/scalytics/kaf-mirror/v2/internal/kafka"
 	"testing"
 
 	"github.com/stretchr/testify/assert"

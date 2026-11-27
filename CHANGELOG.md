@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [2.0.1] - unreleased
+### Breaking
+- The Go module path is now `github.com/scalytics/kaf-mirror/v2`. Anyone who imports kaf-mirror packages must update their import paths. There is no change for binary, Docker or Helm users.
+
 ## [2.0.0] - 2026-11-26
 ### Breaking
 - Builds require Go 1.27.4 or newer. CI, releases and the Docker builder use Go 1.27.4.

@@ -13,8 +13,8 @@ package kafka
 
 import (
 	"context"
-	"kaf-mirror/internal/config"
-	"kaf-mirror/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
 	"os"
 	"strings"
 	"sync/atomic"

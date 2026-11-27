@@ -14,8 +14,8 @@ package kafka
 import (
 	"context"
 	"fmt"
-	"kaf-mirror/internal/config"
-	"kaf-mirror/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
 	"sync"
 	"sync/atomic"
 	"time"

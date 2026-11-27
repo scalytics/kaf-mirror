@@ -12,7 +12,7 @@
 package server
 
 import (
-	"kaf-mirror/internal/server/middleware"
+	"github.com/scalytics/kaf-mirror/v2/internal/server/middleware"
 
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

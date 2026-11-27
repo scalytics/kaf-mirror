@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"kaf-mirror/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"

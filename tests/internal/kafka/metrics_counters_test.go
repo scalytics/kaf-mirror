@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"kaf-mirror/internal/database"
-	"kaf-mirror/tests/mocks"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/tests/mocks"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -12,7 +12,7 @@
 package manager_test
 
 import (
-	"kaf-mirror/internal/manager"
+	"github.com/scalytics/kaf-mirror/v2/internal/manager"
 	"testing"
 	"time"
 

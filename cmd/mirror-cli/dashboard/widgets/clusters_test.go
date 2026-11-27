@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"kaf-mirror/cmd/mirror-cli/dashboard/core"
+	"github.com/scalytics/kaf-mirror/v2/cmd/mirror-cli/dashboard/core"
 )
 
 func TestClustersListShowsReachability(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"kaf-mirror/internal/server/middleware"
+	"github.com/scalytics/kaf-mirror/v2/internal/server/middleware"
 
 	"gopkg.in/yaml.v2"
 )

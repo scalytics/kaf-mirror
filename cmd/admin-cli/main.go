@@ -17,10 +17,10 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/pkg/utils"
 	"io"
-	"kaf-mirror/internal/config"
-	"kaf-mirror/internal/database"
-	"kaf-mirror/pkg/utils"
 	"log"
 	"os"
 	"path/filepath"

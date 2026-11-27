@@ -13,7 +13,7 @@ package mocks
 
 import (
 	"context"
-	"kaf-mirror/internal/kafka"
+	"github.com/scalytics/kaf-mirror/v2/internal/kafka"
 
 	"github.com/stretchr/testify/mock"
 )

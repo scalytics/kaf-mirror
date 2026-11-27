@@ -14,10 +14,10 @@ package kafka_test
 import (
 	"bytes"
 	"context"
+	"github.com/scalytics/kaf-mirror/v2/internal/kafka"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/tests/mocks"
 	"io"
-	"kaf-mirror/internal/kafka"
-	"kaf-mirror/pkg/logger"
-	"kaf-mirror/tests/mocks"
 	"strings"
 	"testing"
 

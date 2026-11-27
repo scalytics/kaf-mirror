@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 )
 
 func TestImportDatabaseHasNoMergeFlag(t *testing.T) {

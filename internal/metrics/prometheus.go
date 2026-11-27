@@ -12,9 +12,9 @@
 package metrics
 
 import (
-	"kaf-mirror/internal/config"
-	"kaf-mirror/internal/database"
-	"kaf-mirror/internal/egress"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/egress"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"

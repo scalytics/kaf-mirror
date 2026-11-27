@@ -14,7 +14,7 @@ package database
 import (
 	_ "embed"
 	"fmt"
-	"kaf-mirror/pkg/utils"
+	"github.com/scalytics/kaf-mirror/v2/pkg/utils"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"

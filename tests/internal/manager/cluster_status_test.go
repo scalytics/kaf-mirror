@@ -21,11 +21,11 @@ import (
 	"testing"
 	"time"
 
-	"kaf-mirror/internal/config"
-	"kaf-mirror/internal/database"
-	"kaf-mirror/internal/manager"
-	"kaf-mirror/pkg/logger"
-	"kaf-mirror/tests/mocks"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/manager"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/tests/mocks"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

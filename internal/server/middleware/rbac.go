@@ -12,7 +12,7 @@
 package middleware
 
 import (
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jmoiron/sqlx"

@@ -14,11 +14,11 @@ package manager_test
 import (
 	"testing"
 
-	"kaf-mirror/internal/config"
-	"kaf-mirror/internal/database"
-	"kaf-mirror/internal/kafka"
-	"kaf-mirror/internal/manager"
-	"kaf-mirror/tests/mocks"
+	"github.com/scalytics/kaf-mirror/v2/internal/config"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/kafka"
+	"github.com/scalytics/kaf-mirror/v2/internal/manager"
+	"github.com/scalytics/kaf-mirror/v2/tests/mocks"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

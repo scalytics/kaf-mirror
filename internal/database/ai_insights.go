@@ -15,8 +15,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"kaf-mirror/internal/analysis"
-	"kaf-mirror/pkg/logger"
+	"github.com/scalytics/kaf-mirror/v2/internal/analysis"
+	"github.com/scalytics/kaf-mirror/v2/pkg/logger"
 	"strings"
 	"time"
 

@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"

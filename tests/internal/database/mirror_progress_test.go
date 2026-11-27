@@ -13,7 +13,7 @@ package database_test
 
 import (
 	"encoding/json"
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 	"testing"
 	"time"
 

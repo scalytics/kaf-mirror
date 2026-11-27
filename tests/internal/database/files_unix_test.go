@@ -21,7 +21,7 @@ import (
 	"syscall"
 	"testing"
 
-	"kaf-mirror/internal/database"
+	"github.com/scalytics/kaf-mirror/v2/internal/database"
 )
 
 func TestInitDBCreatesPrivateFiles(t *testing.T) {
