@@ -77,6 +77,51 @@ def render(text: str, site: str) -> str:
     return text.replace("{{SITE}}", site)
 
 
+OG_IMAGE_PATH = "media/og-card.png"
+OG_IMAGE_TYPE = "image/png"
+OG_IMAGE_WIDTH = "1200"
+OG_IMAGE_HEIGHT = "630"
+OG_IMAGE_ALT = "kaf-mirror: Kafka to Kafka replication"
+CLI_TITLE = "CLI Command Reference - kaf-mirror"
+CLI_DESCRIPTION = "Generated command reference for the kaf-mirror management CLI, mirror-cli."
+
+
+def attr(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def social_meta(title: str, description: str, canonical: str, site: str) -> str:
+    image = site + OG_IMAGE_PATH
+    t = attr(title)
+    d = attr(description)
+    c = attr(canonical)
+    img = attr(image)
+    alt = attr(OG_IMAGE_ALT)
+    return (
+        "  <meta property=\"og:type\" content=\"website\">\n"
+        f"  <meta property=\"og:title\" content=\"{t}\">\n"
+        f"  <meta property=\"og:description\" content=\"{d}\">\n"
+        f"  <meta property=\"og:url\" content=\"{c}\">\n"
+        "  <meta property=\"og:site_name\" content=\"kaf-mirror\">\n"
+        "  <meta property=\"og:locale\" content=\"en_US\">\n"
+        f"  <meta property=\"og:image\" content=\"{img}\">\n"
+        f"  <meta property=\"og:image:width\" content=\"{OG_IMAGE_WIDTH}\">\n"
+        f"  <meta property=\"og:image:height\" content=\"{OG_IMAGE_HEIGHT}\">\n"
+        f"  <meta property=\"og:image:alt\" content=\"{alt}\">\n"
+        f"  <meta property=\"og:image:type\" content=\"{OG_IMAGE_TYPE}\">\n"
+        "  <meta name=\"twitter:card\" content=\"summary_large_image\">\n"
+        f"  <meta name=\"twitter:title\" content=\"{t}\">\n"
+        f"  <meta name=\"twitter:description\" content=\"{d}\">\n"
+        f"  <meta name=\"twitter:image\" content=\"{img}\">\n"
+        f"  <meta name=\"twitter:image:alt\" content=\"{alt}\">\n"
+    )
+
+
 def jsonld_block(name: str, site: str) -> str:
     src = PAGES / (Path(name).stem + ".jsonld")
     if not src.is_file():
@@ -97,7 +142,7 @@ def sitemap(meta: dict, site: str) -> str:
     )
 
 
-def shell(title: str, description: str, canonical: str, current: str, body: str, main_tag: bool = True, head_extra: str = "") -> str:
+def shell(title: str, description: str, canonical: str, current: str, body: str, site: str, main_tag: bool = True, head_extra: str = "") -> str:
     nav = mark_current((INCLUDES / "nav.html").read_text(encoding="utf-8").rstrip(), current)
     footer = (INCLUDES / "footer.html").read_text(encoding="utf-8").rstrip()
     inner_open = "  <main id=\"content\">\n" if main_tag else "  <div id=\"content\">\n"
@@ -108,16 +153,12 @@ def shell(title: str, description: str, canonical: str, current: str, body: str,
         "<head>\n"
         "  <meta charset=\"utf-8\">\n"
         "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        f"  <title>{title}</title>\n"
-        f"  <meta name=\"description\" content=\"{description}\">\n"
+        f"  <title>{attr(title)}</title>\n"
+        f"  <meta name=\"description\" content=\"{attr(description)}\">\n"
         "  <meta name=\"color-scheme\" content=\"light dark\">\n"
         f"  <link rel=\"canonical\" href=\"{canonical}\">\n"
         "  <link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">\n"
-        "  <meta property=\"og:type\" content=\"website\">\n"
-        f"  <meta property=\"og:title\" content=\"{title}\">\n"
-        f"  <meta property=\"og:description\" content=\"{description}\">\n"
-        f"  <meta property=\"og:url\" content=\"{canonical}\">\n"
-        "  <meta property=\"og:site_name\" content=\"kaf-mirror\">\n"
+        f"{social_meta(title, description, canonical, site)}"
         "  <link rel=\"stylesheet\" href=\"styles.css\">\n"
         f"{head_extra}"
         "</head>\n"
@@ -151,11 +192,16 @@ def wrap_cli(src: Path, site: str) -> str:
 
     nav = mark_current((INCLUDES / "nav.html").read_text(encoding="utf-8").rstrip(), "cli-commands.html")
     footer = (INCLUDES / "footer.html").read_text(encoding="utf-8").rstrip()
+    canonical = site + "cli-commands.html"
+    social = social_meta(CLI_TITLE, CLI_DESCRIPTION, canonical, site)
+    social = "    " + social.strip() + "\n"
     text = text.replace(
         "</head>",
+        "    <meta name=\"description\" content=\"" + attr(CLI_DESCRIPTION) + "\">\n"
         "    <link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">\n"
-        "    <link rel=\"stylesheet\" href=\"styles.css\">\n"
-        f"    <link rel=\"canonical\" href=\"{site}cli-commands.html\">\n"
+        + social +
+        "    <link rel=\"canonical\" href=\"" + attr(canonical) + "\">\n"
+        + jsonld_block("cli-commands.html", site) +
         f"    <style>{CLI_EXTRA_CSS}</style>\n"
         "</head>",
         1,
@@ -204,6 +250,7 @@ def main() -> int:
             info["canonical"],
             info["nav"],
             body,
+            site,
             head_extra=jsonld_block(name, site),
         )
         (out / name).write_text(html, encoding="utf-8")

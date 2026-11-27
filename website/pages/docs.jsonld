@@ -1,0 +1,41 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "CollectionPage",
+      "@id": "{{SITE}}docs.html#page",
+      "name": "Docs | kaf-mirror",
+      "description": "Index of kaf-mirror documentation, the CLI reference and the Swagger API docs.",
+      "url": "{{SITE}}docs.html",
+      "inLanguage": "en",
+      "isPartOf": {
+        "@id": "{{SITE}}#website"
+      },
+      "about": {
+        "@id": "{{SITE}}#software"
+      },
+      "image": "{{SITE}}media/og-card.png",
+      "publisher": {
+        "@id": "{{SITE}}#publisher"
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "{{SITE}}docs.html#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "kaf-mirror",
+          "item": "{{SITE}}"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Docs",
+          "item": "{{SITE}}docs.html"
+        }
+      ]
+    }
+  ]
+}
