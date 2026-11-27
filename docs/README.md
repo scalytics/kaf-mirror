@@ -16,7 +16,7 @@ The [README](../README.md) has the 60 second quick start. Everything else is her
 - [Shell completion](shell-completion.md): Bash, Zsh, Fish and PowerShell.
 - [Role-based access control](rbac.md): the permissions of each role per endpoint.
 - [Security](security.md): Kafka authentication, TLS with a private CA or mTLS, and Kerberos.
-- [Replication halt](protection.md) (experimental): stop all replication if the source looks compromised.
+- [Replication halt](protection.md) (tech preview): off by default and admin-only. Stops all replication if the source looks compromised.
 
 ## How it works
 

@@ -1,8 +1,8 @@
-# Replication halt (experimental)
+# Replication halt (tech preview)
 
 An admin kill-switch for kaf-mirror. **Off by default.**
 
-If the source cluster is compromised, kaf-mirror will copy that traffic onto the replica unless you stop it. This feature is how you freeze replication. It is experimental: it can false-positive, and it does not protect Kafka itself.
+If the source cluster is compromised, kaf-mirror will copy that traffic onto the replica unless you stop it. This feature is how you freeze replication. It is a tech preview: it can false-positive, and it does not protect Kafka itself.
 
 ## Why this exists
 

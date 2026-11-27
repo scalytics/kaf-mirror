@@ -2,13 +2,34 @@
       <div class="wrap">
         <p class="eyebrow">Documentation</p>
         <h1>Docs, API and CLI.</h1>
-        <p class="lede">The full documentation lives in the repository. This page is an index. The CLI reference is built into this site from the generated HTML in <code>web/docu/cli-commands.html</code>.</p>
+        <p class="lede">The full documentation lives in the repository. This page is an index. The CLI reference is built into this site from the generated HTML in <code>web/docu/cli-commands.html</code>. The latest release is <a href="https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0" rel="noopener noreferrer">v2.0.0</a>.</p>
       </div>
     </section>
 
-    <section class="section" id="repo-docs">
+    <section class="section" id="whats-new">
       <div class="wrap">
-        <h2>In the repository</h2>
+        <h2>What's new in 2.0.0</h2>
+        <p>A short list of what landed in this release, with links to the docs. Read the <a href="https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0" rel="noopener noreferrer">GitHub release</a> and the Breaking section of the changelog before you upgrade.</p>
+        <ul class="docs-list">
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0" rel="noopener noreferrer">v2.0.0 release notes</a>
+            <p>Highlights, breaking changes, security notes and upgrade steps. The image is <code>ghcr.io/scalytics/kaf-mirror:v2.0.0</code>. <code>mirror-cli</code> downloads include Linux arm64 and Apple Silicon.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/shell-completion.md" rel="noopener noreferrer">Shell completion</a>
+            <p>Bash, Zsh, Fish and PowerShell for <code>mirror-cli</code> and <code>admin-cli</code>.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md" rel="noopener noreferrer">Replication halt (tech preview)</a>
+            <p>Off by default and admin-only. Freezes replication if the source looks compromised.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="run">
+      <div class="wrap">
+        <h2>Run it</h2>
         <ul class="docs-list">
           <li>
             <a href="https://github.com/scalytics/kaf-mirror/blob/main/README.md" rel="noopener noreferrer">README</a>
@@ -16,31 +37,111 @@
           </li>
           <li>
             <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/README.md" rel="noopener noreferrer">Documentation index</a>
-            <p>Getting started, Kubernetes and Helm, running as a service, administration, security, TLS and mTLS, Kerberos, topic mappings, what a copied record keeps, job metrics, resilience, the architecture and the KafScale backup guide.</p>
+            <p>The full list of pages in <code>docs/</code>.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/getting-started.md" rel="noopener noreferrer">Getting started</a>
+            <p>Docker, a prebuilt image, bind mounts and binaries you build yourself.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/kubernetes.md" rel="noopener noreferrer">Kubernetes and Helm</a>
+            <p>The Helm chart, TLS, secrets, upgrades and <code>volumePermissions</code> for kind and k3s. The values are in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/deploy/helm/kaf-mirror/README.md" rel="noopener noreferrer">chart README</a>.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/run-as-a-service.md" rel="noopener noreferrer">Run as a service</a>
+            <p>A systemd service on Linux.</p>
           </li>
           <li>
             <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/configuration.md" rel="noopener noreferrer">Configuration reference</a>
             <p>Every config key and environment variable that kaf-mirror reads, including cluster API fields and AI analysis.</p>
           </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="operate">
+      <div class="wrap">
+        <h2>Operate it</h2>
+        <ul class="docs-list">
           <li>
-            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/rbac.md" rel="noopener noreferrer">Role-based access control</a>
-            <p>Public endpoints and the permissions for admin, operator, monitoring and compliance on auth, clusters, jobs, metrics, topics, AI, users, inventory, mirror state, compliance and events.</p>
-          </li>
-          <li>
-            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md" rel="noopener noreferrer">Replication halt (experimental)</a>
-            <p>How to turn the halt on, label clusters, stop and resume all replication, and what automatic halt does and does not do.</p>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/administration.md" rel="noopener noreferrer">Administration</a>
+            <p><code>mirror-cli</code> and <code>admin-cli</code>, cluster status, users, compliance reports, backup, restore and import.</p>
           </li>
           <li>
             <a href="cli-commands.html">CLI command reference</a>
             <p>Generated reference for <code>mirror-cli</code>, also available as <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/cli-commands.md" rel="noopener noreferrer">docs/cli-commands.md</a>.</p>
           </li>
           <li>
-            <a href="https://github.com/scalytics/kaf-mirror/blob/main/deploy/helm/kaf-mirror/README.md" rel="noopener noreferrer">Helm chart</a>
-            <p>Install, bootstrap password, database backup, server TLS, Kafka TLS, tokens from a Secret, AI, Kerberos, upgrades and values.</p>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/shell-completion.md" rel="noopener noreferrer">Shell completion</a>
+            <p>Bash, Zsh, Fish and PowerShell for both CLIs.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/rbac.md" rel="noopener noreferrer">Role-based access control</a>
+            <p>Public endpoints and the permissions for admin, operator, monitoring and compliance on auth, clusters, jobs, metrics, topics, AI, users, inventory, mirror state, compliance and events.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/security.md" rel="noopener noreferrer">Security</a>
+            <p>Kafka authentication, TLS with a private CA or mTLS, and Kerberos.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md" rel="noopener noreferrer">Replication halt (tech preview)</a>
+            <p>How to turn the halt on, label clusters, stop and resume all replication, and what automatic halt does and does not do.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="how">
+      <div class="wrap">
+        <h2>How it works</h2>
+        <ul class="docs-list">
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/topic-mappings.md" rel="noopener noreferrer">Topic mappings</a>
+            <p>Exact names, regex and target names.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/record-fidelity.md" rel="noopener noreferrer">What a copied record keeps</a>
+            <p>Keys, values, headers, partitions and timestamps.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/metrics.md" rel="noopener noreferrer">Job metrics</a>
+            <p>Counters, lag and how they are counted.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/resilience.md" rel="noopener noreferrer">Resilience and buffering</a>
+            <p>Retries, outages, offsets and shutdown.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/architecture.md" rel="noopener noreferrer">Architecture</a>
+            <p>Where kaf-mirror fits.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/features.md" rel="noopener noreferrer">Features</a>
+            <p>The full feature list.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/api.md" rel="noopener noreferrer">API</a>
+            <p>Swagger and the OpenAPI files.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="backup">
+      <div class="wrap">
+        <h2>Backup and project docs</h2>
+        <ul class="docs-list">
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/kafscale-backup.md" rel="noopener noreferrer">Back up to S3 with KafScale</a>
+            <p>Mirror into a Kafka-compatible target that keeps immutable segments in S3.</p>
           </li>
           <li>
             <a href="https://github.com/scalytics/kaf-mirror/blob/main/CHANGELOG.md" rel="noopener noreferrer">Changelog</a>
             <p>Breaking changes, fixes, docs and security notes on <code>main</code>, and the history of published releases.</p>
+          </li>
+          <li>
+            <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/testing.md" rel="noopener noreferrer">Testing</a>
+            <p>How the tests are organized and how to run them.</p>
           </li>
           <li>
             <a href="https://github.com/scalytics/kaf-mirror/blob/main/CONTRIBUTING.md" rel="noopener noreferrer">Contributing</a>

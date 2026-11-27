@@ -9,7 +9,7 @@
       "description": "kaf-mirror mirrors topics between any two Kafka clusters over the Kafka protocol, with a web dashboard, a management CLI, an audit trail and compliance reports. Apache Kafka, Confluent, Redpanda and Azure Event Hubs can be the source or the target, and KafScale is a supported target.",
       "applicationCategory": "DeveloperApplication",
       "applicationSubCategory": "Kafka replication",
-      "operatingSystem": "Linux, Docker, Kubernetes",
+      "operatingSystem": "Linux, macOS, Windows, Docker, Kubernetes",
       "programmingLanguage": "Go",
       "license": "https://www.apache.org/licenses/LICENSE-2.0",
       "isAccessibleForFree": true,
@@ -26,7 +26,8 @@
         "Role-based access with admin, operator, monitoring and compliance roles",
         "Audit trail and scheduled compliance reports",
         "Web dashboard, REST API, admin CLI and management CLI",
-        "Helm chart for Kubernetes"
+        "Helm chart for Kubernetes",
+        "Shell completion for the management and admin CLIs"
       ],
       "softwareHelp": {
         "@type": "CreativeWork",
@@ -40,7 +41,12 @@
       },
       "video": {
         "@id": "{{SITE}}#demo"
-      }
+      },
+      "softwareVersion": "2.0.0",
+      "datePublished": "2026-11-27",
+      "dateModified": "2026-11-27",
+      "downloadUrl": "https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0",
+      "releaseNotes": "https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0"
     },
     {
       "@type": "VideoObject",
