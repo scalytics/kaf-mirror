@@ -1,0 +1,48 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "TechArticle",
+      "@id": "{{SITE}}cli-commands.html#article",
+      "headline": "CLI Command Reference - kaf-mirror",
+      "name": "CLI Command Reference - kaf-mirror",
+      "description": "Generated command reference for the kaf-mirror management CLI, mirror-cli.",
+      "url": "{{SITE}}cli-commands.html",
+      "inLanguage": "en",
+      "isPartOf": {
+        "@id": "{{SITE}}#website"
+      },
+      "about": {
+        "@id": "{{SITE}}#software"
+      },
+      "image": "{{SITE}}media/og-card.png",
+      "publisher": {
+        "@id": "{{SITE}}#publisher"
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "{{SITE}}cli-commands.html#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "kaf-mirror",
+          "item": "{{SITE}}"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Docs",
+          "item": "{{SITE}}docs.html"
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "name": "CLI command reference",
+          "item": "{{SITE}}cli-commands.html"
+        }
+      ]
+    }
+  ]
+}

@@ -15,12 +15,15 @@ python3 -m http.server --directory _site 4173
 
 Then open `http://localhost:4173/`.
 
-The build also writes `sitemap.xml`, `robots.txt`, `llms.txt` and the
-JSON-LD block on the home page. All of them take the site address from the
-`canonical` value of `index.html` in `pages/pages.json`, so a domain change
-means editing that file and the per-page canonicals next to it. Page JSON-LD
-lives next to the page as `pages/<name>.jsonld` and `llms.txt` is a template
-that uses `{{SITE}}` for the address.
+The build also writes `sitemap.xml`, `robots.txt`, `llms.txt`, Open Graph
+and Twitter card tags, and JSON-LD. All of them take the site address from
+the `canonical` value of `index.html` in `pages/pages.json`, so a domain
+change means editing that file and the per-page canonicals next to it. Page
+JSON-LD lives next to the page as `pages/<name>.jsonld` and `llms.txt` is a
+template that uses `{{SITE}}` for the address. The social card is
+`media/og-card.png` (1200 by 630). The shared head tags, including
+`og:image` and `twitter:card`, are added by `build.py` to every page and
+to the generated CLI reference.
 
 ## Demo video
 

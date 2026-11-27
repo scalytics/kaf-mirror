@@ -1,0 +1,61 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "HowTo",
+      "@id": "{{SITE}}start.html#howto",
+      "name": "Run kaf-mirror with Docker or Helm",
+      "description": "Run kaf-mirror locally with Docker, or install the Helm chart. Commands are copied from the getting started guide.",
+      "url": "{{SITE}}start.html",
+      "inLanguage": "en",
+      "isPartOf": {
+        "@id": "{{SITE}}#website"
+      },
+      "about": {
+        "@id": "{{SITE}}#software"
+      },
+      "image": "{{SITE}}media/og-card.png",
+      "step": [
+        {
+          "@type": "HowToStep",
+          "position": 1,
+          "name": "Download 2.0.0",
+          "url": "{{SITE}}start.html#download",
+          "text": "Download mirror-cli from the v2.0.0 release for Linux, macOS (Intel and Apple Silicon) or Windows, or pull the image ghcr.io/scalytics/kaf-mirror:v2.0.0."
+        },
+        {
+          "@type": "HowToStep",
+          "position": 2,
+          "name": "Run locally with Docker",
+          "url": "{{SITE}}start.html#docker",
+          "text": "From a clone of the repository, run make dev-up to start kaf-mirror and two local Kafka brokers. The UI and API are at http://localhost:8080."
+        },
+        {
+          "@type": "HowToStep",
+          "position": 3,
+          "name": "Or install with Helm",
+          "url": "{{SITE}}start.html#helm",
+          "text": "Install the chart in deploy/helm/kaf-mirror. The default image tag is v2.0.0. On kind or k3s with the default local-path storage, pass a values file that sets volumePermissions.enabled to true."
+        }
+      ]
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "{{SITE}}start.html#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "kaf-mirror",
+          "item": "{{SITE}}"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Get started",
+          "item": "{{SITE}}start.html"
+        }
+      ]
+    }
+  ]
+}

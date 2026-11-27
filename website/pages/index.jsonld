@@ -2,6 +2,26 @@
   "@context": "https://schema.org",
   "@graph": [
     {
+      "@type": "Organization",
+      "@id": "{{SITE}}#publisher",
+      "name": "Scalytics",
+      "url": "https://www.scalytics.io"
+    },
+    {
+      "@type": "WebSite",
+      "@id": "{{SITE}}#website",
+      "name": "kaf-mirror",
+      "url": "{{SITE}}",
+      "description": "kaf-mirror mirrors topics between any two Kafka clusters, with a dashboard, an audit trail and compliance reports. KafScale is one supported target. Apache 2.0.",
+      "inLanguage": "en",
+      "publisher": {
+        "@id": "{{SITE}}#publisher"
+      },
+      "about": {
+        "@id": "{{SITE}}#software"
+      }
+    },
+    {
       "@type": "SoftwareApplication",
       "@id": "{{SITE}}#software",
       "name": "kaf-mirror",
@@ -33,11 +53,14 @@
         "@type": "CreativeWork",
         "url": "{{SITE}}docs.html"
       },
+      "image": "{{SITE}}media/og-card.png",
+      "screenshot": "{{SITE}}media/demo-poster.jpg",
       "sameAs": "https://github.com/scalytics/kaf-mirror",
       "publisher": {
-        "@type": "Organization",
-        "name": "Scalytics",
-        "url": "https://www.scalytics.io"
+        "@id": "{{SITE}}#publisher"
+      },
+      "isPartOf": {
+        "@id": "{{SITE}}#website"
       },
       "video": {
         "@id": "{{SITE}}#demo"
@@ -61,9 +84,7 @@
       "inLanguage": "en",
       "isFamilyFriendly": true,
       "publisher": {
-        "@type": "Organization",
-        "name": "Scalytics",
-        "url": "https://www.scalytics.io"
+        "@id": "{{SITE}}#publisher"
       }
     }
   ]
