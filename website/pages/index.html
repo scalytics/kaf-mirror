@@ -5,11 +5,30 @@
         <p class="lede">kaf-mirror copies topics from one Kafka cluster to another over the Kafka protocol. Apache Kafka, Confluent, Redpanda and Azure Event Hubs can be the source or the target. It comes with a dashboard, an audit trail and compliance reports.</p>
         <div class="actions">
           <a class="button primary" href="start.html">Get started</a>
+          <a class="button secondary" href="#whats-new">What's new in 2.0.0</a>
           <a class="button secondary" href="https://github.com/scalytics/kaf-mirror" rel="noopener noreferrer">View on GitHub</a>
         </div>
         <div class="kafscale">
           <h2>Need a backup, not just a replica?</h2>
           <p>A replica follows every change, including deletes, bad writes and anything done with stolen producer credentials. For a backup, mirror into a target that keeps history out of the producers' reach, and give it separate credentials. <a href="https://kafscale.io" rel="noopener noreferrer">KafScale</a>, a Kafka-compatible broker that stores immutable segments in S3, is one option. Any Kafka-compatible target is configured the same way. The KafScale steps are in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/kafscale-backup.md" rel="noopener noreferrer">backup guide</a>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="whats-new">
+      <div class="wrap">
+        <h2>What's new in 2.0.0</h2>
+        <p>kaf-mirror 2.0.0 is out. This is a major release with breaking changes, so read the <a href="https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0" rel="noopener noreferrer">release notes</a> before you upgrade. Pull <code>ghcr.io/scalytics/kaf-mirror:v2.0.0</code> (linux/amd64 and linux/arm64), or download <code>mirror-cli</code> for Linux, Windows, macOS Intel and Apple Silicon.</p>
+        <ul>
+          <li><strong>Job selection.</strong> Job commands refuse to run until you pick a job or pass the id. They no longer call the API with an empty id.</li>
+          <li><strong>Shell completion.</strong> <code>mirror-cli</code> and <code>admin-cli</code> complete in Bash, Zsh, Fish and PowerShell. The interactive shell restores the terminal when it exits. See the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/shell-completion.md" rel="noopener noreferrer">shell completion</a> guide.</li>
+          <li><strong>Docs.</strong> The README is a short front page. The rest is in <a href="docs.html">docs/</a>, including getting started, Kubernetes, administration and security.</li>
+          <li><strong>Replication halt (tech preview).</strong> Off by default and admin-only. Freezes replication if the source looks compromised. See <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md" rel="noopener noreferrer">docs/protection.md</a>.</li>
+          <li><strong>Version in the image.</strong> A published image reports <code>v2.0.0</code> in the API, the UI and <code>--version</code>. A local build reports <code>dev</code>.</li>
+        </ul>
+        <div class="actions">
+          <a class="button primary" href="start.html">Get started</a>
+          <a class="button secondary" href="https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0" rel="noopener noreferrer">GitHub release</a>
         </div>
       </div>
     </section>
@@ -70,7 +89,7 @@
           </article>
           <article class="card">
             <h3>Helm</h3>
-            <p>The supported way to run kaf-mirror in Kubernetes is the chart in <code>deploy/helm/kaf-mirror</code>. CI lints and renders it with <code>make helm-check</code>. A default install starts and answers <code>/health</code>.</p>
+            <p>The supported way to run kaf-mirror in Kubernetes is the chart in <code>deploy/helm/kaf-mirror</code>. CI lints and renders it with <code>make helm-check</code>. A default install starts and answers <code>/health</code> on storage that honors <code>fsGroup</code>.</p>
           </article>
         </div>
       </div>
@@ -82,7 +101,7 @@
         <div class="grid features">
           <article class="card">
             <h3>REST API and CLIs</h3>
-            <p>A Fiber REST API manages the application. <code>admin-cli</code> is for bootstrap and emergency maintenance. <code>mirror-cli</code> is the management CLI. The API docs are at <code>/docu/swagger/</code> when kaf-mirror is running. The <a href="cli-commands.html">CLI reference</a> is on this site.</p>
+            <p>A Fiber REST API manages the application. <code>admin-cli</code> is for bootstrap and emergency maintenance. <code>mirror-cli</code> is the management CLI, with shell completion for Bash, Zsh, Fish and PowerShell. The API docs are at <code>/docu/swagger/</code> when kaf-mirror is running. The <a href="cli-commands.html">CLI reference</a> and the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/shell-completion.md" rel="noopener noreferrer">shell completion</a> guide are in the docs.</p>
           </article>
           <article class="card">
             <h3>Configuration</h3>

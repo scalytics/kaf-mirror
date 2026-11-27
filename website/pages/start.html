@@ -2,7 +2,19 @@
       <div class="wrap">
         <p class="eyebrow">Quick start</p>
         <h1>Run kaf-mirror with Docker or Helm.</h1>
-        <p class="lede">These commands are copied from the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/getting-started.md" rel="noopener noreferrer">getting started guide</a>. Paste them from a clone of the repository. They build from this repository, so they run the current <code>main</code> branch. The <code>v2.0.0</code> image and chart default include the password file location and the image listen-address change. <code>v1.3.1</code> and older do not.</p>
+        <p class="lede">The latest release is <a href="https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0" rel="noopener noreferrer">v2.0.0</a>. The commands below are copied from the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/getting-started.md" rel="noopener noreferrer">getting started guide</a> and the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/kubernetes.md" rel="noopener noreferrer">Kubernetes guide</a>. Paste them from a clone of the repository. Commands that build from this repository run the current <code>main</code> branch. The <code>v2.0.0</code> image and chart default include the password file location and the image listen-address change. <code>v1.3.1</code> and older do not.</p>
+      </div>
+    </section>
+
+    <section class="section steps" id="download">
+      <div class="wrap">
+        <h2>Download 2.0.0</h2>
+        <p>Get the binaries from the <a href="https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0" rel="noopener noreferrer">v2.0.0 release</a>. <code>mirror-cli</code> is built for Linux (amd64 and arm64), macOS (Intel and Apple Silicon) and Windows (amd64). The server and <code>admin-cli</code> binaries are Linux amd64 only. The Docker image <code>ghcr.io/scalytics/kaf-mirror:v2.0.0</code> is published for linux/amd64 and linux/arm64. <code>:latest</code> points at the same release.</p>
+        <p>On Apple Silicon:</p>
+<pre><code>curl -L -o mirror-cli https://github.com/scalytics/kaf-mirror/releases/download/v2.0.0/mirror-cli-darwin-arm64
+chmod +x mirror-cli
+./mirror-cli --help</code></pre>
+        <p>On Linux arm64, download <code>mirror-cli-linux-arm64</code> the same way. The other builds, including <code>mirror-cli-darwin-amd64</code>, <code>mirror-cli-linux-amd64</code> and <code>mirror-cli-windows-amd64.exe</code>, are on the release page.</p>
       </div>
     </section>
 
@@ -53,7 +65,17 @@ docker exec kaf-mirror sh -c 'rm /app/data/kaf-mirror-bootstrap-*'</code></pre>
     <section class="section steps" id="helm">
       <div class="wrap">
         <h2>2. Run with Helm</h2>
-        <p>The Helm chart is in <code>deploy/helm/kaf-mirror</code>. A default install starts and answers <code>/health</code>. The chart's default image tag is <code>v2.0.0</code>. To run the current <code>main</code> branch instead, build the image from this repository, make it available to the cluster, and point the chart at it:</p>
+        <p>The Helm chart is in <code>deploy/helm/kaf-mirror</code>. A default install starts and answers <code>/health</code> on storage that honors <code>fsGroup</code>. The chart's default image tag is <code>v2.0.0</code>:</p>
+<pre><code>helm upgrade --install km deploy/helm/kaf-mirror --wait
+kubectl port-forward svc/km-kaf-mirror 8088:8088</code></pre>
+        <p>On kind or k3s with the default <code>local-path</code> storage, which does not honor <code>fsGroup</code>, kaf-mirror refuses to start on the volume. Turn on the init container that gives the volume to the kaf-mirror user. Add this values file and pass it with <code>-f</code>:</p>
+<pre><code>cat &gt; volume-permissions-values.yaml &lt;&lt;'VALUES'
+volumePermissions:
+  enabled: true
+VALUES
+helm upgrade --install km deploy/helm/kaf-mirror -f volume-permissions-values.yaml --wait</code></pre>
+        <p>That init container runs as root and adds <code>CHOWN</code>, <code>FOWNER</code> and <code>DAC_OVERRIDE</code>. A namespace under the restricted Pod Security standard rejects it. Use storage that honors <code>fsGroup</code>, or a volume already owned by UID 100 and GID 101, and leave <code>volumePermissions.enabled</code> false. See "Storage permissions" in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/deploy/helm/kaf-mirror/README.md" rel="noopener noreferrer">chart README</a>.</p>
+        <p>To run the current <code>main</code> branch instead, build the image from this repository, make it available to the cluster, and point the chart at it:</p>
 <pre><code>docker build -t kaf-mirror:local .
 cat &gt; km-values.yaml &lt;&lt;'VALUES'
 image:
@@ -63,7 +85,7 @@ image:
 VALUES
 helm upgrade --install km deploy/helm/kaf-mirror -f km-values.yaml --wait
 kubectl port-forward svc/km-kaf-mirror 8088:8088</code></pre>
-        <p>Pass <code>-f km-values.yaml</code> first on every later <code>helm upgrade</code>, followed by the values files of the other settings you use. Helm does not keep values from an earlier upgrade, so an upgrade without <code>km-values.yaml</code> goes back to the default image.</p>
+        <p>Pass <code>-f km-values.yaml</code> first on every later <code>helm upgrade</code>, followed by the values files of the other settings you use, such as <code>-f volume-permissions-values.yaml</code>. Helm does not keep values from an earlier upgrade, so an upgrade without <code>km-values.yaml</code> goes back to the default image.</p>
         <p>In another terminal:</p>
 <pre><code>curl -s http://localhost:8088/health</code></pre>
         <p>The bootstrap password is written to <code>/app/data/kaf-mirror-bootstrap-&lt;random&gt;</code> on the PVC. Read it with <code>kubectl exec deploy/km-kaf-mirror -- sh -c 'cat /app/data/kaf-mirror-bootstrap-*'</code>, then delete the file.</p>

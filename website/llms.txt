@@ -2,6 +2,8 @@
 
 > kaf-mirror mirrors topics between any two Kafka clusters over the Kafka protocol. It has a web dashboard, a management CLI, an audit trail and compliance reports. Apache Kafka, Confluent, Redpanda and Azure Event Hubs can be the source or the target, and KafScale is a supported target. It is open source under the Apache License 2.0 and written in Go.
 
+The latest release is [v2.0.0](https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0), published 27 November 2026. The image is `ghcr.io/scalytics/kaf-mirror:v2.0.0` (linux/amd64 and linux/arm64). `mirror-cli` is also available as a binary for Linux (amd64 and arm64), macOS (Intel and Apple Silicon) and Windows (amd64). This is a major release with breaking changes. Read the release notes before you upgrade.
+
 What it does:
 
 - A job consumes from a source cluster and produces to a target cluster. Topic names are kept by default. Exact and regex mappings are optional.
@@ -10,6 +12,9 @@ What it does:
 - Access is role based: admin, operator, monitoring and compliance.
 - Job metrics, lag, an audit trail and scheduled compliance reports are built in.
 - It runs as one binary, in Docker, or in Kubernetes with the Helm chart.
+- `mirror-cli` and `admin-cli` support shell completion for Bash, Zsh, Fish and PowerShell.
+- Job commands refuse to run until a job is selected or the id is passed.
+- A published image reports `v2.0.0` in the API, the UI and `--version`. A local build reports `dev`.
 
 What it is not:
 
@@ -18,17 +23,22 @@ What it is not:
 
 ## Start here
 
-- [Get started]({{SITE}}start.html): run it with Docker or Helm.
+- [Get started]({{SITE}}start.html): download 2.0.0, or run it with Docker or Helm.
+- [What's new in 2.0.0]({{SITE}}#whats-new): highlights of this release.
 - [Demo video]({{SITE}}media/demo.mp4): two Kafka clusters, one job, about two minutes.
-- [Documentation index]({{SITE}}docs.html): configuration, RBAC, protection and API docs.
+- [Documentation index]({{SITE}}docs.html): configuration, RBAC, protection, Kubernetes and API docs.
 - [CLI reference]({{SITE}}cli-commands.html): every mirror-cli and admin-cli command.
 
 ## Source and docs
 
 - [GitHub repository](https://github.com/scalytics/kaf-mirror)
+- [v2.0.0 release](https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0)
+- [Getting started](https://github.com/scalytics/kaf-mirror/blob/main/docs/getting-started.md)
+- [Kubernetes and Helm](https://github.com/scalytics/kaf-mirror/blob/main/docs/kubernetes.md)
 - [Configuration reference](https://github.com/scalytics/kaf-mirror/blob/main/docs/configuration.md)
+- [Shell completion](https://github.com/scalytics/kaf-mirror/blob/main/docs/shell-completion.md)
 - [Roles and permissions](https://github.com/scalytics/kaf-mirror/blob/main/docs/rbac.md)
-- [Replication halt, experimental](https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md)
+- [Replication halt, tech preview](https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md)
 - [Changelog](https://github.com/scalytics/kaf-mirror/blob/main/CHANGELOG.md)
 
 ## Optional
