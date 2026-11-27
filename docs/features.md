@@ -19,4 +19,4 @@ The full feature list. The short version is in the [README](../README.md#what-it
 - **Empty lists:** List endpoints answer `[]` when there is nothing to list, never `null`.
 - **Offset commit:** Source offsets are committed only after the target produce is acknowledged. A failed produce is retried, and the offset is never committed past a record that was not copied. See [Resilience and buffering](resilience.md).
 - **Secrets:** Cluster and config APIs return `***` for credentials. PUT with `***` or an empty secret leaves the stored value unchanged.
-- **Replication halt (experimental):** Off until an admin enables it. Freezes all jobs if the source cluster is compromised so the replica does not keep copying the attack. See [docs/protection.md](protection.md).
+- **Replication halt (tech preview):** Off by default and admin-only. Freezes all jobs if the source cluster is compromised so the replica does not keep copying the attack. See [docs/protection.md](protection.md).

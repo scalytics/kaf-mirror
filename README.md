@@ -118,7 +118,7 @@ A replica copies deletes and bad writes too, and so does anything done with stol
 | What a copied record keeps | [record-fidelity.md](docs/record-fidelity.md) |
 | Job metrics | [metrics.md](docs/metrics.md) |
 | Resilience and buffering | [resilience.md](docs/resilience.md) |
-| Replication halt (experimental) | [protection.md](docs/protection.md) |
+| Replication halt (tech preview) | [protection.md](docs/protection.md) |
 | Back up to S3 with KafScale | [kafscale-backup.md](docs/kafscale-backup.md) |
 | Architecture | [architecture.md](docs/architecture.md) |
 | API (Swagger at `/docu/swagger/` when running) | [api.md](docs/api.md) |
