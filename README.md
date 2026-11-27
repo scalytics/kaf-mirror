@@ -14,7 +14,7 @@ Apache Kafka, Confluent, Redpanda and Azure Event Hubs work as source or target,
 
 ## Quick start
 
-You need Docker with Compose and Go. Or download `mirror-cli` from the [releases](https://github.com/scalytics/kaf-mirror/releases) and skip the `go build` line. Run these from a clone of this repository. `docker compose` builds the image on the first run and starts two Redpanda brokers and kaf-mirror.
+You need Docker with Compose and Go. Or download `mirror-cli` from the [releases](https://github.com/scalytics/kaf-mirror/releases) (Linux amd64/arm64, macOS Intel/Apple Silicon, or Windows amd64) and skip the `go build` line. Run these from a clone of this repository. `docker compose` builds the image on the first run and starts two Redpanda brokers and kaf-mirror.
 
 ```bash
 git clone https://github.com/scalytics/kaf-mirror.git && cd kaf-mirror
@@ -22,7 +22,7 @@ go build -o bin/mirror-cli ./cmd/mirror-cli && export PATH="$PWD/bin:$PATH"
 docker compose -p kaf-mirror up -d
 ```
 
-Read the generated admin password, delete the file, and log in. `login` asks for the password without echo.
+Read the generated admin password, delete the file, and log in. `login` asks for the password and masks it.
 
 ```bash
 docker compose -p kaf-mirror exec kaf-mirror sh -c 'cat /app/data/kaf-mirror-bootstrap-*'
@@ -55,7 +55,7 @@ Produce three orders, then create a job for the `orders` topic and start it. `jo
 | Select topics to replicate: | `orders` |
 
 ```bash
-printf 'order-1001\norder-1002\norder-1003\n' | docker compose -p kaf-mirror exec -T kafka-source rpk topic produce orders
+printf 'order-1001\norder-1002\norder-1003\n' | docker compose -p kaf-mirror exec -T kafka-source rpk topic produce orders --allow-auto-topic-creation
 mirror-cli jobs add
 mirror-cli jobs start
 ```

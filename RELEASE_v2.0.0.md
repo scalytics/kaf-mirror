@@ -9,6 +9,9 @@ This is a major release with breaking changes. Read the upgrade notes and the Br
 - Replication checks protection before every target send, including retries.
 - The Docker image and the Helm chart start with their defaults. The chart has an optional `volumePermissions` init container for storage that does not honor `fsGroup`, such as the `local-path` provisioner of kind and k3s.
 - `mirror-cli` exits with status 1 when a command fails, and job commands refuse to run without a selected job instead of calling the API with an empty job id.
+- Docker images report the release tag in the API, UI and CLI; local image builds report `dev`.
+- `admin-cli` rejects unknown subcommands, `mirror-cli jobs add` stops on cancelled prompts, and server `--help` and `--version` exit without starting the server.
+- Release downloads include `mirror-cli` for Linux arm64 and Apple Silicon.
 
 ## Breaking
 - Builds require Go 1.27.4 or newer.
@@ -29,7 +32,7 @@ This is a major release with breaking changes. Read the upgrade notes and the Br
 
 ## Docs
 - New `docs/configuration.md` with every config key and environment variable.
-- kaf-mirror with idempotent writes on is verified with [KafScale v2.1.0](https://github.com/KafScale/platform/releases/tag/v2.1.0) and later. `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` is needed only for KafScale before v2.1.0. With KafScale v2.1.0, run the broker with `KAFSCALE_AUTO_CREATE_TOPICS=false` ([KafScale issue 446](https://github.com/KafScale/platform/issues/446)).
+- kaf-mirror with idempotent writes on is verified with [KafScale v2.1.0](https://github.com/KafScale/platform/releases/tag/v2.1.0) and later. `KAFMIRROR_DISABLE_IDEMPOTENT_WRITES=true` is needed only for KafScale before v2.1.0. With KafScale v2.1.0, pre-create every target topic with the source partition count regardless of `KAFSCALE_AUTO_CREATE_TOPICS`; see [the KafScale guide](docs/kafscale-backup.md).
 - Install docs cover kind with Docker Engine 29 and its containerd image store.
 
 ## Upgrade notes

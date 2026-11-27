@@ -46,6 +46,8 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ github.ref_name }}
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/kaf-mirror:${{ github.ref_name }}
@@ -59,8 +61,10 @@ jobs:
             dist/kaf-mirror-linux-amd64
             dist/admin-cli-linux-amd64
             dist/mirror-cli-linux-amd64
+            dist/mirror-cli-linux-arm64
             dist/mirror-cli-windows-amd64.exe
             dist/mirror-cli-darwin-amd64
+            dist/mirror-cli-darwin-arm64
           draft: false
           prerelease: false
           fail_on_unmatched_files: true

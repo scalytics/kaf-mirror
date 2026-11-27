@@ -88,8 +88,22 @@ jobs:
       - name: Build binaries as the release workflow does
         run: make release-binaries VERSION=ci
 
-      - name: Build the Docker image
-        run: docker build -t kaf-mirror:ci .
+      - name: Build and check the local Docker image version
+        run: |
+          docker build -t kaf-mirror:dev .
+          test "$(docker run --rm kaf-mirror:dev ./mirror-cli --version)" = dev
+          test "$(docker run --rm kaf-mirror:dev ./kaf-mirror --version)" = dev
+
+      - name: Build and check the release Docker image version
+        run: |
+          docker build --build-arg VERSION=ci -t kaf-mirror:ci .
+          test "$(docker run --rm kaf-mirror:ci ./mirror-cli --version)" = ci
+          test "$(docker run --rm kaf-mirror:ci ./kaf-mirror --version)" = ci
+          container=$(docker run -d --rm -p 127.0.0.1:18080:8080 kaf-mirror:ci)
+          trap 'docker stop "$container" >/dev/null' EXIT
+          curl --fail --silent --show-error --retry 20 --retry-delay 1 --retry-connrefused \
+            http://127.0.0.1:18080/api/v1/version > /tmp/kaf-mirror-version.json
+          python3 -c 'import json; assert json.load(open("/tmp/kaf-mirror-version.json"))["version"] == "ci"'
 
   helm:
     name: Helm Chart

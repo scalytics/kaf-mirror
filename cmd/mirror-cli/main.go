@@ -3133,8 +3133,15 @@ func fetchTopicDetails(token, clusterName string, topics []string) ([]map[string
 	return details, nil
 }
 
-// createReplicationJob creates a new replication job with improved topic selection
+var jobCreationHasTerminal = stdioIsTerminal
+var askJobCreation = survey.AskOne
+
+// createReplicationJob creates a new replication job with improved topic selection.
 func createReplicationJob(token string) {
+	if !jobCreationHasTerminal() {
+		cliErrorln("Operation cancelled: no terminal to create a job")
+		return
+	}
 	clusters, err := fetchClusters(token)
 	if err != nil {
 		cliErrorf("Error: Failed to fetch clusters: %v\n", err)
@@ -3155,21 +3162,30 @@ func createReplicationJob(token string) {
 	promptName := &survey.Input{
 		Message: "Enter job name:",
 	}
-	survey.AskOne(promptName, &jobName, survey.WithValidator(survey.Required))
+	if err := askJobCreation(promptName, &jobName, survey.WithValidator(survey.Required)); err != nil {
+		cliErrorln("Operation cancelled.")
+		return
+	}
 
 	var sourceCluster string
 	promptSource := &survey.Select{
 		Message: "Select source cluster:",
 		Options: clusterNames,
 	}
-	survey.AskOne(promptSource, &sourceCluster)
+	if err := askJobCreation(promptSource, &sourceCluster); err != nil {
+		cliErrorln("Operation cancelled.")
+		return
+	}
 
 	var targetCluster string
 	promptTarget := &survey.Select{
 		Message: "Select target cluster:",
 		Options: clusterNames,
 	}
-	survey.AskOne(promptTarget, &targetCluster)
+	if err := askJobCreation(promptTarget, &targetCluster); err != nil {
+		cliErrorln("Operation cancelled.")
+		return
+	}
 
 	if sourceCluster == targetCluster {
 		cliErrorln("Error: Source and target clusters cannot be the same.")
@@ -3211,7 +3227,10 @@ func createReplicationJob(token string) {
 		Message: "Select topics to replicate:",
 		Options: topics,
 	}
-	survey.AskOne(promptTopics, &selectedTopics)
+	if err := askJobCreation(promptTopics, &selectedTopics); err != nil {
+		cliErrorln("Operation cancelled.")
+		return
+	}
 
 	if len(selectedTopics) == 0 {
 		fmt.Println("No topics selected. Job creation cancelled.")
@@ -3243,7 +3262,10 @@ func createReplicationJob(token string) {
 		Default: "1000",
 	}
 	var batchStr string
-	survey.AskOne(promptBatch, &batchStr)
+	if err := askJobCreation(promptBatch, &batchStr); err != nil {
+		cliErrorln("Operation cancelled.")
+		return
+	}
 	fmt.Sscanf(batchStr, "%d", &batchSize)
 
 	var compression string
@@ -3252,7 +3274,10 @@ func createReplicationJob(token string) {
 		Options: []string{"none", "gzip", "snappy", "lz4", "zstd"},
 		Default: "none",
 	}
-	survey.AskOne(promptCompression, &compression)
+	if err := askJobCreation(promptCompression, &compression); err != nil {
+		cliErrorln("Operation cancelled.")
+		return
+	}
 
 	// Topic mappings with custom target names option
 	fmt.Println("\n=== Topic Mapping Configuration ===")
@@ -3266,14 +3291,20 @@ func createReplicationJob(token string) {
 			Message: fmt.Sprintf("Use custom target name for topic '%s'?", topic),
 			Default: false,
 		}
-		survey.AskOne(promptCustom, &customTarget)
+		if err := askJobCreation(promptCustom, &customTarget); err != nil {
+			cliErrorln("Operation cancelled.")
+			return
+		}
 
 		if customTarget {
 			promptTarget := &survey.Input{
 				Message: fmt.Sprintf("Target topic name for '%s':", topic),
 				Default: topic,
 			}
-			survey.AskOne(promptTarget, &targetTopic)
+			if err := askJobCreation(promptTarget, &targetTopic); err != nil {
+				cliErrorln("Operation cancelled.")
+				return
+			}
 		} else {
 			targetTopic = topic
 		}
@@ -3307,7 +3338,10 @@ func createReplicationJob(token string) {
 		Message: "Create this replication job?",
 		Default: true,
 	}
-	survey.AskOne(promptConfirm, &confirm)
+	if err := askJobCreation(promptConfirm, &confirm); err != nil {
+		cliErrorln("Operation cancelled.")
+		return
+	}
 
 	if !confirm {
 		fmt.Println("Job creation cancelled.")

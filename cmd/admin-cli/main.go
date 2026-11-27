@@ -29,6 +29,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
@@ -662,6 +663,25 @@ and for emergency maintenance. It interacts directly with the database.`,
 	importCmd.AddCommand(importDatabaseCmd, importConfigCmd, importFullCmd)
 
 	rootCmd.AddCommand(usersCmd, tokensCmd, repairCmd, resetAdminPasswordCmd, backupCmd, restoreCmd, importCmd)
+	rootCmd.InitDefaultHelpCmd()
+	rootCmd.InitDefaultCompletionCmd()
+	validateGroupCommands(rootCmd)
 	rootCmd.SetArgs(args)
 	return rootCmd.Execute()
+}
+
+// Validate group arguments before any configuration or database initialization.
+func validateGroupCommands(cmd *cobra.Command) {
+	if cmd.Run == nil && cmd.RunE == nil && cmd.HasSubCommands() {
+		cmd.Args = func(c *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return fmt.Errorf("unknown command %q for %q", args[0], c.CommandPath())
+			}
+			return pflag.ErrHelp
+		}
+		cmd.RunE = func(c *cobra.Command, args []string) error { return nil }
+	}
+	for _, child := range cmd.Commands() {
+		validateGroupCommands(child)
+	}
 }

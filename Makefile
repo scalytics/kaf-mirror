@@ -139,8 +139,10 @@ release-binaries:
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=$(RELEASE_CC) go build -v -ldflags="-s -w -X main.Version=$(VERSION)" -o $(RELEASE_DIR)/kaf-mirror-linux-amd64 ./cmd/kaf-mirror
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=$(RELEASE_CC) go build -v -ldflags="-s -w" -o $(RELEASE_DIR)/admin-cli-linux-amd64 ./cmd/admin-cli
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=$(RELEASE_CC) go build -v -ldflags="-s -w -X main.Version=$(VERSION)" -o $(RELEASE_DIR)/mirror-cli-linux-amd64 ./cmd/mirror-cli
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v -ldflags="-s -w -X main.Version=$(VERSION)" -o $(RELEASE_DIR)/mirror-cli-linux-arm64 ./cmd/mirror-cli
 	GOOS=windows GOARCH=amd64 go build -v -ldflags="-s -w -X main.Version=$(VERSION)" -o $(RELEASE_DIR)/mirror-cli-windows-amd64.exe ./cmd/mirror-cli
 	GOOS=darwin GOARCH=amd64 go build -v -ldflags="-s -w -X main.Version=$(VERSION)" -o $(RELEASE_DIR)/mirror-cli-darwin-amd64 ./cmd/mirror-cli
+	GOOS=darwin GOARCH=arm64 go build -v -ldflags="-s -w -X main.Version=$(VERSION)" -o $(RELEASE_DIR)/mirror-cli-darwin-arm64 ./cmd/mirror-cli
 
 build-linux:
 	@echo "Linux binaries are downloaded from GitHub releases during deployment."
