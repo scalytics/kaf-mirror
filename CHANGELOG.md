@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [2.0.0] - 2026-11-26
+## [2.0.0] - 2026-11-27
 ### Breaking
 - Builds require Go 1.27.4 or newer. CI, releases and the Docker builder use Go 1.27.4.
 - kaf-mirror refuses to start when its data directory belongs to another user and every user can write to it without the sticky bit, for example `root:root` with mode `0777`. Any user could replace the database files in such a directory. The error names the directory, its mode and its owner and says how to fix it. A group-writable directory, such as a volume with `fsGroup` 101, and a world-writable directory with the sticky bit still work. The `local-path` provisioner of kind and k3s does not honor `fsGroup` and creates `root:root` `0777` directories, so the default Helm chart no longer starts on it. The error says: use storage that honors fsGroup, or set volumePermissions.enabled: true in the Helm values, or chown the directory to the kaf-mirror user outside Helm. On kind and k3s, add a values file with the setting below and pass it with `-f` after `km-values.yaml`. `volumePermissions` is off by default. See "Storage permissions" in the chart README (#85).
@@ -173,7 +173,7 @@ All notable changes to this project are documented here.
 - github.com/gomarkdown/markdown to v0.0.0-20260724235538-61af6e1e6971 (GHSA-cv23-7vc5-jfh7, GHSA-77fj-vx54-gvh7).
 - github.com/klauspost/compress 1.18.0 to 1.20.5 (GHSA-259r-337f-4rfw, GO-2026-6865).
 - github.com/andybalholm/brotli 1.1.0 to 1.2.7 (GO-2026-6888) (#53).
-- Built with Go 1.26.11, which fixes GO-2026-6859 in net/http. `toolchain` in go.mod, the Docker builder image `golang:1.26.11-alpine` and the release workflow use Go 1.26.11. CI and CodeQL read the version from go.mod. `govulncheck ./...` reports no reachable vulnerabilities (#53).
+- Built with Go 1.27.4. CI, releases and the Docker builder image `golang:1.27.4-alpine` use Go 1.27.4, which they read from go.mod. GO-2026-6859 in net/http was fixed in Go 1.26.11 (#53) and is included in 1.27.4. `govulncheck ./...` reports no reachable vulnerabilities.
 
 ## [1.3.1] - 2026-10-22
 ### Security

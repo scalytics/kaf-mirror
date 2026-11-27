@@ -1,0 +1,42 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "TechArticle",
+      "@id": "{{SITE}}compare.html#article",
+      "headline": "kaf-mirror compared with MirrorMaker 2, Replicator and Cluster Linking",
+      "name": "Compare | kaf-mirror",
+      "description": "kaf-mirror compared with Apache Kafka MirrorMaker 2, Confluent Replicator and Confluent Cluster Linking. Facts are taken from official docs and this repository.",
+      "url": "{{SITE}}compare.html",
+      "inLanguage": "en",
+      "isPartOf": {
+        "@id": "{{SITE}}#website"
+      },
+      "about": {
+        "@id": "{{SITE}}#software"
+      },
+      "image": "{{SITE}}media/og-card.png",
+      "publisher": {
+        "@id": "{{SITE}}#publisher"
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "{{SITE}}compare.html#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "kaf-mirror",
+          "item": "{{SITE}}"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Compare",
+          "item": "{{SITE}}compare.html"
+        }
+      ]
+    }
+  ]
+}

@@ -1,16 +1,16 @@
     <section class="hero">
       <div class="wrap">
         <p class="eyebrow">Open source. Apache 2.0.</p>
-        <h1>Mirror Kafka topics between any two Kafka clusters.</h1>
-        <p class="lede">kaf-mirror copies topics from one Kafka cluster to another over the Kafka protocol. Apache Kafka, Confluent, Redpanda and Azure Event Hubs can be the source or the target. It comes with a dashboard, an audit trail and compliance reports.</p>
+        <h1>Kafka backup you can watch, audit and trust.</h1>
+        <p class="lede">One server binary with a dashboard. Exact copies, in partition order, with idempotent writes, and a resume from the last committed offset after a restart. RBAC, an audit trail, compliance reports, and Replication halt (tech preview) if a bad write starts to spread. Apache 2.0, with no license key.</p>
         <div class="actions">
           <a class="button primary" href="start.html">Get started</a>
+          <a class="button secondary" href="compare.html">Compare</a>
           <a class="button secondary" href="#whats-new">What's new in 2.0.0</a>
-          <a class="button secondary" href="https://github.com/scalytics/kaf-mirror" rel="noopener noreferrer">View on GitHub</a>
         </div>
         <div class="kafscale">
-          <h2>Need a backup, not just a replica?</h2>
-          <p>A replica follows every change, including deletes, bad writes and anything done with stolen producer credentials. For a backup, mirror into a target that keeps history out of the producers' reach, and give it separate credentials. <a href="https://kafscale.io" rel="noopener noreferrer">KafScale</a>, a Kafka-compatible broker that stores immutable segments in S3, is one option. Any Kafka-compatible target is configured the same way. The KafScale steps are in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/kafscale-backup.md" rel="noopener noreferrer">backup guide</a>.</p>
+          <h2>A replica is not a backup.</h2>
+          <p>A replica follows every change, including deletes, bad writes and anything done with stolen producer credentials. For a backup, copy into a target that your producers cannot touch, on separate credentials. <a href="https://kafscale.io" rel="noopener noreferrer">KafScale</a>, a Kafka-compatible broker that stores immutable segments in S3, is one option. Any Kafka-compatible target is configured the same way. The KafScale steps are in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/kafscale-backup.md" rel="noopener noreferrer">backup guide</a>.</p>
         </div>
       </div>
     </section>
@@ -18,17 +18,20 @@
     <section class="section" id="whats-new">
       <div class="wrap">
         <h2>What's new in 2.0.0</h2>
-        <p>kaf-mirror 2.0.0 is out. This is a major release with breaking changes, so read the <a href="https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0" rel="noopener noreferrer">release notes</a> before you upgrade. Pull <code>ghcr.io/scalytics/kaf-mirror:v2.0.0</code> (linux/amd64 and linux/arm64), or download <code>mirror-cli</code> for Linux, Windows, macOS Intel and Apple Silicon.</p>
+        <p>kaf-mirror 2.0.0 is out. This is a major release with breaking changes, so read the <a href="https://github.com/scalytics/kaf-mirror/blob/main/RELEASE_v2.0.0.md" rel="noopener noreferrer">upgrade notes</a> and the Breaking section of the <a href="https://github.com/scalytics/kaf-mirror/blob/main/CHANGELOG.md" rel="noopener noreferrer">changelog</a> before you upgrade. The <a href="https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0" rel="noopener noreferrer">GitHub release</a> has the binaries and the image. Pull <code>ghcr.io/scalytics/kaf-mirror:v2.0.0</code> (linux/amd64 and linux/arm64), or download <code>mirror-cli</code> for Linux, Windows, macOS Intel and Apple Silicon.</p>
         <ul>
+          <li><strong>Recreated topics.</strong> A job follows a source topic that is deleted and created again by its Kafka topic ID, and copies the new topic from its earliest offsets. A deleted topic that is not created again stays listed in <code>missing_source_topics</code>, and the job stays active.</li>
           <li><strong>Job selection.</strong> Job commands refuse to run until you pick a job or pass the id. They no longer call the API with an empty id.</li>
           <li><strong>Shell completion.</strong> <code>mirror-cli</code> and <code>admin-cli</code> complete in Bash, Zsh, Fish and PowerShell. The interactive shell restores the terminal when it exits. See the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/shell-completion.md" rel="noopener noreferrer">shell completion</a> guide.</li>
+          <li><strong>Security.</strong> Password flags are gone from <code>login</code> and <code>users add</code>. Tokens, keys and passwords are not printed. The token file is always mode <code>0600</code>. CORS now ships as <code>http://localhost:8080</code> instead of <code>*</code>.</li>
+          <li><strong>Helm on kind and k3s.</strong> If the default storage does not honor <code>fsGroup</code>, pass a values file with <code>volumePermissions.enabled: true</code>. See the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/kubernetes.md" rel="noopener noreferrer">Kubernetes guide</a>.</li>
           <li><strong>Docs.</strong> The README is a short front page. The rest is in <a href="docs.html">docs/</a>, including getting started, Kubernetes, administration and security.</li>
-          <li><strong>Replication halt (tech preview).</strong> Off by default and admin-only. Freezes replication if the source looks compromised. See <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md" rel="noopener noreferrer">docs/protection.md</a>.</li>
+          <li><strong>Replication halt (tech preview).</strong> Off by default and admin-only. Freezes the copy if the source looks compromised. See <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md" rel="noopener noreferrer">docs/protection.md</a>.</li>
           <li><strong>Version in the image.</strong> A published image reports <code>v2.0.0</code> in the API, the UI and <code>--version</code>. A local build reports <code>dev</code>.</li>
         </ul>
         <div class="actions">
           <a class="button primary" href="start.html">Get started</a>
-          <a class="button secondary" href="https://github.com/scalytics/kaf-mirror/releases/tag/v2.0.0" rel="noopener noreferrer">GitHub release</a>
+          <a class="button secondary" href="https://github.com/scalytics/kaf-mirror/blob/main/RELEASE_v2.0.0.md" rel="noopener noreferrer">Upgrade notes</a>
         </div>
       </div>
     </section>
@@ -36,7 +39,7 @@
     <section class="section" id="demo-video">
       <div class="wrap">
         <h2>See it run</h2>
-        <p>Two Apache Kafka clusters, one kaf-mirror, about two minutes. The terminal installs the <code>mirror-cli</code> Bash completion script and uses Tab to complete commands.</p>
+        <p>Two Kafka-compatible clusters (Redpanda in the demo), one kaf-mirror, about two minutes. The terminal installs the <code>mirror-cli</code> Bash completion script and uses Tab to complete commands.</p>
         <div class="video-frame">
           <video controls preload="none" playsinline width="1600" height="900" poster="media/demo-poster.jpg" aria-describedby="demo-steps">
             <source src="media/demo.webm" type="video/webm">
@@ -45,7 +48,7 @@
           </video>
         </div>
         <ol id="demo-steps" class="demo-steps">
-          <li>Start two Apache Kafka brokers and kaf-mirror with <code>docker compose up -d</code>.</li>
+          <li>Start two Redpanda brokers and kaf-mirror with <code>docker compose up -d</code>.</li>
           <li>Log in with <code>mirror-cli</code>. The password prompt is masked.</li>
           <li>Add a source cluster and a target cluster.</li>
           <li>Produce three orders to the source, create a job for the <code>orders</code> topic and start it.</li>
@@ -57,39 +60,39 @@
 
     <section class="section" id="features">
       <div class="wrap">
-        <h2>What it does</h2>
+        <h2>What you get</h2>
         <div class="grid features">
           <article class="card">
-            <h3>Replication jobs</h3>
-            <p>Built with franz-go. A job consumes from a source Kafka cluster and produces to a target. Same-name mirroring is the default. Exact names and regex mappings are optional. A JobManager starts, stops and pauses jobs. Source offsets are committed only after the target produce is acknowledged.</p>
+            <h3>One binary, a dashboard</h3>
+            <p>The server is one binary with a web dashboard. You do not need a Kafka Connect cluster. Jobs, lag, health and compliance are in the UI and in <code>mirror-cli</code>. See how that compares with <a href="compare.html">MirrorMaker 2, Confluent Replicator and Cluster Linking</a>.</p>
+          </article>
+          <article class="card">
+            <h3>Exact copies</h3>
+            <p>Keys, values, headers, partitions and timestamps are kept. Records stay in partition order. Writes are idempotent by default, so a retried produce is not stored twice. Source offsets are committed only after the target acknowledges the write, and a restart resumes from the last committed offset. See <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/record-fidelity.md" rel="noopener noreferrer">what a copied record keeps</a> and <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/resilience.md" rel="noopener noreferrer">resilience</a>.</p>
+          </article>
+          <article class="card">
+            <h3>Jobs that follow a recreated topic</h3>
+            <p>When a source topic is deleted and created again, the job follows the new topic by its Kafka topic ID and copies it from its earliest offsets. The job stays active. Brokers without topic IDs, before Kafka 2.8, keep following the topic by name.</p>
+          </article>
+          <article class="card">
+            <h3>Ops and compliance controls</h3>
+            <p>RBAC with admin, operator, monitoring and compliance roles. An audit trail and scheduled compliance reports. Replication halt (tech preview) is off by default and admin-only: it can stop a bad write spreading to the backup. See <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/rbac.md" rel="noopener noreferrer">RBAC</a> and <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md" rel="noopener noreferrer">Replication halt</a>.</p>
+          </article>
+          <article class="card">
+            <h3>Apache 2.0</h3>
+            <p>kaf-mirror is Apache 2.0. There is no license key to start it. Confluent Replicator and Cluster Linking are commercial Confluent features. The details, with links to their docs, are on the <a href="compare.html">comparison page</a>.</p>
           </article>
           <article class="card">
             <h3>Web UI</h3>
             <p>A tab-based dashboard with Operations, Health, Executive and Compliance sections. The UI polls the API every 30 seconds, reads the user's permissions from <code>GET /auth/me</code>, and hides buttons the user cannot use. It fits phone screens down to 390px.</p>
           </article>
           <article class="card">
-            <h3>RBAC</h3>
-            <p>Token-based authentication with admin, operator, monitoring and compliance roles. Cluster and config APIs return <code>***</code> for credentials. A PUT with <code>***</code> or an empty secret leaves the stored value unchanged.</p>
-          </article>
-          <article class="card">
-            <h3>Metrics and lag</h3>
-            <p>Every running job reports counters every 10 seconds, including messages copied, bytes transferred, errors, tombstones and current lag. Lag is also available at <code>GET /api/v1/jobs/{id}/lag</code>. Job metrics are stored in SQLite. The process <code>/metrics</code> endpoint serves only Go runtime metrics.</p>
-          </article>
-          <article class="card">
-            <h3>AI insights, opt-in</h3>
-            <p>Off until <code>ai.provider</code> is set. Without a provider, kaf-mirror makes no AI requests. When it is on, it can detect anomalies in replication metrics, suggest performance tuning and analyze incidents. See the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/configuration.md#ai-analysis" rel="noopener noreferrer">AI analysis</a> docs.</p>
-          </article>
-          <article class="card">
-            <h3>Compliance reports</h3>
-            <p>Automated daily, weekly and monthly compliance reports with an audit trail. Metrics and operational events are kept for 30 days by default, or a shorter period set with <code>database.retention_days</code> (1 to 30).</p>
-          </article>
-          <article class="card">
             <h3>TLS and mTLS</h3>
-            <p>TLS is used when <code>security.protocol</code> is <code>SSL</code> or <code>SASL_SSL</code>, and always for the <code>confluent</code> and <code>azure</code> providers. <code>ca_file</code>, <code>cert_file</code> and <code>key_file</code> set a private CA and a client certificate. Each file must be a regular file of at most 1 MiB. Production requires TLS unless <code>server.allow_insecure</code> is set. SASL PLAIN, SCRAM and Kerberos (GSSAPI) are also supported.</p>
+            <p>TLS is used when <code>security.protocol</code> is <code>SSL</code> or <code>SASL_SSL</code>, and always for the <code>confluent</code> and <code>azure</code> providers. Production requires TLS unless <code>server.allow_insecure</code> is set. SASL PLAIN, SCRAM and Kerberos (GSSAPI) are also supported.</p>
           </article>
           <article class="card">
             <h3>Helm</h3>
-            <p>The supported way to run kaf-mirror in Kubernetes is the chart in <code>deploy/helm/kaf-mirror</code>. CI lints and renders it with <code>make helm-check</code>. A default install starts and answers <code>/health</code> on storage that honors <code>fsGroup</code>.</p>
+            <p>The supported way to run kaf-mirror in Kubernetes is the chart in <code>deploy/helm/kaf-mirror</code>. A default install starts and answers <code>/health</code> on storage that honors <code>fsGroup</code>. On kind or k3s, turn on <code>volumePermissions</code> with a values file.</p>
           </article>
         </div>
       </div>
@@ -108,12 +111,12 @@
             <p>Base configuration comes from a <code>default.yml</code> file. Runtime changes such as jobs, clusters, topic mappings and users are stored in SQLite. Every config key and environment variable is listed in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/configuration.md" rel="noopener noreferrer">configuration reference</a>.</p>
           </article>
           <article class="card">
-            <h3>Replication halt, tech preview</h3>
-            <p>Off by default and admin-only. It freezes all jobs if the source cluster looks compromised, so the replica does not keep copying the attack. See <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/protection.md" rel="noopener noreferrer">docs/protection.md</a>.</p>
+            <h3>Metrics and lag</h3>
+            <p>Every running job reports counters every 10 seconds, including messages copied, bytes transferred, errors, tombstones and current lag. Job metrics are stored in SQLite. The process <code>/metrics</code> endpoint serves only Go runtime metrics.</p>
           </article>
           <article class="card">
-            <h3>Empty lists</h3>
-            <p>List endpoints answer <code>[]</code> when there is nothing to list, never <code>null</code>. <code>GET /api/v1/jobs/{id}/lag</code> answers <code>{}</code> when there is no lag data.</p>
+            <h3>AI insights, opt-in</h3>
+            <p>Off until <code>ai.provider</code> is set. Without a provider, kaf-mirror makes no AI requests. See the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/configuration.md#ai-analysis" rel="noopener noreferrer">AI analysis</a> docs.</p>
           </article>
         </div>
       </div>
@@ -123,7 +126,8 @@
       <div class="wrap">
         <h2>Where it is used</h2>
         <ul>
-          <li><strong>Backup versus replication.</strong> Use kaf-mirror between two Kafka clusters for a hot standby, and into KafScale on S3 for a backup that a bad delete does not reach. See <a href="https://www.scalytics.io/kafka-backup-vs-replication" rel="noopener noreferrer">Kafka backup vs replication</a>.</li>
+          <li><strong>Backup.</strong> Copy topics into a target your producers cannot reach, for example KafScale on S3. The steps are in the <a href="https://github.com/scalytics/kaf-mirror/blob/main/docs/kafscale-backup.md" rel="noopener noreferrer">backup guide</a>. See also <a href="https://www.scalytics.io/kafka-backup-vs-replication" rel="noopener noreferrer">Kafka backup vs replication</a>.</li>
+          <li><strong>Hot standby.</strong> Use kaf-mirror between two Kafka-protocol clusters when you want a live copy you can fail over to.</li>
           <li><strong>DORA and NIS2.</strong> The audit trail and scheduled compliance reports help show how the copy is run and checked. See the <a href="https://www.scalytics.io/kafka-dora-nis2-checklist" rel="noopener noreferrer">Kafka DORA and NIS2 checklist</a>.</li>
           <li><strong>Migration and failover drills</strong> between Kafka-protocol clusters, with same-name, exact or regex topic mapping.</li>
         </ul>
