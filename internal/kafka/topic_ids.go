@@ -45,6 +45,7 @@ type topicIDState struct {
 	watched     map[string]bool
 	revokeWait  chan struct{}
 	revokeTopic string
+	revokeSeen  bool
 	missing     map[string]time.Time
 	check       chan struct{}
 	every       time.Duration
@@ -200,6 +201,7 @@ func (c *Consumer) clearRevokeWait(revoked chan struct{}) {
 	if c.topicIDs.revokeWait == revoked {
 		c.topicIDs.revokeWait = nil
 		c.topicIDs.revokeTopic = ""
+		c.topicIDs.revokeSeen = false
 	}
 }
 
@@ -212,6 +214,7 @@ func (c *Consumer) prepareRevokeWait(topic string) chan struct{} {
 			c.topicIDs.mu.Lock()
 			c.topicIDs.revokeWait = revoked
 			c.topicIDs.revokeTopic = topic
+			c.topicIDs.revokeSeen = false
 			c.topicIDs.mu.Unlock()
 			return revoked
 		}
@@ -429,7 +432,17 @@ func (c *Consumer) sessionEnded(revoked map[string][]int32) {
 			return
 		}
 	}
+	c.topicIDs.revokeSeen = true
+}
+
+func (c *Consumer) sessionBegun() {
+	c.topicIDs.mu.Lock()
+	defer c.topicIDs.mu.Unlock()
+	if c.topicIDs.revokeWait == nil || !c.topicIDs.revokeSeen {
+		return
+	}
 	close(c.topicIDs.revokeWait)
 	c.topicIDs.revokeWait = nil
 	c.topicIDs.revokeTopic = ""
+	c.topicIDs.revokeSeen = false
 }

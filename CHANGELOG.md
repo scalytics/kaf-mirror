@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+### Fixes
+- A job that follows a recreated source topic could skip the records of the new topic. The switch added the topic again as soon as the old group session reported the revoke, while that session was still loading offsets. The records it fetched arrived while the partition was still marked as revoked and were dropped without being copied. The switch now waits until the next group session has begun before it adds the topic again, so the next session sees the topic as new and fetches it from the start offsets (#119).
+
 ## [2.0.0] - 2026-11-26
 ### Breaking
 - Builds require Go 1.27.4 or newer. CI, releases and the Docker builder use Go 1.27.4.

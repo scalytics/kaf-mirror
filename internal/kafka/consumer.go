@@ -545,6 +545,7 @@ func (c *Consumer) AssignPartitions(assigned map[string][]int32) {
 		}
 	}
 	c.partMu.Unlock()
+	c.sessionBegun()
 	c.requestTopicCheck()
 }
 

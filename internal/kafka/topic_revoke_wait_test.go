@@ -39,6 +39,12 @@ func TestPrepareRevokeWaitTracksAssignments(t *testing.T) {
 	c.RevokePartitions(map[string][]int32{"other": {0}})
 	require.Equal(t, revoked, c.topicIDs.revokeWait)
 	c.RevokePartitions(map[string][]int32{"kin": {0, 1}})
+	select {
+	case <-revoked:
+		t.Fatal("a revoke alone must not end the wait, the next group session has to begin")
+	default:
+	}
+	c.AssignPartitions(map[string][]int32{})
 	<-revoked
 	require.Nil(t, c.topicIDs.revokeWait)
 	require.Empty(t, c.topicIDs.revokeTopic)
